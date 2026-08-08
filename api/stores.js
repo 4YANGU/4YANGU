@@ -6,6 +6,7 @@ const normalizePhone = (value) => {
   const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits;
   return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
 };
+const ownerAuthEmail = (phone) => `phone-${String(phone).replace(/\D/g, '')}@owners.stoyangu.invalid`;
 const safeDesign = (value) => {
   if (typeof value === 'string') {
     if (value.length > 2000000) throw new Error('Design JSON is too large.');
@@ -75,9 +76,10 @@ export default async function handler(req, res) {
       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
       const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
       if (error) throw error;
-      const { data: created, error: userError } = await supabase.auth.admin.createUser({ phone: whatsapp, password, phone_confirm: true, user_metadata: { role: 'owner', store_name: name } });
+      const authEmail = ownerAuthEmail(whatsapp);
+      const { data: created, error: userError } = await supabase.auth.admin.createUser({ email: authEmail, password, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp } });
       if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
-      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: null, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
+      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: authEmail, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
       if (profileError) throw profileError;
       return res.status(201).json(store);
     }
@@ -96,9 +98,10 @@ export default async function handler(req, res) {
         const changes = { name, slug, whatsapp, phone: whatsapp, owner_name: 'Store owner', owner_email: '', logo_url: String(req.body.logo_url ?? existing.logo_url).slice(0, 1000), categories, updated_at: new Date().toISOString() };
         const { data: ownerProfile } = await supabase.from('profiles').select('user_id').eq('store_id', id).eq('role', 'owner').single();
         if (ownerProfile?.user_id) {
-          const attributes = { phone: whatsapp, phone_confirm: true, ...(newPassword ? { password: newPassword } : {}) };
+          const authEmail = ownerAuthEmail(whatsapp);
+          const attributes = { email: authEmail, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp }, ...(newPassword ? { password: newPassword } : {}) };
           const { error: authUpdateError } = await supabase.auth.admin.updateUserById(ownerProfile.user_id, attributes); if (authUpdateError) throw authUpdateError;
-          await supabase.from('profiles').update({ phone: whatsapp, email: null }).eq('user_id', ownerProfile.user_id);
+          await supabase.from('profiles').update({ phone: whatsapp, email: authEmail }).eq('user_id', ownerProfile.user_id);
         }
         const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
       }

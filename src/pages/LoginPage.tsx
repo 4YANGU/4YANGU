@@ -21,7 +21,7 @@ export default function LoginPage() {
     if (!isEmail && !phone) return setError('Please enter a valid WhatsApp number, including the country code.');
     if (password.length < 6) return setError('Password must be at least 6 characters.');
     setBusy(true);
-    const credentials = isEmail ? { email: trimmed.toLowerCase(), password } : { phone: phone!, password };
+    const credentials = { email: isEmail ? trimmed.toLowerCase() : ownerAuthEmail(phone!), password };
     const { error: authError } = await supabase.auth.signInWithPassword(credentials);
     if (authError) { setError('WhatsApp number, email or password is not correct. Please try again.'); setBusy(false); return; }
     setBusy(false);
@@ -33,4 +33,8 @@ function normalizePhone(value: string) {
   const digits = value.replace(/\D/g, '');
   const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits.startsWith('254') ? digits : digits;
   return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
+}
+
+function ownerAuthEmail(phone: string) {
+  return `phone-${phone.replace(/\D/g, '')}@owners.stoyangu.invalid`;
 }

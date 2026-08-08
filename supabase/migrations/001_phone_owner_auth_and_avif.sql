@@ -1,5 +1,8 @@
 -- StoYangu update 001
 -- Adds WhatsApp-number owner profiles and AVIF/BMP uploads.
+-- No Supabase Phone provider or paid SMS provider is required.
+-- The app maps each WhatsApp number to a private internal email identifier
+-- while owners continue to type only WhatsApp number and password.
 -- Safe to run more than once in Supabase SQL Editor.
 
 alter table public.profiles add column if not exists phone text;
@@ -30,4 +33,4 @@ where id = 'stoyangu-media';
 -- IMPORTANT FOR EXISTING OWNER ACCOUNTS:
 -- After this migration, open Founder Dashboard, edit each existing store,
 -- confirm the owner's WhatsApp number and set a temporary password once.
--- That action safely adds the phone login to the existing Supabase Auth user.
+-- That action safely updates the existing Auth user to the internal login identifier.
