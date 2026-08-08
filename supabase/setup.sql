@@ -3,7 +3,8 @@
 
 create table if not exists public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
-  email text not null,
+  email text,
+  phone text,
   full_name text not null,
   role text not null check (role in ('founder','owner')),
   store_id integer,
@@ -89,6 +90,7 @@ create table if not exists public.api_rate_limits (
 );
 
 create index if not exists idx_products_store on public.products(store_id);
+create index if not exists idx_profiles_phone on public.profiles(phone) where phone is not null;
 create index if not exists idx_store_aliases_slug on public.store_aliases(slug);
 create index if not exists idx_product_images_product on public.product_images(product_id,sort_order);
 create index if not exists idx_events_store_created on public.store_events(store_id,created_at);
@@ -146,7 +148,7 @@ create policy "founder reads schedules" on public.scheduled_notifications for se
 );
 
 insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
-values ('stoyangu-media','stoyangu-media',true,6291456,array['image/jpeg','image/png','image/webp','image/gif','image/heic','image/heif'])
+values ('stoyangu-media','stoyangu-media',true,6291456,array['image/jpeg','image/png','image/webp','image/gif','image/heic','image/heif','image/avif','image/bmp'])
 on conflict (id) do update set public=true, file_size_limit=6291456;
 
 -- AFTER creating your founder in Authentication → Users, replace the values below and run only this insert:

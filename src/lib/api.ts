@@ -38,9 +38,12 @@ export function storeDomain(slug: string) {
 }
 
 export async function uploadImage(file: File, scope: 'logos' | 'products') {
-  const prepared = scope === 'products' ? await compressProductImage(file) : file;
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  const inferredTypes: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', bmp: 'image/bmp' };
+  const typedFile = file.type ? file : new File([file], file.name, { type: inferredTypes[extension] || 'application/octet-stream', lastModified: file.lastModified });
+  const prepared = scope === 'products' ? await compressProductImage(typedFile) : typedFile;
   if (prepared.size > 6 * 1024 * 1024) throw new Error('Please choose an image smaller than 6 MB.');
-  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
+  if (!prepared.type.startsWith('image/')) throw new Error('Please choose a supported photo file.');
   const base64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Could not read that image.'));

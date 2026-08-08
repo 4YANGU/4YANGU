@@ -1,0 +1,1 @@
+import{c as e}from"./supabase-DiOMTyHL.js";console.warn("StoYangu authentication configuration is not available.");const s=e("https://invalid.local","missing-key",{auth:{persistSession:!0,autoRefreshToken:!0,detectSessionInUrl:!1}});export{s};

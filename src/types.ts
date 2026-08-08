@@ -1,6 +1,7 @@
 export type Profile = {
   user_id: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
   full_name: string;
   role: 'founder' | 'owner';
   store_id: number | null;

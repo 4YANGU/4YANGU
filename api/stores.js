@@ -1,6 +1,11 @@
 import supabase from '../lib/db-client.js';
 
 const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
+const normalizePhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits;
+  return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
+};
 const safeDesign = (value) => {
   if (typeof value === 'string') {
     if (value.length > 2000000) throw new Error('Design JSON is too large.');
@@ -63,22 +68,40 @@ export default async function handler(req, res) {
     }
     if (req.method === 'POST') {
       if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const ownerName = String(body.owner_name || '').trim().slice(0, 100); const email = String(body.owner_email || '').toLowerCase().trim(); const password = String(body.owner_password || '');
-      if (name.length < 2 || ownerName.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return res.status(400).json({ error: 'Store, owner, login email and temporary password are required.' });
+      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(body.whatsapp); const password = String(body.owner_password || '');
+      if (name.length < 2 || !whatsapp || password.length < 8) return res.status(400).json({ error: 'Store name, owner WhatsApp number and a temporary password of at least 8 characters are required.' });
       let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
       const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
-      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: ownerName, owner_email: email, whatsapp: String(body.whatsapp || '+254').slice(0, 24), phone: String(body.phone || '+254').slice(0, 24), logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
       if (error) throw error;
-      const { data: created, error: userError } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: ownerName } });
+      const { data: created, error: userError } = await supabase.auth.admin.createUser({ phone: whatsapp, password, phone_confirm: true, user_metadata: { role: 'owner', store_name: name } });
       if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
-      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email, full_name: ownerName, role: 'owner', store_id: store.id });
+      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: null, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
       if (profileError) throw profileError;
       return res.status(201).json(store);
     }
     if (req.method === 'PUT') {
       const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Store is required.' });
       if (profile.role !== 'founder' && profile.store_id !== id) return res.status(403).json({ error: 'You cannot change this store.' });
+      if (req.body.action === 'details') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data: existing } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (!existing) return res.status(404).json({ error: 'Store not found.' });
+        const name = String(req.body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(req.body.whatsapp); const newPassword = String(req.body.owner_password || '');
+        if (name.length < 2 || !whatsapp || newPassword && newPassword.length < 8) return res.status(400).json({ error: 'Add a valid store name, WhatsApp number and optional password of at least 8 characters.' });
+        let slug = slugify(name); const { data: taken } = await supabase.from('stores').select('id').eq('slug', slug).neq('id', id).limit(1); if (taken?.length) return res.status(400).json({ error: 'Another store already uses that name or subdomain.' });
+        if (existing.slug !== slug) await supabase.from('store_aliases').upsert({ store_id: id, slug: existing.slug, active: true }, { onConflict: 'slug' });
+        const categories = Array.isArray(req.body.categories) ? req.body.categories.map((item) => String(item).trim()).filter(Boolean).slice(0, 50) : existing.categories;
+        const changes = { name, slug, whatsapp, phone: whatsapp, owner_name: 'Store owner', owner_email: '', logo_url: String(req.body.logo_url ?? existing.logo_url).slice(0, 1000), categories, updated_at: new Date().toISOString() };
+        const { data: ownerProfile } = await supabase.from('profiles').select('user_id').eq('store_id', id).eq('role', 'owner').single();
+        if (ownerProfile?.user_id) {
+          const attributes = { phone: whatsapp, phone_confirm: true, ...(newPassword ? { password: newPassword } : {}) };
+          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(ownerProfile.user_id, attributes); if (authUpdateError) throw authUpdateError;
+          await supabase.from('profiles').update({ phone: whatsapp, email: null }).eq('user_id', ownerProfile.user_id);
+        }
+        const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+      }
       if (req.body.action === 'billing') {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
         const active = Boolean(req.body.is_active); const changes = active ? { is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() } : { is_active: false, updated_at: new Date().toISOString() };
