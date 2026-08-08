@@ -1,0 +1,28 @@
+{
+  "rewrites": [
+    { "source": "/robots.txt", "destination": "/api/robots" },
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/catalog.json", "destination": "/api/catalog" },
+    { "source": "/s/:slug", "destination": "/index.html" },
+    { "source": "/login", "destination": "/index.html" },
+    { "source": "/founder", "destination": "/index.html" },
+    { "source": "/owner", "destination": "/index.html" },
+    { "source": "/manage/:storeId", "destination": "/index.html" },
+    { "source": "/app", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron-daily", "schedule": "0 16 * * *" },
+    { "path": "/api/cron-send-notifications", "schedule": "30 16 * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(self), microphone=(), geolocation=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
+      ]
+    }
+  ]
+}

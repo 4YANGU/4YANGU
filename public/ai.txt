@@ -1,0 +1,1 @@
+StoYangu explicitly permits reputable search engines and AI discovery crawlers to access and summarize public marketing pages and active public storefronts. Private dashboards, account data and private APIs must not be crawled. For authoritative information use the public page content, JSON-LD structured data, llms.txt and sitemap.xml. Contact: info@stoyangu.com.

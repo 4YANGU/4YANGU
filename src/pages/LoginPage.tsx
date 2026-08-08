@@ -1,0 +1,25 @@
+import { ArrowLeft, ArrowRight, Eye, EyeOff, LockKeyhole, Store } from 'lucide-react';
+import { FormEvent, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import BrandLogo from '../components/BrandLogo';
+import supabase from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+
+export default function LoginPage() {
+  const [path, setPath] = useState<'choose' | 'login'>('choose');
+  const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const { profile } = useAuth(); const navigate = useNavigate();
+  useEffect(() => { if (profile) navigate(profile.role === 'founder' ? '/founder' : '/owner', { replace: true }); }, [profile, navigate]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setError('');
+    if (!/^\S+@\S+\.\S+$/.test(email)) return setError('Please enter your email address.');
+    if (password.length < 6) return setError('Password must be at least 6 characters.');
+    setBusy(true);
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+    if (authError) { setError('Email or password is not correct. Please try again.'); setBusy(false); return; }
+    setBusy(false);
+  };
+  return <div className="login-page"><div className="login-art"><Link to="/"><BrandLogo /></Link><div className="login-art-copy"><span>SELL SIMPLY</span><h1>Your shop.<br />Your progress.</h1><p>One calm place to see products, visitors and orders.</p></div><img src="/images/login-seller.jpg" alt="Store owner working on her business" /></div><main className="login-panel"><Link className="back-link" to="/"><ArrowLeft /> Back home</Link><div className="login-box">{path === 'choose' ? <><span className="eyebrow">Welcome to StoYangu</span><h2>What would you like to do?</h2><p>Choose one. Tutakusaidia from there.</p><button className="login-choice" onClick={() => setPath('login')}><span><LockKeyhole /></span><div><strong>Existing store owner</strong><small>Login with email and password</small></div><ArrowRight /></button><Link className="login-choice" to="/?apply=1"><span><Store /></span><div><strong>Apply for a store</strong><small>Only your name and phone number</small></div><ArrowRight /></Link></> : <><button className="tiny-back" onClick={() => setPath('choose')}><ArrowLeft /> Choose another option</button><span className="eyebrow">Existing store owner</span><h2>Karibu back</h2><p>Founder and store owners use the same secure login.</p><form className="form-stack" onSubmit={submit}><label>Email address<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoFocus /></label><label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label>{error && <div className="form-error">{error}</div>}<button className="button-primary full" disabled={busy}>{busy ? 'Checking…' : 'Login securely'} <ArrowRight /></button></form></>}</div></main></div>;
+}
