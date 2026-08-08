@@ -1,0 +1,78 @@
+diff --git a/api/stores.js b/api/stores.js
+index b228ac3..06a1886 100644
+--- a/api/stores.js
++++ b/api/stores.js
+@@ -6,6 +6,7 @@ const normalizePhone = (value) => {
+   const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits;
+   return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
+ };
++const ownerAuthEmail = (phone) => `phone-${String(phone).replace(/\D/g, '')}@owners.stoyangu.invalid`;
+ const safeDesign = (value) => {
+   if (typeof value === 'string') {
+     if (value.length > 2000000) throw new Error('Design JSON is too large.');
+@@ -75,9 +76,10 @@ export default async function handler(req, res) {
+       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
+       const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+       if (error) throw error;
+-      const { data: created, error: userError } = await supabase.auth.admin.createUser({ phone: whatsapp, password, phone_confirm: true, user_metadata: { role: 'owner', store_name: name } });
++      const authEmail = ownerAuthEmail(whatsapp);
++      const { data: created, error: userError } = await supabase.auth.admin.createUser({ email: authEmail, password, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp } });
+       if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
+-      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: null, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
++      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: authEmail, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
+       if (profileError) throw profileError;
+       return res.status(201).json(store);
+     }
+@@ -96,9 +98,10 @@ export default async function handler(req, res) {
+         const changes = { name, slug, whatsapp, phone: whatsapp, owner_name: 'Store owner', owner_email: '', logo_url: String(req.body.logo_url ?? existing.logo_url).slice(0, 1000), categories, updated_at: new Date().toISOString() };
+         const { data: ownerProfile } = await supabase.from('profiles').select('user_id').eq('store_id', id).eq('role', 'owner').single();
+         if (ownerProfile?.user_id) {
+-          const attributes = { phone: whatsapp, phone_confirm: true, ...(newPassword ? { password: newPassword } : {}) };
++          const authEmail = ownerAuthEmail(whatsapp);
++          const attributes = { email: authEmail, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp }, ...(newPassword ? { password: newPassword } : {}) };
+           const { error: authUpdateError } = await supabase.auth.admin.updateUserById(ownerProfile.user_id, attributes); if (authUpdateError) throw authUpdateError;
+-          await supabase.from('profiles').update({ phone: whatsapp, email: null }).eq('user_id', ownerProfile.user_id);
++          await supabase.from('profiles').update({ phone: whatsapp, email: authEmail }).eq('user_id', ownerProfile.user_id);
+         }
+         const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+       }
+diff --git a/src/pages/LoginPage.tsx b/src/pages/LoginPage.tsx
+index c03dd1c..a12217c 100644
+--- a/src/pages/LoginPage.tsx
++++ b/src/pages/LoginPage.tsx
+@@ -21,7 +21,7 @@ export default function LoginPage() {
+     if (!isEmail && !phone) return setError('Please enter a valid WhatsApp number, including the country code.');
+     if (password.length < 6) return setError('Password must be at least 6 characters.');
+     setBusy(true);
+-    const credentials = isEmail ? { email: trimmed.toLowerCase(), password } : { phone: phone!, password };
++    const credentials = { email: isEmail ? trimmed.toLowerCase() : ownerAuthEmail(phone!), password };
+     const { error: authError } = await supabase.auth.signInWithPassword(credentials);
+     if (authError) { setError('WhatsApp number, email or password is not correct. Please try again.'); setBusy(false); return; }
+     setBusy(false);
+@@ -34,3 +34,7 @@ function normalizePhone(value: string) {
+   const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits.startsWith('254') ? digits : digits;
+   return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
+ }
++
++function ownerAuthEmail(phone: string) {
++  return `phone-${phone.replace(/\D/g, '')}@owners.stoyangu.invalid`;
++}
+diff --git a/supabase/migrations/001_phone_owner_auth_and_avif.sql b/supabase/migrations/001_phone_owner_auth_and_avif.sql
+index 8f93c8d..340c43d 100644
+--- a/supabase/migrations/001_phone_owner_auth_and_avif.sql
++++ b/supabase/migrations/001_phone_owner_auth_and_avif.sql
+@@ -1,5 +1,8 @@
+ -- StoYangu update 001
+ -- Adds WhatsApp-number owner profiles and AVIF/BMP uploads.
++-- No Supabase Phone provider or paid SMS provider is required.
++-- The app maps each WhatsApp number to a private internal email identifier
++-- while owners continue to type only WhatsApp number and password.
+ -- Safe to run more than once in Supabase SQL Editor.
+ 
+ alter table public.profiles add column if not exists phone text;
+@@ -30,4 +33,4 @@ where id = 'stoyangu-media';
+ -- IMPORTANT FOR EXISTING OWNER ACCOUNTS:
+ -- After this migration, open Founder Dashboard, edit each existing store,
+ -- confirm the owner's WhatsApp number and set a temporary password once.
+--- That action safely adds the phone login to the existing Supabase Auth user.
++-- That action safely updates the existing Auth user to the internal login identifier.
