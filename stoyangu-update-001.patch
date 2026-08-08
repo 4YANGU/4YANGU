@@ -1,0 +1,362 @@
+diff --git a/api/stores.js b/api/stores.js
+index 03dd97d..b228ac3 100644
+--- a/api/stores.js
++++ b/api/stores.js
+@@ -1,6 +1,11 @@
+ import supabase from '../lib/db-client.js';
+ 
+ const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
++const normalizePhone = (value) => {
++  const digits = String(value || '').replace(/\D/g, '');
++  const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits;
++  return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
++};
+ const safeDesign = (value) => {
+   if (typeof value === 'string') {
+     if (value.length > 2000000) throw new Error('Design JSON is too large.');
+@@ -63,22 +68,40 @@ export default async function handler(req, res) {
+     }
+     if (req.method === 'POST') {
+       if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+-      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const ownerName = String(body.owner_name || '').trim().slice(0, 100); const email = String(body.owner_email || '').toLowerCase().trim(); const password = String(body.owner_password || '');
+-      if (name.length < 2 || ownerName.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return res.status(400).json({ error: 'Store, owner, login email and temporary password are required.' });
++      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(body.whatsapp); const password = String(body.owner_password || '');
++      if (name.length < 2 || !whatsapp || password.length < 8) return res.status(400).json({ error: 'Store name, owner WhatsApp number and a temporary password of at least 8 characters are required.' });
+       let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
+       const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
+       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
+-      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: ownerName, owner_email: email, whatsapp: String(body.whatsapp || '+254').slice(0, 24), phone: String(body.phone || '+254').slice(0, 24), logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
++      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+       if (error) throw error;
+-      const { data: created, error: userError } = await supabase.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: ownerName } });
++      const { data: created, error: userError } = await supabase.auth.admin.createUser({ phone: whatsapp, password, phone_confirm: true, user_metadata: { role: 'owner', store_name: name } });
+       if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
+-      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email, full_name: ownerName, role: 'owner', store_id: store.id });
++      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: null, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
+       if (profileError) throw profileError;
+       return res.status(201).json(store);
+     }
+     if (req.method === 'PUT') {
+       const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Store is required.' });
+       if (profile.role !== 'founder' && profile.store_id !== id) return res.status(403).json({ error: 'You cannot change this store.' });
++      if (req.body.action === 'details') {
++        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
++        const { data: existing } = await supabase.from('stores').select('*').eq('id', id).single();
++        if (!existing) return res.status(404).json({ error: 'Store not found.' });
++        const name = String(req.body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(req.body.whatsapp); const newPassword = String(req.body.owner_password || '');
++        if (name.length < 2 || !whatsapp || newPassword && newPassword.length < 8) return res.status(400).json({ error: 'Add a valid store name, WhatsApp number and optional password of at least 8 characters.' });
++        let slug = slugify(name); const { data: taken } = await supabase.from('stores').select('id').eq('slug', slug).neq('id', id).limit(1); if (taken?.length) return res.status(400).json({ error: 'Another store already uses that name or subdomain.' });
++        if (existing.slug !== slug) await supabase.from('store_aliases').upsert({ store_id: id, slug: existing.slug, active: true }, { onConflict: 'slug' });
++        const categories = Array.isArray(req.body.categories) ? req.body.categories.map((item) => String(item).trim()).filter(Boolean).slice(0, 50) : existing.categories;
++        const changes = { name, slug, whatsapp, phone: whatsapp, owner_name: 'Store owner', owner_email: '', logo_url: String(req.body.logo_url ?? existing.logo_url).slice(0, 1000), categories, updated_at: new Date().toISOString() };
++        const { data: ownerProfile } = await supabase.from('profiles').select('user_id').eq('store_id', id).eq('role', 'owner').single();
++        if (ownerProfile?.user_id) {
++          const attributes = { phone: whatsapp, phone_confirm: true, ...(newPassword ? { password: newPassword } : {}) };
++          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(ownerProfile.user_id, attributes); if (authUpdateError) throw authUpdateError;
++          await supabase.from('profiles').update({ phone: whatsapp, email: null }).eq('user_id', ownerProfile.user_id);
++        }
++        const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
++      }
+       if (req.body.action === 'billing') {
+         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+         const active = Boolean(req.body.is_active); const changes = active ? { is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() } : { is_active: false, updated_at: new Date().toISOString() };
+diff --git a/api/upload.js b/api/upload.js
+index 22fe8db..67b0ffe 100644
+--- a/api/upload.js
++++ b/api/upload.js
+@@ -12,7 +12,7 @@ export default async function handler(req, res) {
+     const { data: profile } = await supabase.from('profiles').select('role,store_id').eq('user_id', user.id).single(); if (!profile) return res.status(403).json({ error: 'Workspace not assigned.' });
+     const { fileName, fileBase64, contentType, scope } = req.body || {};
+     if (!['logos', 'products'].includes(scope)) return res.status(400).json({ error: 'Invalid upload type.' });
+-    if (!/^image\/(jpeg|jpg|png|webp|gif|heic|heif)$/i.test(String(contentType || ''))) return res.status(400).json({ error: 'Please upload a JPG, PNG, WebP or phone photo.' });
++    if (!/^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i.test(String(contentType || ''))) return res.status(400).json({ error: 'Please upload a JPG, PNG, WebP, GIF, HEIC, AVIF or BMP photo.' });
+     if (typeof fileBase64 !== 'string' || fileBase64.length > 8400000) return res.status(400).json({ error: 'Image must be smaller than 6 MB.' });
+     const buffer = Buffer.from(fileBase64, 'base64'); if (!buffer.length || buffer.length > 6291456) return res.status(400).json({ error: 'Invalid or oversized image.' });
+     const signatures = {
+@@ -21,11 +21,13 @@ export default async function handler(req, res) {
+       webp: buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP',
+       gif: ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString()),
+       heic: buffer.subarray(4, 8).toString() === 'ftyp',
++      avif: buffer.subarray(4, 8).toString() === 'ftyp' && ['avif', 'avis'].includes(buffer.subarray(8, 12).toString()),
++      bmp: buffer.subarray(0, 2).toString() === 'BM',
+     };
+     const requestedType = String(contentType).toLowerCase();
+-    const valid = requestedType.includes('jpeg') || requestedType.includes('jpg') ? signatures.jpeg : requestedType.includes('png') ? signatures.png : requestedType.includes('webp') ? signatures.webp : requestedType.includes('gif') ? signatures.gif : signatures.heic;
++    const valid = requestedType.includes('jpeg') || requestedType.includes('jpg') ? signatures.jpeg : requestedType.includes('png') ? signatures.png : requestedType.includes('webp') ? signatures.webp : requestedType.includes('gif') ? signatures.gif : requestedType.includes('avif') ? signatures.avif : requestedType.includes('bmp') ? signatures.bmp : signatures.heic;
+     if (!valid) return res.status(400).json({ error: 'That file does not contain a valid image.' });
+-    const extension = requestedType.includes('png') ? 'png' : requestedType.includes('webp') ? 'webp' : requestedType.includes('gif') ? 'gif' : requestedType.includes('hei') ? 'heic' : 'jpg';
++    const extension = requestedType.includes('png') ? 'png' : requestedType.includes('webp') ? 'webp' : requestedType.includes('gif') ? 'gif' : requestedType.includes('avif') ? 'avif' : requestedType.includes('bmp') ? 'bmp' : requestedType.includes('hei') ? 'heic' : 'jpg';
+     const path = `${scope}/${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+     const { error } = await supabase.storage.from('stoyangu-media').upload(path, buffer, { contentType, upsert: false }); if (error) throw error;
+     const { data } = supabase.storage.from('stoyangu-media').getPublicUrl(path);
+diff --git a/src/index.css b/src/index.css
+index 9c3c6a4..1f24505 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -90,3 +90,4 @@ img { max-width: 100%; }
+ .daily-update-card{align-items:flex-start}.daily-update-content{min-width:0;flex:1}.daily-update-content>p{max-width:780px}.daily-product-highlights{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}.daily-product-highlights article{display:grid;grid-template-columns:82px 1fr;gap:12px;align-items:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:9px}.daily-product-highlights img{width:82px;height:88px;border-radius:10px;object-fit:cover}.daily-product-highlights small,.daily-product-highlights strong,.daily-product-highlights span{display:block}.daily-product-highlights small{color:#8fd3a7;font-size:.52rem;font-weight:800;text-transform:uppercase;letter-spacing:.1em}.daily-product-highlights strong{font-size:.78rem;margin:4px 0}.daily-product-highlights span{color:#adbbc1;font-size:.6rem;line-height:1.45}@media(max-width:720px){.daily-update-card{padding:18px}.daily-product-highlights{grid-template-columns:1fr}.daily-product-highlights article{grid-template-columns:72px 1fr}.daily-product-highlights img{width:72px;height:78px}}
+ .daily-update-card{background:linear-gradient(125deg,#0b1c2d,#19372e);border:1px solid rgba(120,190,150,.18);padding:28px}.daily-traffic-summary{display:inline-block!important;margin:7px 0 0!important;padding:8px 11px;border-radius:999px;background:rgba(255,255,255,.08);color:#d2dadd!important;font-size:.65rem!important}.daily-traffic-summary b{color:#fff}.daily-product-highlights{gap:14px;margin-top:22px}.daily-product-highlights article{grid-template-columns:104px 1fr;gap:15px;padding:12px;border-radius:17px;background:rgba(255,255,255,.075)}.daily-product-highlights article.champion{border-color:rgba(220,160,80,.45);box-shadow:inset 0 0 0 1px rgba(220,160,80,.08)}.daily-product-highlights article.champion small{color:#e7bd79}.daily-product-highlights img{width:104px;height:112px;border-radius:13px}.daily-product-highlights strong{font-size:.88rem;margin:5px 0}.daily-product-highlights span{font-size:.62rem}.daily-update-reminder{margin:17px 0 0!important;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);color:#aebcc1!important;font-size:.61rem!important}.daily-update-reminder b{color:#8fd3a7}@media(max-width:720px){.daily-update-card{padding:20px}.daily-traffic-summary{border-radius:12px;line-height:1.5}.daily-product-highlights article{grid-template-columns:86px 1fr}.daily-product-highlights img{width:86px;height:94px}}
+ .storefront-error>div{display:flex;gap:9px;margin-top:16px}.storefront-error button,.storefront-error>div a{border:0;background:var(--green);color:#fff;padding:.8rem 1rem;border-radius:10px;font-weight:800}.storefront-error button{background:#fff;color:var(--navy)}
++.owner-header-actions>div{display:flex;align-items:center;gap:10px}.details-button{color:#486b55}.details-button svg{width:17px}.admin-form .password-field{width:100%}@media(max-width:520px){.owner-header-actions>div{gap:4px}.owner-header-actions button{font-size:.58rem}}
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 65579b8..f23950c 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -38,9 +38,12 @@ export function storeDomain(slug: string) {
+ }
+ 
+ export async function uploadImage(file: File, scope: 'logos' | 'products') {
+-  const prepared = scope === 'products' ? await compressProductImage(file) : file;
++  const extension = file.name.split('.').pop()?.toLowerCase() || '';
++  const inferredTypes: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', bmp: 'image/bmp' };
++  const typedFile = file.type ? file : new File([file], file.name, { type: inferredTypes[extension] || 'application/octet-stream', lastModified: file.lastModified });
++  const prepared = scope === 'products' ? await compressProductImage(typedFile) : typedFile;
+   if (prepared.size > 6 * 1024 * 1024) throw new Error('Please choose an image smaller than 6 MB.');
+-  if (!file.type.startsWith('image/')) throw new Error('Please choose an image file.');
++  if (!prepared.type.startsWith('image/')) throw new Error('Please choose a supported photo file.');
+   const base64 = await new Promise<string>((resolve, reject) => {
+     const reader = new FileReader();
+     reader.onerror = () => reject(new Error('Could not read that image.'));
+diff --git a/src/pages/FounderDashboard.tsx b/src/pages/FounderDashboard.tsx
+index 3384dc3..a92870d 100644
+--- a/src/pages/FounderDashboard.tsx
++++ b/src/pages/FounderDashboard.tsx
+@@ -19,7 +19,7 @@ export default function FounderDashboard() {
+   const { signOut } = useAuth();
+   const navigate = useNavigate();
+   const [data, setData] = useState<DashboardData | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+-  const [search, setSearch] = useState(''); const [newStore, setNewStore] = useState(false); const [jsonStore, setJsonStore] = useState<Store | null>(null); const [notifications, setNotifications] = useState(false);
++  const [search, setSearch] = useState(''); const [newStore, setNewStore] = useState(false); const [editStore, setEditStore] = useState<Store | null>(null); const [jsonStore, setJsonStore] = useState<Store | null>(null); const [notifications, setNotifications] = useState(false);
+   const load = useCallback(async () => { setError(''); try { setData(await apiFetch<DashboardData>('/api/dashboard')); } catch (err) { setError(err instanceof Error ? err.message : 'Could not load dashboard.'); } finally { setLoading(false); } }, []);
+   useEffect(() => { load(); }, [load]);
+   useEffect(() => {
+@@ -34,7 +34,7 @@ export default function FounderDashboard() {
+     timer = window.setTimeout(() => { generate(); }, Math.max(1000, sevenPmKenya.getTime() - Date.now()));
+     return () => window.clearTimeout(timer);
+   }, []);
+-  const stores = useMemo(() => (data?.stores || []).filter((store) => `${store.name} ${store.owner_name} ${store.slug}`.toLowerCase().includes(search.toLowerCase())), [data, search]);
++  const stores = useMemo(() => (data?.stores || []).filter((store) => `${store.name} ${store.whatsapp} ${store.slug}`.toLowerCase().includes(search.toLowerCase())), [data, search]);
+   const toggle = async (store: Store) => { try { await apiFetch('/api/stores', { method: 'PUT', body: JSON.stringify({ action: 'billing', id: store.id, is_active: !store.is_active }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not update store.'); } };
+   const applicationStatus = async (application: Application, status: Application['status']) => { await apiFetch('/api/applications', { method: 'PUT', body: JSON.stringify({ id: application.id, status }) }); await load(); };
+   const handleSignOut = async () => { await signOut(); navigate('/login', { replace: true }); };
+@@ -43,27 +43,35 @@ export default function FounderDashboard() {
+     {loading ? <DashboardSkeleton /> : data && <>
+       <section id="overview" className="analytics-grid four"><Metric icon={<StoreIcon />} label="Active stores" value={data.analytics?.activeStores || 0} note="Live now" /><Metric icon={<Eye />} label="Lifetime store visitors" value={data.analytics?.visitors || 0} note={`+${data.analytics?.visitorsToday || 0} Today`} /><Metric icon={<MessageCircle />} label="Lifetime WhatsApp orders" value={data.analytics?.orders || 0} note={`+${data.analytics?.ordersToday || 0} Today`} /><Metric icon={<Package />} label="Products live" value={data.analytics?.products || 0} note="Across all stores" /></section>
+       <section id="applications" className="dash-section"><div className="dash-section-head"><div><span className="eyebrow">Fresh leads</span><h2>StoYangu applications</h2></div><span className="count-badge">{data.applications?.length || 0} total</span></div><div className="application-list">{data.applications?.map((application) => <article key={application.id}><span className={`status-dot ${application.status}`} /><div className="application-person"><strong>{application.name}</strong><a href={`tel:${application.phone}`}>{application.phone}</a></div><span className="application-date">{new Date(application.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}</span><select value={application.status} onChange={(event) => applicationStatus(application, event.target.value as Application['status'])} aria-label={`Status for ${application.name}`}><option value="new">New</option><option value="contacted">Contacted</option><option value="approved">Approved</option><option value="closed">Closed</option></select></article>)}</div></section>
+-      <section id="stores" className="dash-section"><div className="dash-section-head stores-head"><div><span className="eyebrow">The network</span><h2>All stores</h2></div><label className="search-box"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search stores" /></label></div><div className="store-admin-grid">{stores.map((store) => { const billing = daysLeft(store); const installation = (data as any).installations?.[store.id]; return <article className="store-admin-card" key={store.id}><div className="store-card-top"><div className="store-avatar">{store.logo_url ? <img src={store.logo_url} alt="" /> : <span>{store.name[0]}</span>}</div><div><h3>{store.name}</h3><a href={storeLink(store.slug)} target="_blank" rel="noreferrer">{storeDomain(store.slug)} <ExternalLink /></a><span className={`install-status ${installation?.notifications_enabled ? 'ready' : ''}`}>{installation?.notifications_enabled ? 'App + alerts ready' : installation?.installed ? 'App installed · alerts off' : 'App not installed'}</span></div><div className="billing-control"><button className={`power-toggle ${store.is_active ? 'on' : ''}`} onClick={() => toggle(store)} aria-label={`Turn ${store.name} ${store.is_active ? 'off' : 'on'}`}><Power /><span>{store.is_active ? 'ON' : 'OFF'}</span></button><small className={billing.tone}>{billing.label}</small></div></div><div className="store-stats"><div><strong>{store.visitor_total.toLocaleString()}</strong><span>Visits <small>+{store.visitor_today} today</small></span></div><div><strong>{store.orders_total.toLocaleString()}</strong><span>WhatsApp <small>+{store.orders_today} today</small></span></div><div><strong>{(data as any).productCounts?.[store.id] || 0}</strong><span>Products live</span></div></div><div className="store-card-actions"><Link className="manage-button" to={`/manage/${store.id}`}>Manage store <ChevronRight /></Link><button className="json-button-admin" onClick={() => setJsonStore(store)} aria-label={`Edit ${store.name} JSON`}><Code2 /> J</button></div></article>; })}</div></section>
++      <section id="stores" className="dash-section"><div className="dash-section-head stores-head"><div><span className="eyebrow">The network</span><h2>All stores</h2></div><label className="search-box"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search stores or WhatsApp" /></label></div><div className="store-admin-grid">{stores.map((store) => { const billing = daysLeft(store); const installation = (data as any).installations?.[store.id]; return <article className="store-admin-card" key={store.id}><div className="store-card-top"><div className="store-avatar">{store.logo_url ? <img src={store.logo_url} alt="" /> : <span>{store.name[0]}</span>}</div><div><h3>{store.name}</h3><a href={storeLink(store.slug)} target="_blank" rel="noreferrer">{storeDomain(store.slug)} <ExternalLink /></a><span className={`install-status ${installation?.notifications_enabled ? 'ready' : ''}`}>{installation?.notifications_enabled ? 'App + alerts ready' : installation?.installed ? 'App installed · alerts off' : 'App not installed'}</span></div><div className="billing-control"><button className={`power-toggle ${store.is_active ? 'on' : ''}`} onClick={() => toggle(store)} aria-label={`Turn ${store.name} ${store.is_active ? 'off' : 'on'}`}><Power /><span>{store.is_active ? 'ON' : 'OFF'}</span></button><small className={billing.tone}>{billing.label}</small></div></div><div className="store-stats"><div><strong>{store.visitor_total.toLocaleString()}</strong><span>Visits <small>+{store.visitor_today} today</small></span></div><div><strong>{store.orders_total.toLocaleString()}</strong><span>WhatsApp <small>+{store.orders_today} today</small></span></div><div><strong>{(data as any).productCounts?.[store.id] || 0}</strong><span>Products live</span></div></div><div className="store-card-actions"><Link className="manage-button" to={`/manage/${store.id}`}>Manage store <ChevronRight /></Link><button className="json-button-admin details-button" onClick={() => setEditStore(store)} aria-label={`Edit ${store.name} details`}><Settings2 /></button><button className="json-button-admin" onClick={() => setJsonStore(store)} aria-label={`Edit ${store.name} JSON`}><Code2 /> J</button></div></article>; })}</div></section>
+     </>}
+-  </main>{newStore && <NewStoreModal onClose={() => setNewStore(false)} onSaved={async () => { setNewStore(false); await load(); }} />}{jsonStore && <JsonEditor store={jsonStore} onClose={() => setJsonStore(null)} onSaved={async () => { setJsonStore(null); await load(); }} />}{notifications && <NotificationReview stores={data?.stores || []} onClose={() => setNotifications(false)} />}</div>;
++  </main>{newStore && <NewStoreModal onClose={() => setNewStore(false)} onSaved={async () => { setNewStore(false); await load(); }} />}{editStore && <EditStoreModal store={editStore} onClose={() => setEditStore(null)} onSaved={async () => { setEditStore(null); await load(); }} />}{jsonStore && <JsonEditor store={jsonStore} onClose={() => setJsonStore(null)} onSaved={async () => { setJsonStore(null); await load(); }} />}{notifications && <NotificationReview stores={data?.stores || []} onClose={() => setNotifications(false)} />}</div>;
+ }
+ 
+ function Metric({ icon, label, value, note }: { icon: React.ReactNode; label: string; value: number; note: string }) { return <article className="metric-card"><div className="metric-icon">{icon}</div><span>{label}</span><strong>{value.toLocaleString()}</strong><small>{note}</small></article>; }
+ function DashboardSkeleton() { return <div className="dashboard-skeleton"><div /><div /><div /><div /><span /><span /></div>; }
+ 
+ function NewStoreModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+-  const [form, setForm] = useState({ name: '', owner_name: '', owner_email: '', owner_password: '', whatsapp: '+254', phone: '+254', categories: '', design_json: '{\n  "theme": {\n    "colours": { "primary": "#5A966E", "background": "#FFFDF7", "text": "#17261F" }\n  },\n  "sections": [\n    { "id": "hero", "type": "hero", "headline": "Karibu", "body": "Shop our newest products." },\n    { "id": "products", "type": "product_grid", "heading": "Our products" }\n  ]\n}' });
++  const [form, setForm] = useState({ name: '', owner_password: '', whatsapp: '+254', categories: '', design_json: '{\n  "theme": {\n    "colours": { "primary": "#5A966E", "background": "#FFFDF7", "text": "#17261F" }\n  },\n  "sections": [\n    { "id": "hero", "type": "hero", "headline": "Karibu", "body": "Shop our newest products." },\n    { "id": "products", "type": "product_grid", "heading": "Our products" }\n  ]\n}' });
+   const [logo, setLogo] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+   const [showPassword, setShowPassword] = useState(false);
+   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+   const submit = async (event: FormEvent) => { event.preventDefault(); setError('');
+-    if (!form.name.trim() || !form.owner_name.trim()) return setError('Store name and owner name are required.');
+-    if (!/^\S+@\S+\.\S+$/.test(form.owner_email)) return setError('Add the email the owner will use to login.');
++    if (!form.name.trim()) return setError('Store name is required.');
++    if (!/^\+?[0-9\s-]{10,18}$/.test(form.whatsapp)) return setError('Add a valid owner WhatsApp number, including the country code.');
+     if (form.owner_password.length < 8) return setError('Temporary password must be at least 8 characters.');
+     try { JSON.parse(form.design_json); } catch { return setError('The design JSON is not valid yet. Check commas and brackets.'); }
+     setBusy(true); try { let logo_url = ''; if (logo) logo_url = (await uploadImage(logo, 'logos')).url; await apiFetch('/api/stores', { method: 'POST', body: JSON.stringify({ ...form, logo_url, categories: form.categories.split(',').map((item) => item.trim()).filter(Boolean), design_json: JSON.parse(form.design_json) }) }); onSaved(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create store.'); } finally { setBusy(false); }
+   };
+-  return <Modal title="Create a new store" onClose={onClose} wide><form className="admin-form" onSubmit={submit}><div className="form-grid"><label>Store name<input value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Lily" /><small>Subdomain preview: {storeDomain(form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'store')}</small></label><label>Owner name<input value={form.owner_name} onChange={(event) => update('owner_name', event.target.value)} /></label><label>Owner WhatsApp<input type="tel" value={form.whatsapp} onChange={(event) => update('whatsapp', event.target.value)} /></label><label>Owner phone<input type="tel" value={form.phone} onChange={(event) => update('phone', event.target.value)} /></label><label>Owner login email<input type="email" value={form.owner_email} onChange={(event) => update('owner_email', event.target.value)} /></label><label>Temporary password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={form.owner_password} onChange={(event) => update('owner_password', event.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label><label className="span-two">Product categories<input value={form.categories} onChange={(event) => update('categories', event.target.value)} placeholder="Fashion, Shoes, Accessories" /><small>Separate each category with a comma.</small></label><label className="upload-label span-two"><span>Store logo</span><input type="file" accept="image/*" onChange={(event) => setLogo(event.target.files?.[0] || null)} /><div><Box /> {logo ? logo.name : 'Choose from device or gallery'}</div></label><label className="span-two">Store design JSON<textarea className="code-input" rows={15} value={form.design_json} onChange={(event) => update('design_json', event.target.value)} spellCheck={false} /></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? 'Building store…' : 'Create client + store'} <Plus /></button></div></form></Modal>;
++  return <Modal title="Create a new store" onClose={onClose} wide><form className="admin-form" onSubmit={submit}><div className="form-grid"><label>Store name<input value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Lily" /><small>Subdomain preview: {storeDomain(form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'store')}</small></label><label>Owner WhatsApp number<input type="tel" value={form.whatsapp} onChange={(event) => update('whatsapp', event.target.value)} placeholder="+254 7..." /><small>This is the owner's login name and order number.</small></label><label>Temporary password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={form.owner_password} onChange={(event) => update('owner_password', event.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label><label className="span-two">Product categories<input value={form.categories} onChange={(event) => update('categories', event.target.value)} placeholder="Fashion, Shoes, Accessories" /><small>Separate each category with a comma.</small></label><label className="upload-label span-two"><span>Store logo</span><input type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => setLogo(event.target.files?.[0] || null)} /><div><Box /> {logo ? logo.name : 'Choose from device or gallery'}</div></label><label className="span-two">Store design JSON<textarea className="code-input" rows={15} value={form.design_json} onChange={(event) => update('design_json', event.target.value)} spellCheck={false} /></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? 'Building store…' : 'Create store and owner login'} <Plus /></button></div></form></Modal>;
++}
++
++function EditStoreModal({ store, onClose, onSaved }: { store: Store; onClose: () => void; onSaved: () => void }) {
++  const [form, setForm] = useState({ name: store.name, whatsapp: store.whatsapp, categories: (store.categories || []).join(', '), owner_password: '' });
++  const [logo, setLogo] = useState<File | null>(null); const [showPassword, setShowPassword] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
++  const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
++  const submit = async (event: FormEvent) => { event.preventDefault(); setError(''); if (form.name.trim().length < 2) return setError('Add a valid store name.'); if (!/^\+?[0-9\s-]{10,18}$/.test(form.whatsapp)) return setError('Add a valid WhatsApp number.'); if (form.owner_password && form.owner_password.length < 8) return setError('A new password must be at least 8 characters.'); setBusy(true); try { let logo_url = store.logo_url; if (logo) logo_url = (await uploadImage(logo, 'logos')).url; await apiFetch('/api/stores', { method: 'PUT', body: JSON.stringify({ action: 'details', id: store.id, name: form.name, whatsapp: form.whatsapp, owner_password: form.owner_password, logo_url, categories: form.categories.split(',').map((item) => item.trim()).filter(Boolean) }) }); onSaved(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update the store.'); } finally { setBusy(false); } };
++  return <Modal title={`Edit store details: ${store.name}`} onClose={onClose} wide><form className="admin-form" onSubmit={submit}><div className="form-grid"><label>Store name<input value={form.name} onChange={(event) => update('name', event.target.value)} /><small>Changing the name also updates the store subdomain. The old link remains supported.</small></label><label>Owner WhatsApp number<input type="tel" value={form.whatsapp} onChange={(event) => update('whatsapp', event.target.value)} /><small>This is used for owner login and customer orders.</small></label><label className="span-two">Product categories<input value={form.categories} onChange={(event) => update('categories', event.target.value)} placeholder="Jerseys, Hoodies, Perfumes" /></label><label className="upload-label span-two"><span>Store logo</span><input type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => setLogo(event.target.files?.[0] || null)} /><div><Box /> {logo ? logo.name : store.logo_url ? 'Keep current logo or choose a replacement' : 'Choose a logo'}</div></label><label className="span-two">Reset owner password, optional<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={form.owner_password} onChange={(event) => update('owner_password', event.target.value)} placeholder="Leave blank to keep the current password" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? 'Saving changes…' : 'Save store details'} <Check /></button></div></form></Modal>;
+ }
+ 
+ function JsonEditor({ store, onClose, onSaved }: { store: Store; onClose: () => void; onSaved: () => void }) {
+diff --git a/src/pages/LoginPage.tsx b/src/pages/LoginPage.tsx
+index 76997ae..c03dd1c 100644
+--- a/src/pages/LoginPage.tsx
++++ b/src/pages/LoginPage.tsx
+@@ -7,19 +7,30 @@ import { useAuth } from '../contexts/AuthContext';
+ 
+ export default function LoginPage() {
+   const [path, setPath] = useState<'choose' | 'login'>('choose');
+-  const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
++  const [identifier, setIdentifier] = useState(''); const [password, setPassword] = useState('');
+   const [showPassword, setShowPassword] = useState(false);
+   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+   const { profile } = useAuth(); const navigate = useNavigate();
+   useEffect(() => { if (profile) navigate(profile.role === 'founder' ? '/founder' : '/owner', { replace: true }); }, [profile, navigate]);
+   const submit = async (event: FormEvent) => {
+     event.preventDefault(); setError('');
+-    if (!/^\S+@\S+\.\S+$/.test(email)) return setError('Please enter your email address.');
++    const trimmed = identifier.trim();
++    const isEmail = trimmed.includes('@');
++    const phone = normalizePhone(trimmed);
++    if (isEmail && !/^\S+@\S+\.\S+$/.test(trimmed)) return setError('Please enter a valid email address.');
++    if (!isEmail && !phone) return setError('Please enter a valid WhatsApp number, including the country code.');
+     if (password.length < 6) return setError('Password must be at least 6 characters.');
+     setBusy(true);
+-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+-    if (authError) { setError('Email or password is not correct. Please try again.'); setBusy(false); return; }
++    const credentials = isEmail ? { email: trimmed.toLowerCase(), password } : { phone: phone!, password };
++    const { error: authError } = await supabase.auth.signInWithPassword(credentials);
++    if (authError) { setError('WhatsApp number, email or password is not correct. Please try again.'); setBusy(false); return; }
+     setBusy(false);
+   };
+-  return <div className="login-page"><div className="login-art"><Link to="/"><BrandLogo /></Link><div className="login-art-copy"><span>SELL SIMPLY</span><h1>Your shop.<br />Your progress.</h1><p>One calm place to see products, visitors and orders.</p></div><img src="/images/login-seller.jpg" alt="Store owner working on her business" /></div><main className="login-panel"><Link className="back-link" to="/"><ArrowLeft /> Back home</Link><div className="login-box">{path === 'choose' ? <><span className="eyebrow">Welcome to StoYangu</span><h2>What would you like to do?</h2><p>Choose one. Tutakusaidia from there.</p><button className="login-choice" onClick={() => setPath('login')}><span><LockKeyhole /></span><div><strong>Existing store owner</strong><small>Login with email and password</small></div><ArrowRight /></button><Link className="login-choice" to="/?apply=1"><span><Store /></span><div><strong>Apply for a store</strong><small>Only your name and phone number</small></div><ArrowRight /></Link></> : <><button className="tiny-back" onClick={() => setPath('choose')}><ArrowLeft /> Choose another option</button><span className="eyebrow">Existing store owner</span><h2>Karibu back</h2><p>Founder and store owners use the same secure login.</p><form className="form-stack" onSubmit={submit}><label>Email address<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoFocus /></label><label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label>{error && <div className="form-error">{error}</div>}<button className="button-primary full" disabled={busy}>{busy ? 'Checking…' : 'Login securely'} <ArrowRight /></button></form></>}</div></main></div>;
++  return <div className="login-page"><div className="login-art"><Link to="/"><BrandLogo /></Link><div className="login-art-copy"><span>SELL SIMPLY</span><h1>Your shop.<br />Your progress.</h1><p>One calm place to see products, visitors and orders.</p></div><img src="/images/login-seller.jpg" alt="Store owner working on her business" /></div><main className="login-panel"><Link className="back-link" to="/"><ArrowLeft /> Back home</Link><div className="login-box">{path === 'choose' ? <><span className="eyebrow">Welcome to StoYangu</span><h2>What would you like to do?</h2><p>Choose one. Tutakusaidia from there.</p><button className="login-choice" onClick={() => setPath('login')}><span><LockKeyhole /></span><div><strong>Existing store owner</strong><small>Owners use WhatsApp number and password</small></div><ArrowRight /></button><Link className="login-choice" to="/?apply=1"><span><Store /></span><div><strong>Apply for a store</strong><small>Only your name and phone number</small></div><ArrowRight /></Link></> : <><button className="tiny-back" onClick={() => setPath('choose')}><ArrowLeft /> Choose another option</button><span className="eyebrow">Secure login</span><h2>Karibu back</h2><p>Store owners use their WhatsApp number. Founders can continue using email.</p><form className="form-stack" onSubmit={submit}><label>Email or WhatsApp number<input type="text" inputMode="email" autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="+254 7... or you@example.com" autoFocus /></label><label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label>{error && <div className="form-error">{error}</div>}<button className="button-primary full" disabled={busy}>{busy ? 'Checking…' : 'Login securely'} <ArrowRight /></button></form></>}</div></main></div>;
++}
++
++function normalizePhone(value: string) {
++  const digits = value.replace(/\D/g, '');
++  const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits.startsWith('254') ? digits : digits;
++  return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
+ }
+diff --git a/src/pages/StoreDashboard.tsx b/src/pages/StoreDashboard.tsx
+index 8748a95..deeeb09 100644
+--- a/src/pages/StoreDashboard.tsx
++++ b/src/pages/StoreDashboard.tsx
+@@ -1,10 +1,11 @@
+-import { BellRing, Camera, Check, Edit3, ExternalLink, Image, LogOut, MessageCircle, PackagePlus, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
++import { BellRing, Camera, Check, Edit3, ExternalLink, Eye, EyeOff, Image, KeyRound, LogOut, MessageCircle, PackagePlus, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
+ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+ import { useParams } from 'react-router-dom';
+ import BrandLogo from '../components/BrandLogo';
+ import Modal from '../components/Modal';
+ import { useAuth } from '../contexts/AuthContext';
+ import { apiFetch, formatMoney, storeDomain, storeLink, uploadImage } from '../lib/api';
++import supabase from '../lib/supabase';
+ import type { DashboardData, Product } from '../types';
+ 
+ const colorPresets = ['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold'];
+@@ -12,7 +13,7 @@ const sizePresets = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '
+ 
+ export default function StoreDashboard() {
+   const { storeId } = useParams(); const { profile, signOut } = useAuth();
+-  const [data, setData] = useState<DashboardData | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [editing, setEditing] = useState<Product | 'new' | null>(null);
++  const [data, setData] = useState<DashboardData | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [editing, setEditing] = useState<Product | 'new' | null>(null); const [passwordOpen, setPasswordOpen] = useState(false);
+   const load = useCallback(async () => { setError(''); try { setData(await apiFetch<DashboardData>(`/api/dashboard${storeId ? `?storeId=${storeId}` : ''}`)); } catch (err) { setError(err instanceof Error ? err.message : 'Could not load the store.'); } finally { setLoading(false); } }, [storeId]);
+   useEffect(() => { load(); }, [load]);
+   useEffect(() => {
+@@ -50,12 +51,18 @@ export default function StoreDashboard() {
+   const latestUpdate = data.notifications?.[0];
+   const updateDate = latestUpdate ? new Date(latestUpdate.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+   const updateTitle = latestUpdate?.title?.match(/\d/) ? latestUpdate.title : `StoYangu daily update, ${updateDate}`;
+-  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'My StoYangu'}</span><button onClick={signOut}><LogOut /> Sign out</button></div><BrandLogo compact /><h1>{store.name}</h1><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a></header><main className="owner-main">
++  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'My StoYangu'}</span><div>{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a></header><main className="owner-main">
+     {error && <div className="dashboard-error">{error}</div>}
+     <section className="analytics-grid two"><article className="metric-card owner-metric"><div className="metric-icon"><Users /></div><span>People who visited your store</span><strong>{store.visitor_total.toLocaleString()}</strong><small>+{store.visitor_today} Today</small></article><article className="metric-card owner-metric green"><div className="metric-icon"><MessageCircle /></div><span>People who clicked Order via WhatsApp</span><strong>{store.orders_total.toLocaleString()}</strong><small>+{store.orders_today} Today</small></article></section>
+     {latestUpdate && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Latest update</span><h3>{updateTitle}</h3><p className="daily-traffic-summary"><b>{store.visitor_today}</b> people visited your store today and <b>{store.orders_today}</b> clicked Order via WhatsApp.</p><div className="daily-product-highlights">{latestUpdate.winner_product && <article className="champion"><img src={latestUpdate.winner_product.images?.[0] || latestUpdate.winner_product.image_url} alt={latestUpdate.winner_product.name} /><div><small>Today's champion product</small><strong>{latestUpdate.winner_product.name}</strong><span>{latestUpdate.winner_product.orders_today} orders from {latestUpdate.winner_product.views_today} views today. This product is leading your store.</span></div></article>}{latestUpdate.needs_product && <article><img src={latestUpdate.needs_product.images?.[0] || latestUpdate.needs_product.image_url} alt={latestUpdate.needs_product.name} /><div><small>Needs a look</small><strong>{latestUpdate.needs_product.name}</strong><span>{latestUpdate.needs_product.views_today} views with {latestUpdate.needs_product.orders_today} orders today. Try improving its main photo or checking the price.</span></div></article>}</div><p className="daily-update-reminder">Keep mentioning <b>{storeDomain(store.slug)}</b> in your videos so customers always know where to shop.</p></div></section>}
+     <section className="products-panel"><div className="dash-section-head"><div><span className="eyebrow">Your live shelf</span><h2>Products</h2><p>{data.products?.length || 0} products customers can shop.</p></div><button className="button-primary" onClick={() => setEditing('new')}><Plus /> Add product</button></div><div className="owner-product-list">{data.products?.map((product) => <article key={product.id}><img src={product.image_url || '/stoyangu-logo.png'} alt={product.name} /><div className="owner-product-name"><span>{product.category}</span><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong></div><div className="word-stats"><p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p><p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p></div><div className="product-actions"><button onClick={() => setEditing(product)}><Edit3 /> Edit</button><button className="danger" onClick={() => remove(product)}><Trash2 /> Delete</button></div></article>)}</div>{!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Add the first product. A photo, name and price is enough.</p><button className="button-primary" onClick={() => setEditing('new')}><PackagePlus /> Add first product</button></div>}</section>
+-  </main>{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} categories={store.categories || []} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}</div>;
++  </main>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} categories={store.categories || []} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}</div>;
++}
++
++function PasswordChangeModal({ onClose }: { onClose: () => void }) {
++  const [password, setPassword] = useState(''); const [confirm, setConfirm] = useState(''); const [show, setShow] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
++  const submit = async (event: FormEvent) => { event.preventDefault(); setMessage(''); if (password.length < 8) return setMessage('Your new password must be at least 8 characters.'); if (password !== confirm) return setMessage('The two passwords do not match.'); setBusy(true); const { error } = await supabase.auth.updateUser({ password }); setBusy(false); if (error) return setMessage(error.message); setMessage('Password changed successfully.'); window.setTimeout(onClose, 900); };
++  return <Modal title="Change account password" onClose={onClose}><form className="form-stack" onSubmit={submit}><p className="form-intro">Choose a strong password you will remember.</p><label>New password<div className="password-field"><input type={show ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" onClick={() => setShow((value) => !value)} aria-label={show ? 'Hide password' : 'Show password'}>{show ? <EyeOff /> : <Eye />}</button></div></label><label>Confirm new password<input type={show ? 'text' : 'password'} autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>{message && <div className={message.includes('successfully') ? 'form-success' : 'form-error'}>{message}</div>}<button className="button-primary full" disabled={busy}>{busy ? 'Changing password…' : 'Change password'} <KeyRound /></button></form></Modal>;
+ }
+ 
+ function ProductModal({ product, storeId, categories, onClose, onSaved }: { product: Product | null; storeId: number; categories: string[]; onClose: () => void; onSaved: () => void }) {
+@@ -79,7 +86,7 @@ function ProductModal({ product, storeId, categories, onClose, onSaved }: { prod
+   const toggle = (item: string, list: string[], setter: (value: string[]) => void) => setter(list.includes(item) ? list.filter((value) => value !== item) : [...list, item]);
+   const addCustom = (type: 'color' | 'size') => { const value = (type === 'color' ? customColor : customSize).trim(); if (!value) return; if (type === 'color') { setColors(Array.from(new Set([...colors, value]))); setCustomColor(''); } else { setSizes(Array.from(new Set([...sizes, value]))); setCustomSize(''); } };
+   const submit = async (event: FormEvent) => { event.preventDefault(); setError(''); if (name.trim().length < 2) return setError('Add a product name.'); if (!Number(price) || Number(price) < 1) return setError('Add a valid product price.'); if (!photos.length) return setError('Add at least one product photo from gallery or camera.'); if (photos.length > 7) return setError('A product can have a maximum of 7 photos.'); setBusy(true); try { const images = await Promise.all(photos.map(async (photo) => photo.file ? (await uploadImage(photo.file, 'products')).url : photo.url)); const body = { id: product?.id, store_id: storeId, name: name.trim(), price: Number(price), category, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], image_url: images[0], images }; await apiFetch('/api/products', { method: product ? 'PUT' : 'POST', body: JSON.stringify(body) }); onSaved(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not save product.'); } finally { setBusy(false); } };
+-  return <Modal title={product ? 'Edit product' : 'Add a product'} onClose={onClose} wide><form className="product-form" onSubmit={submit}><div className="photo-manager"><div className="photo-manager-head"><div><strong>Product photos</strong><p>Add up to 7. The first photo is the cover customers see.</p></div><span>{photos.length} / 7</span></div><div className="photo-grid">{photos.map((photo, index) => <div className={`photo-tile ${index === 0 ? 'cover' : ''}`} key={photo.id}><img src={photo.url} alt={`Product photo ${index + 1}`} />{index === 0 && <small>Cover</small>}<button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Remove photo ${index + 1}`}><X /></button></div>)}{photos.length < 7 && <button type="button" className="photo-add-tile" onClick={() => galleryRef.current?.click()}><Image /><span>Add photos</span></button>}</div><div className="photo-source-actions"><button type="button" className="secondary-button" onClick={() => galleryRef.current?.click()}><Image /> Choose from gallery</button><button type="button" className="secondary-button" onClick={() => cameraRef.current?.click()}><Camera /> Take a photo</button></div><input ref={galleryRef} hidden multiple type="file" accept="image/*" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /><input ref={cameraRef} hidden type="file" accept="image/*" capture="environment" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /></div><div className="form-grid"><label>Product name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label><label className="span-two">Category<input list={`product-categories-${product?.id || 'new'}`} value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choose or type a new category" /><datalist id={`product-categories-${product?.id || 'new'}`}>{Array.from(new Set([...categories, 'General'])).filter(Boolean).map((item) => <option key={item} value={item} />)}</datalist><small>Choose an existing category or type a new one. The new category is saved with this product.</small></label></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={colorPresets} selected={colors} onToggle={(item) => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={sizePresets} selected={sizes} onToggle={(item) => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} />{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? `Uploading ${photos.length} photo${photos.length === 1 ? '' : 's'}…` : 'Save product'} <Check /></button></div></form></Modal>;
++  return <Modal title={product ? 'Edit product' : 'Add a product'} onClose={onClose} wide><form className="product-form" onSubmit={submit}><div className="photo-manager"><div className="photo-manager-head"><div><strong>Product photos</strong><p>Add up to 7. JPG, PNG, WebP, GIF, HEIC and AVIF are supported.</p></div><span>{photos.length} / 7</span></div><div className="photo-grid">{photos.map((photo, index) => <div className={`photo-tile ${index === 0 ? 'cover' : ''}`} key={photo.id}><img src={photo.url} alt={`Product photo ${index + 1}`} />{index === 0 && <small>Cover</small>}<button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Remove photo ${index + 1}`}><X /></button></div>)}{photos.length < 7 && <button type="button" className="photo-add-tile" onClick={() => galleryRef.current?.click()}><Image /><span>Add photos</span></button>}</div><div className="photo-source-actions"><button type="button" className="secondary-button" onClick={() => galleryRef.current?.click()}><Image /> Choose from gallery</button><button type="button" className="secondary-button" onClick={() => cameraRef.current?.click()}><Camera /> Take a photo</button></div><input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /><input ref={cameraRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /></div><div className="form-grid"><label>Product name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label><label className="span-two">Category<input list={`product-categories-${product?.id || 'new'}`} value={category} onChange={(event) => setCategory(event.target.value)} placeholder="Choose or type a new category" /><datalist id={`product-categories-${product?.id || 'new'}`}>{Array.from(new Set([...categories, 'General'])).filter(Boolean).map((item) => <option key={item} value={item} />)}</datalist><small>Choose an existing category or type a new one. The new category is saved with this product.</small></label></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={colorPresets} selected={colors} onToggle={(item) => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={sizePresets} selected={sizes} onToggle={(item) => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} />{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? `Uploading ${photos.length} photo${photos.length === 1 ? '' : 's'}…` : 'Save product'} <Check /></button></div></form></Modal>;
+ }
+ 
+ function OptionPicker({ label, enabled, setEnabled, items, selected, onToggle, custom, setCustom, onAdd }: { label: string; enabled: boolean; setEnabled: (value: boolean) => void; items: string[]; selected: string[]; onToggle: (item: string) => void; custom: string; setCustom: (value: string) => void; onAdd: () => void }) { return <fieldset className="option-picker"><label className="toggle-label"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><span><Check /></span><strong>{label}</strong></label>{enabled && <div className="option-expand"><div className="option-chips">{items.map((item) => <button type="button" className={selected.includes(item) ? 'selected' : ''} key={item} onClick={() => onToggle(item)}>{selected.includes(item) && <Check />} {item}</button>)}{selected.filter((item) => !items.includes(item)).map((item) => <button type="button" className="selected" key={item} onClick={() => onToggle(item)}><Check /> {item}</button>)}</div><div className="custom-option"><input value={custom} onChange={(event) => setCustom(event.target.value)} placeholder={`Add custom ${label.toLowerCase().includes('color') ? 'colour' : 'size'}`} /><button type="button" onClick={onAdd}><Plus /> Add</button></div></div>}</fieldset>; }
+diff --git a/src/types.ts b/src/types.ts
+index e235ffd..1954a61 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -1,6 +1,7 @@
+ export type Profile = {
+   user_id: string;
+-  email: string;
++  email: string | null;
++  phone: string | null;
+   full_name: string;
+   role: 'founder' | 'owner';
+   store_id: number | null;
+diff --git a/supabase/migrations/001_phone_owner_auth_and_avif.sql b/supabase/migrations/001_phone_owner_auth_and_avif.sql
+new file mode 100644
+index 0000000..8f93c8d
+--- /dev/null
++++ b/supabase/migrations/001_phone_owner_auth_and_avif.sql
+@@ -0,0 +1,33 @@
++-- StoYangu update 001
++-- Adds WhatsApp-number owner profiles and AVIF/BMP uploads.
++-- Safe to run more than once in Supabase SQL Editor.
++
++alter table public.profiles add column if not exists phone text;
++alter table public.profiles alter column email drop not null;
++
++update public.profiles as profile
++set phone = store.whatsapp
++from public.stores as store
++where profile.store_id = store.id
++  and profile.role = 'owner'
++  and profile.phone is null;
++
++create index if not exists idx_profiles_phone on public.profiles(phone) where phone is not null;
++
++update storage.buckets
++set allowed_mime_types = array[
++  'image/jpeg',
++  'image/png',
++  'image/webp',
++  'image/gif',
++  'image/heic',
++  'image/heif',
++  'image/avif',
++  'image/bmp'
++]
++where id = 'stoyangu-media';
++
++-- IMPORTANT FOR EXISTING OWNER ACCOUNTS:
++-- After this migration, open Founder Dashboard, edit each existing store,
++-- confirm the owner's WhatsApp number and set a temporary password once.
++-- That action safely adds the phone login to the existing Supabase Auth user.
+diff --git a/supabase/setup.sql b/supabase/setup.sql
+index f89f81f..46550b5 100644
+--- a/supabase/setup.sql
++++ b/supabase/setup.sql
+@@ -3,7 +3,8 @@
+ 
+ create table if not exists public.profiles (
+   user_id uuid primary key references auth.users(id) on delete cascade,
+-  email text not null,
++  email text,
++  phone text,
+   full_name text not null,
+   role text not null check (role in ('founder','owner')),
+   store_id integer,
+@@ -89,6 +90,7 @@ create table if not exists public.api_rate_limits (
+ );
+ 
+ create index if not exists idx_products_store on public.products(store_id);
++create index if not exists idx_profiles_phone on public.profiles(phone) where phone is not null;
+ create index if not exists idx_store_aliases_slug on public.store_aliases(slug);
+ create index if not exists idx_product_images_product on public.product_images(product_id,sort_order);
+ create index if not exists idx_events_store_created on public.store_events(store_id,created_at);
+@@ -146,7 +148,7 @@ create policy "founder reads schedules" on public.scheduled_notifications for se
+ );
+ 
+ insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
+-values ('stoyangu-media','stoyangu-media',true,6291456,array['image/jpeg','image/png','image/webp','image/gif','image/heic','image/heif'])
++values ('stoyangu-media','stoyangu-media',true,6291456,array['image/jpeg','image/png','image/webp','image/gif','image/heic','image/heif','image/avif','image/bmp'])
+ on conflict (id) do update set public=true, file_size_limit=6291456;
+ 
+ -- AFTER creating your founder in Authentication → Users, replace the values below and run only this insert:
