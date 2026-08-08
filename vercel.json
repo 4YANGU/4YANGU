@@ -1,8 +1,8 @@
 {
   "rewrites": [
-    { "source": "/robots.txt", "destination": "/api/robots" },
-    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
-    { "source": "/catalog.json", "destination": "/api/catalog" },
+    { "source": "/robots.txt", "destination": "/api/seo?type=robots" },
+    { "source": "/sitemap.xml", "destination": "/api/seo?type=sitemap" },
+    { "source": "/catalog.json", "destination": "/api/seo?type=catalog" },
     { "source": "/s/:slug", "destination": "/index.html" },
     { "source": "/login", "destination": "/index.html" },
     { "source": "/founder", "destination": "/index.html" },
@@ -11,8 +11,8 @@
     { "source": "/app", "destination": "/index.html" }
   ],
   "crons": [
-    { "path": "/api/cron-daily", "schedule": "0 16 * * *" },
-    { "path": "/api/cron-send-notifications", "schedule": "30 16 * * *" }
+    { "path": "/api/cron?job=daily", "schedule": "0 16 * * *" },
+    { "path": "/api/cron?job=send", "schedule": "30 16 * * *" }
   ],
   "headers": [
     {

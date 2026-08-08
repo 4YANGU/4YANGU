@@ -1,4 +1,4 @@
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 
 const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
 const safeDesign = (value) => {

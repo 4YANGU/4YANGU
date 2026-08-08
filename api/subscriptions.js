@@ -1,4 +1,4 @@
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
 
 async function owner(req) {

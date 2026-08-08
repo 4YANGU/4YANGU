@@ -1,4 +1,4 @@
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 
 async function profileFor(req) {
   const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) return null;

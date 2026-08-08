@@ -1,4 +1,4 @@
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 import { createHash } from 'node:crypto';
 
 async function withinRateLimit(req) {
