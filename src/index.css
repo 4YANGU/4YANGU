@@ -136,3 +136,22 @@ img { max-width: 100%; }
 .delete-warning svg{width:20px;flex-shrink:0;margin-top:2px}
 .delete-warning strong{font-size:.8rem}
 .delete-warning p{margin:.35rem 0 0;font-size:.72rem;line-height:1.6}
+
+/* 5. Owner dashboard: dedicated Install App card */
+.notification-setup.install-app{background:linear-gradient(115deg,#ffffff,#edf2f7);border-color:#d5e0ec}
+.notification-setup.install-app .notification-setup-icon{background:#e2ebf4;color:var(--navy)}
+.notification-setup.install-app .button-primary{background:var(--navy);box-shadow:0 10px 30px rgba(16,31,48,.22)}
+.notification-setup.install-app .button-primary:hover{background:#1a3049}
+.notification-setup-copy .install-steps{margin:.5rem 0 0;padding-left:1.15rem;display:grid;gap:5px;color:#6f7c74;font-size:.72rem;line-height:1.55}
+.notification-setup-copy .install-steps b{color:var(--navy)}
+
+/* 6. Founder dashboard: mobile top bar (logo + sign out on phones) */
+.mobile-topbar{display:none}
+@media(max-width:720px){
+  .mobile-topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 22px}
+  .mobile-topbar .brand-logo{width:118px;height:52px}
+  .mobile-topbar-actions{display:flex;gap:8px}
+  .mobile-topbar-actions button{display:inline-flex;align-items:center;gap:6px;border:1px solid #dfe4df;background:#fff;border-radius:999px;padding:.5rem .8rem;font-size:.64rem;font-weight:800;color:var(--navy)}
+  .mobile-topbar-actions button:last-child{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .mobile-topbar-actions svg{width:14px}
+}

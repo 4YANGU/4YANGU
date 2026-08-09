@@ -1,4 +1,4 @@
-import { BellRing, Camera, Check, Edit3, ExternalLink, Eye, EyeOff, Image, KeyRound, LogOut, MessageCircle, PackagePlus, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
+import { BellRing, Camera, Check, Edit3, ExternalLink, Eye, EyeOff, Image, KeyRound, LogOut, MessageCircle, PackagePlus, Plus, RefreshCw, Smartphone, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -44,6 +44,7 @@ export default function StoreDashboard() {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
   const load = useCallback(async () => {
     setError('');
     try {
@@ -91,13 +92,58 @@ export default function StoreDashboard() {
   const latestUpdate = data.notifications?.[0];
   const updateDate = latestUpdate ? new Date(latestUpdate.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   const updateTitle = latestUpdate?.title?.match(/\d/) ? latestUpdate.title : `StoYangu daily update, ${updateDate}`;
-  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'My StoYangu'}</span><div>{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a></header><main className="owner-main">
+  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'My StoYangu'}</span><div>{profile?.role === 'owner' && !isStandaloneApp() && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a></header><main className="owner-main">
     {error && <div className="dashboard-error">{error}</div>}
+    {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}
     <section className="analytics-grid two"><article className="metric-card owner-metric"><div className="metric-icon"><Users /></div><span>People who visited your store</span><strong>{store.visitor_total.toLocaleString()}</strong><small>+{store.visitor_today} Today</small></article><article className="metric-card owner-metric green"><div className="metric-icon"><MessageCircle /></div><span>People who clicked Order via WhatsApp</span><strong>{store.orders_total.toLocaleString()}</strong><small>+{store.orders_today} Today</small></article></section>
     {latestUpdate && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Latest update</span><h3>{updateTitle}</h3><p className="daily-traffic-summary"><b>{store.visitor_today}</b> people visited your store today and <b>{store.orders_today}</b> clicked Order via WhatsApp.</p><div className="daily-product-highlights">{latestUpdate.winner_product && <article className="champion"><img src={latestUpdate.winner_product.images?.[0] || latestUpdate.winner_product.image_url} alt={latestUpdate.winner_product.name} /><div><small>Today's champion product</small><strong>{latestUpdate.winner_product.name}</strong><span>{latestUpdate.winner_product.orders_today} orders from {latestUpdate.winner_product.views_today} views today. This product is leading your store.</span></div></article>}{latestUpdate.needs_product && <article><img src={latestUpdate.needs_product.images?.[0] || latestUpdate.needs_product.image_url} alt={latestUpdate.needs_product.name} /><div><small>Needs a look</small><strong>{latestUpdate.needs_product.name}</strong><span>{latestUpdate.needs_product.views_today} views with {latestUpdate.needs_product.orders_today} orders today. Try improving its main photo or checking the price.</span></div></article>}</div><p className="daily-update-reminder">Keep mentioning <b>{storeDomain(store.slug)}</b> in your videos so customers always know where to shop.</p></div></section>}
     <section className="products-panel"><div className="dash-section-head"><div><span className="eyebrow">Your live shelf</span><h2>Products</h2><p>{data.products?.length || 0} products customers can shop.</p></div><button className="button-primary" onClick={() => setEditing('new')}><Plus /> Add product</button></div><div className="owner-product-list">{data.products?.map((product) => <article key={product.id}><img src={product.image_url || '/stoyangu-logo.png'} alt={product.name} /><div className="owner-product-name"><span>{product.category}</span><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong></div><div className="word-stats"><p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p><p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p></div><div className="product-actions"><button onClick={() => setEditing(product)}><Edit3 /> Edit</button><button className="danger" onClick={() => remove(product)}><Trash2 /> Delete</button></div></article>)}</div>{!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Add the first product. A photo, name and price is enough.</p><button className="button-primary" onClick={() => setEditing('new')}><PackagePlus /> Add first product</button></div>}</section>
   </main>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} categories={store.categories || []} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}</div>;
+}
+
+function InstallAppCard({ forceOpen, onDismiss }: { forceOpen: boolean; onDismiss: () => void }) {
+  const [promptEvent, setPromptEvent] = useState<{ prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> } | null>(() => (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
+  const [done, setDone] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const iOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) || ((navigator as any).platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
+  useEffect(() => {
+    const ready = () => setPromptEvent((window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
+    window.addEventListener('stoyangu-install-ready', ready);
+    return () => window.removeEventListener('stoyangu-install-ready', ready);
+  }, []);
+  const close = () => { sessionStorage.setItem('stoyangu-install-dismissed', '1'); setHidden(true); onDismiss(); };
+  if (hidden || isStandaloneApp()) return null;
+  const actionable = Boolean(promptEvent) || iOS;
+  if (!forceOpen && (!actionable || sessionStorage.getItem('stoyangu-install-dismissed') === '1')) return null;
+  const install = async () => {
+    if (!promptEvent) return;
+    setBusy(true);
+    try {
+      await promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      if (choice?.outcome === 'accepted') {
+        localStorage.setItem('stoyangu-installed', '1');
+        markAppInstalled();
+        setDone(true);
+      } else {
+        close();
+      }
+    } catch (reason) {
+      console.warn('The browser did not allow the install prompt this time:', reason);
+    } finally {
+      (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
+      setPromptEvent(null);
+      setBusy(false);
+    }
+  };
+  let title = 'Install the StoYangu app';
+  let body: React.ReactNode = 'On this phone, open the browser menu (the ⋮ or share icon) and choose "Install app" or "Add to Home screen". Then open StoYangu from your home screen like a real app.';
+  if (iOS) body = <ol className="install-steps"><li>Tap the <b>Share</b> button at the bottom of Safari (the box with an arrow pointing up).</li><li>Scroll down and tap <b>“Add to Home Screen”</b>, then tap <b>Add</b>.</li><li>Open StoYangu from your new home screen icon and sign in. Done!</li></ol>;
+  if (promptEvent && !iOS) body = 'Get StoYangu on this phone as a real app — one tap installs it, and it opens full-screen from your home screen.';
+  if (done) { title = 'App installed — asante!'; body = 'Open StoYangu from your home screen any time, like a real app. Turn on notifications below so your daily updates reach you.'; }
+  return <section className={`notification-setup install-app ${done ? 'done' : ''}`}><div className="notification-setup-icon"><Smartphone /></div><div className="notification-setup-copy"><strong>{title}</strong>{typeof body === 'string' ? <p>{body}</p> : body}</div>{!done && Boolean(promptEvent) && !iOS && <button className="button-primary" onClick={install} disabled={busy}>{busy ? 'Installing…' : 'Install app'}</button>}{done && <span className="notification-setup-ok"><Check /> Installed</span>}<button className="dismiss-notify" onClick={close} aria-label="Hide install message"><X /></button></section>;
 }
 
 function NotificationSetupCard() {
