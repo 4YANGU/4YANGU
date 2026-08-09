@@ -149,7 +149,7 @@ function buildStorePage({ store, products, canonical, root }) {
   const name = String(store.name || 'Store').trim();
   const count = products.length;
   const highlights = products.slice(0, 3).map((product) => `${product.name} (KES ${Number(product.price).toLocaleString('en-KE')})`).join(', ');
-  const title = `${name} — Shop online in Nairobi`;
+  const title = `${name} — Shop online in Kenya`;
   const description = clamp(`Shop ${name} online. ${count ? `${count} product${count === 1 ? '' : 's'} live${highlights ? `: ${highlights}` : ''}. ` : ''}Browse the full catalogue and order directly on WhatsApp. Powered by StoYangu.`, 220);
   const image = products[0]?.images?.[0] || products[0]?.image_url || store.logo_url || `https://${root}/stoyangu-logo.png`;
   const categories = Array.isArray(store.categories) ? store.categories.filter(Boolean).map(String) : [];
@@ -197,7 +197,7 @@ async function handleStorefrontHtml(req, res) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
         title: 'Store unavailable | StoYangu',
-        description: 'This StoYangu store is not available right now. Discover other Nairobi stores on StoYangu.',
+        description: 'This StoYangu store is not available right now. Discover other Kenyan stores on StoYangu.'
         canonical, image: `https://${root}/stoyangu-logo.png`, extra: '', robots: 'noindex, follow',
       });
       pageCache.set(slug, { html, status: 404, builtAt: Date.now() });

@@ -9,9 +9,9 @@ import { formatMoney } from '../lib/api';
 import '../marketing-upgrade.css';
 
 const marketingSchema = [
-  { '@context': 'https://schema.org', '@type': 'Organization', name: 'StoYangu', slogan: 'My Store, My Hope', email: 'info@stoyangu.com', telephone: '+254793533683', areaServed: { '@type': 'City', name: 'Nairobi' }, logo: '/stoyangu-logo.png' },
-  { '@context': 'https://schema.org', '@type': 'WebSite', name: 'StoYangu', description: 'Online storefronts for Nairobi social-media sellers.', inLanguage: ['en', 'sw'] },
-  { '@context': 'https://schema.org', '@type': 'Service', name: 'StoYangu online store setup', areaServed: 'Nairobi, Kenya', serviceType: 'Online storefront design and product catalog', offers: [{ '@type': 'Offer', name: 'Store design and setup', price: '0', priceCurrency: 'KES' }, { '@type': 'Offer', name: 'Monthly store maintenance after 30 free days', price: '300', priceCurrency: 'KES' }] },
+  { '@context': 'https://schema.org', '@type': 'Organization', name: 'StoYangu', slogan: 'My Store, My Hope', email: 'info@stoyangu.com', telephone: '+254793533683', areaServed: { '@type': 'Country', name: 'Kenya' }, logo: '/stoyangu-logo.png' },
+  { '@context': 'https://schema.org', '@type': 'WebSite', name: 'StoYangu', description: 'Online storefronts for Kenyan social-media sellers.', inLanguage: ['en', 'sw'] },
+  { '@context': 'https://schema.org', '@type': 'Service', name: 'StoYangu online store setup', areaServed: 'Kenya', serviceType: 'Online storefront design and product catalog', offers: [{ '@type': 'Offer', name: "Full store design and build (value KES 15,000) — waived in exchange for a 1-minute testimonial video", price: '0', priceCurrency: 'KES' }, { '@type': 'Offer', name: 'Store hosting and maintenance after 30 free days', price: '999', priceCurrency: 'KES' }] },
 ];
 
 export default function MarketingPage() {
@@ -45,7 +45,7 @@ export default function MarketingPage() {
   };
   const canonical = `https://${String(import.meta.env.VITE_ROOT_DOMAIN || window.location.host).replace(/^www\./, '')}/`;
   return <div className="marketing-page">
-    <Seo title="StoYangu" description="Beautiful online stores for Nairobi social-media sellers of clothes, perfumes, watches and other physical products. Customers browse and order through WhatsApp." canonical={canonical} schema={marketingSchema} />
+    <Seo title="StoYangu" description="Beautiful online stores for Kenyan social-media sellers of clothes, perfumes, watches and other physical products. Customers browse and order through WhatsApp." canonical={canonical} schema={marketingSchema} />
     <header className="marketing-nav"><a href="/" aria-label="StoYangu home"><BrandLogo /></a><nav aria-label="Main navigation"><a href="#how">Inawork aje?</a><a href="#get-store">Napata StoYangu aje?</a><a href="#pricing">Ni how much?</a></nav><button className="marketing-menu-button" onClick={() => setMobileMenu((open) => !open)} aria-label="Open website menu" aria-expanded={mobileMenu}>{mobileMenu ? <X /> : <Menu />}</button><a className="nav-login" href="/login">Login <ArrowRight size={16} /></a>{mobileMenu && <nav className="marketing-mobile-menu" aria-label="Mobile navigation"><a href="#how" onClick={() => setMobileMenu(false)}>Inawork aje?</a><a href="#get-store" onClick={() => setMobileMenu(false)}>Napata StoYangu aje?</a><a href="#pricing" onClick={() => setMobileMenu(false)}>Ni how much?</a></nav>}</header>
     <main>
       <section className="hero-section">
@@ -54,6 +54,7 @@ export default function MarketingPage() {
           <span className="hero-pill"><Sparkles size={15} /> Store yako. Free kuanza.</span>
           <h1>Video Yangu,<br /><em>Store Yangu</em></h1>
           <p>Pata full store for your customers to shop on, in exchange for a short 1-minute video.</p>
+          <div className="hero-offer"><span>A pro store build costs <s>KES 15,000</s> huku inje.</span><b>Kwako ni FREE</b><small>Tuna-wave kabisa — lipa na a short 1-minute video about your business. After your free 30 days, ni KES 999/month tu for hosting & maintenance ya store yako.</small></div>
           <div className="hero-commerce-tags"><span>Clothes</span><span>Perfumes</span><span>Watches</span><span>Beauty</span><span>Anything physical</span></div>
           <div className="hero-actions"><button className="button-primary" onClick={() => setApplyOpen(true)}>Apply for my store <ArrowRight /></button><a className="text-link" href="#how"><Play size={16} fill="currentColor" /> See how it works</a></div>
           <div className="trust-row"><span><Check /> Full design is free</span><span><Check /> 30 days free</span><span><ShieldCheck /> No pressure</span></div>
@@ -75,13 +76,13 @@ export default function MarketingPage() {
 
       <section className="icp-showcase" aria-labelledby="seller-heading">
         <motion.div className="icp-copy" initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: .25 }}>
-          <span className="eyebrow">Made for Nairobi's social sellers</span><h2 id="seller-heading">Uza kila kitu,<br /><em>one beautiful link.</em></h2><p>Whether you sell outfits, perfume, watches, shoes, skincare or home pieces, customers should see everything clearly before they message you.</p>
-          <div className="icp-pills"><span>Instagram sellers</span><span>TikTok businesses</span><span>WhatsApp shops</span><span>Physical products</span><span>Nairobi delivery</span></div>
+          <span className="eyebrow">Made for Kenya's social sellers</span><h2 id="seller-heading">Uza kila kitu,<br /><em>one beautiful link.</em></h2><p>Whether you sell outfits, perfume, watches, shoes, skincare or home pieces, customers should see everything clearly before they message you.</p>
+          <div className="icp-pills"><span>Instagram sellers</span><span>TikTok businesses</span><span>WhatsApp shops</span><span>Physical products</span><span>Kenya-wide delivery</span></div>
         </motion.div>
         <div className="icp-collage">
           <motion.figure className="icp-card one" initial={{ opacity: 0, y: 35, rotate: -2 }} whileInView={{ opacity: 1, y: 0, rotate: -2 }} viewport={{ once: true }}><img src="/images/black-seller-window.jpg" alt="Black woman running sales from her phone" loading="lazy" decoding="async" /><span>Fashion & accessories</span></motion.figure>
           <motion.figure className="icp-card two" initial={{ opacity: 0, x: 30, rotate: 3 }} whileInView={{ opacity: 1, x: 0, rotate: 3 }} transition={{ delay: .12 }} viewport={{ once: true }}><img src="/images/black-social-seller.jpg" alt="Black woman using her phone to run a social media business" loading="lazy" decoding="async" /><span>Social selling</span></motion.figure>
-          <motion.figure className="icp-card three" initial={{ opacity: 0, y: 30, rotate: 1 }} whileInView={{ opacity: 1, y: 0, rotate: 1 }} transition={{ delay: .2 }} viewport={{ once: true }}><img src="/images/black-fashion-seller.jpg" alt="Black woman managing customer messages on her phone" loading="lazy" decoding="async" /><span>Built for Nairobi</span></motion.figure>
+          <motion.figure className="icp-card three" initial={{ opacity: 0, y: 30, rotate: 1 }} whileInView={{ opacity: 1, y: 0, rotate: 1 }} transition={{ delay: .2 }} viewport={{ once: true }}><img src="/images/black-fashion-seller.jpg" alt="Black woman managing customer messages on her phone" loading="lazy" decoding="async" /><span>Built for Kenya</span></motion.figure>
           <div className="icp-proof"><i /><div><b>One link. Every product.</b><small>Ready to share in your next video.</small></div></div>
         </div>
       </section>
@@ -103,7 +104,7 @@ export default function MarketingPage() {
         </div>
       </section>
 
-      <section id="pricing" className="marketing-section pricing-section"><div className="pricing-intro"><span className="eyebrow">Clear, honest pricing</span><h2>Ni how much?</h2><p>Clear pricing, kind support and the freedom to choose what works for your business.</p></div><div className="price-card"><div className="price-card-head"><span>YOUR FIRST 30 DAYS</span><strong>FREE</strong></div><div className="price-card-body"><p><Check /> Full store design and setup, totally free</p><p><Check /> First 30 days live, totally free</p><p><Check /> After that, only <b>KES 300/month</b></p><p><Check /> If it is not the right fit, you can pause anytime. We will always make the process simple and respectful.</p><button className="button-primary" onClick={() => setApplyOpen(true)}>Apply now <ArrowRight /></button></div></div></section>
+      <section id="pricing" className="marketing-section pricing-section"><div className="pricing-intro"><span className="eyebrow">Clear, honest pricing</span><h2>Ni how much?</h2><p>Clear pricing, kind support and the freedom to choose what works for your business.</p></div><div className="price-card"><div className="price-card-head"><span>YOUR FIRST 30 DAYS</span><strong>FREE</strong></div><div className="price-card-body"><p><Check /> Full store design and build — <b>worth KES 15,000</b> — totally waived. Lipa na a short 1-minute video about your business.</p><p><Check /> First 30 days live, totally free</p><p><Check /> Then <b>KES 999/month</b> — hosting & maintenance of your store, support included</p><p><Check /> If it is not the right fit, you can pause anytime. We will always make the process simple and respectful.</p><button className="button-primary" onClick={() => setApplyOpen(true)}>Apply now <ArrowRight /></button></div></div></section>
 
       <section className="final-cta"><div><span className="eyebrow light">Your next sale can start here</span><h2>Biashara yako.<br />Store yako.</h2></div><button className="button-cream" onClick={() => setApplyOpen(true)}>Nipee store yangu <ArrowRight /></button></section>
     </main>
