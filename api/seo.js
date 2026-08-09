@@ -6,7 +6,7 @@ async function handleRobots(req, res) {
   const root = process.env.ROOT_DOMAIN || String(req.headers.host || 'stoyangu.com').replace(/^www\./, '');
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400');
-  return res.status(200).send(`User-agent: *\nAllow: /\nDisallow: /founder\nDisallow: /owner\nDisallow: /manage/\nDisallow: /api/profile\nDisallow: /api/dashboard\n\nUser-agent: GPTBot\nAllow: /\n\nUser-agent: ClaudeBot\nAllow: /\n\nUser-agent: PerplexityBot\nAllow: /\n\nUser-agent: Google-Extended\nAllow: /\n\nUser-agent: Applebot-Extended\nAllow: /\n\nSitemap: https://${root}/sitemap.xml\n`);
+  return res.status(200).send(`User-agent: *\nAllow: /\nDisallow: /founder\nDisallow: /owner\nDisallow: /manage/\nDisallow: /api/profile\nDisallow: /api/dashboard\n\nUser-agent: GPTBot\nAllow: /\n\nUser-agent: ClaudeBot\nAllow: /\n\nUser-agent: PerplexityBot\nAllow: /\n\nUser-agent: Google-Extended\nAllow: /\n\nUser-agent: Applebot-Extended\nAllow: /\n\nUser-agent: CCBot\nAllow: /\n\nUser-agent: Bingbot\nAllow: /\n\nUser-agent: meta-externalagent\nAllow: /\n\nUser-agent: Bytespider\nAllow: /\n\nUser-agent: Amazonbot\nAllow: /\n\nSitemap: https://${root}/sitemap.xml\n`);
 }
 
 async function handleSitemap(req, res) {
@@ -43,6 +43,42 @@ async function handleCatalog(req, res) {
   }
 }
 
+async function handleLlmsFull(req, res) {
+  try {
+    const root = process.env.ROOT_DOMAIN || String(req.headers.host || 'stoyangu.com').replace(/^www\./, '').split('.').slice(-2).join('.');
+    const [{ data: stores, error: storeError }, { data: products, error: productError }] = await Promise.all([
+      supabase.from('stores').select('id,name,slug,categories,visitor_total').eq('is_active', true).order('created_at', { ascending: true }),
+      supabase.from('products').select('id,store_id,name,price,category,active').eq('active', true),
+    ]);
+    if (storeError || productError) throw storeError || productError;
+    const lines = [
+      '# StoYangu store directory (live)',
+      '',
+      '> Automatically generated list of every active StoYangu storefront. Each store URL serves full per-store metadata and JSON-LD structured data (OnlineStore + Product offers in KES) to crawlers.',
+      '',
+      ...(stores || []).map((store) => {
+        const storeProducts = (products || []).filter((product) => product.store_id === store.id).slice(0, 8);
+        const categories = Array.isArray(store.categories) ? store.categories.filter(Boolean).join(', ') : '';
+        return [
+          `## ${store.name}`,
+          `- Storefront: https://${store.slug}.${root}/`,
+          `- Also reachable at: https://${root}/s/${store.slug}`,
+          categories ? `- Sells: ${categories}` : null,
+          `- ${storeProducts.length ? `Live products include: ${storeProducts.map((product) => `${product.name} — KES ${Number(product.price).toLocaleString('en-KE')}`).join('; ')}` : 'New store, catalogue growing.'}`,
+          '',
+        ].filter(Boolean).join('\n');
+      }),
+      'Ordering model: customers open the storefront, pick colour/size options and complete the order on WhatsApp with the seller directly.',
+    ];
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, s-maxage=1800, stale-while-revalidate=86400');
+    return res.status(200).send(lines.join('\n'));
+  } catch (err) {
+    console.error('LLMS-full API error:', err);
+    return res.status(500).send('Could not generate the store directory.');
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -54,5 +90,6 @@ export default async function handler(req, res) {
   if (type === 'robots') return handleRobots(req, res);
   if (type === 'sitemap') return handleSitemap(req, res);
   if (type === 'catalog') return handleCatalog(req, res);
-  return res.status(400).json({ error: 'Unknown or missing type. Use ?type=robots | sitemap | catalog' });
+  if (type === 'llms-full') return handleLlmsFull(req, res);
+  return res.status(400).json({ error: 'Unknown or missing type. Use ?type=robots | sitemap | catalog | llms-full' });
 }

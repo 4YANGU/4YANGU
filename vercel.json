@@ -1,9 +1,11 @@
 {
   "rewrites": [
+    { "source": "/", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/storefront-html?slug=:slug" },
     { "source": "/robots.txt", "destination": "/api/seo?type=robots" },
     { "source": "/sitemap.xml", "destination": "/api/seo?type=sitemap" },
     { "source": "/catalog.json", "destination": "/api/seo?type=catalog" },
-    { "source": "/s/:slug", "destination": "/index.html" },
+    { "source": "/llms-full.txt", "destination": "/api/seo?type=llms-full" },
+    { "source": "/s/:slug", "destination": "/api/storefront-html?slug=:slug" },
     { "source": "/login", "destination": "/index.html" },
     { "source": "/founder", "destination": "/index.html" },
     { "source": "/owner", "destination": "/index.html" },
