@@ -107,7 +107,9 @@ function InstallAppCard({ forceOpen, onDismiss }: { forceOpen: boolean; onDismis
   const [done, setDone] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [manual, setManual] = useState(false);
   const iOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) || ((navigator as any).platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
+  const onPhone = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
   useEffect(() => {
     const ready = () => setPromptEvent((window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
     window.addEventListener('stoyangu-install-ready', ready);
@@ -115,10 +117,10 @@ function InstallAppCard({ forceOpen, onDismiss }: { forceOpen: boolean; onDismis
   }, []);
   const close = () => { sessionStorage.setItem('stoyangu-install-dismissed', '1'); setHidden(true); onDismiss(); };
   if (hidden || isStandaloneApp()) return null;
-  const actionable = Boolean(promptEvent) || iOS;
+  const actionable = Boolean(promptEvent) || iOS || onPhone;
   if (!forceOpen && (!actionable || sessionStorage.getItem('stoyangu-install-dismissed') === '1')) return null;
   const install = async () => {
-    if (!promptEvent) return;
+    if (!promptEvent) { setManual(true); return; }
     setBusy(true);
     try {
       await promptEvent.prompt();
@@ -128,22 +130,25 @@ function InstallAppCard({ forceOpen, onDismiss }: { forceOpen: boolean; onDismis
         markAppInstalled();
         setDone(true);
       } else {
-        close();
+        setManual(true);
       }
     } catch (reason) {
       console.warn('The browser did not allow the install prompt this time:', reason);
+      setManual(true);
     } finally {
       (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
       setPromptEvent(null);
       setBusy(false);
     }
   };
+  const showManual = manual || iOS || (!promptEvent && !done);
   let title = 'Install the StoYangu app';
-  let body: React.ReactNode = 'On this phone, open the browser menu (the ⋮ or share icon) and choose "Install app" or "Add to Home screen". Then open StoYangu from your home screen like a real app.';
-  if (iOS) body = <ol className="install-steps"><li>Tap the <b>Share</b> button at the bottom of Safari (the box with an arrow pointing up).</li><li>Scroll down and tap <b>“Add to Home Screen”</b>, then tap <b>Add</b>.</li><li>Open StoYangu from your new home screen icon and sign in. Done!</li></ol>;
-  if (promptEvent && !iOS) body = 'Get StoYangu on this phone as a real app — one tap installs it, and it opens full-screen from your home screen.';
+  let body: React.ReactNode = iOS
+    ? <ol className="install-steps"><li>Tap the <b>Share</b> button at the bottom of Safari (the box with an arrow pointing up).</li><li>Scroll down and tap <b>“Add to Home Screen”</b>, then tap <b>Add</b>.</li><li>Open StoYangu from your new home screen icon and sign in. Done!</li></ol>
+    : <ol className="install-steps"><li>Tap the <b>⋮ menu</b> at the top right of Chrome.</li><li>Tap <b>“Install app”</b> (or <b>“Add to Home screen”</b>).</li><li>Open StoYangu from your home screen icon like a real app. If you opened this from TikTok or Instagram, first tap <b>⋮</b> and choose <b>“Open in browser”</b>.</li></ol>;
+  if (!showManual && promptEvent) body = 'Get StoYangu on this phone as a real app — one tap installs it, and it opens full-screen from your home screen.';
   if (done) { title = 'App installed — asante!'; body = 'Open StoYangu from your home screen any time, like a real app. Turn on notifications below so your daily updates reach you.'; }
-  return <section className={`notification-setup install-app ${done ? 'done' : ''}`}><div className="notification-setup-icon"><Smartphone /></div><div className="notification-setup-copy"><strong>{title}</strong>{typeof body === 'string' ? <p>{body}</p> : body}</div>{!done && Boolean(promptEvent) && !iOS && <button className="button-primary" onClick={install} disabled={busy}>{busy ? 'Installing…' : 'Install app'}</button>}{done && <span className="notification-setup-ok"><Check /> Installed</span>}<button className="dismiss-notify" onClick={close} aria-label="Hide install message"><X /></button></section>;
+  return <section className={`notification-setup install-app ${done ? 'done' : ''}`}><div className="notification-setup-icon"><Smartphone /></div><div className="notification-setup-copy"><strong>{title}</strong>{typeof body === 'string' ? <p>{body}</p> : body}</div>{!done && Boolean(promptEvent) && !iOS && !manual && <button className="button-primary" onClick={install} disabled={busy}>{busy ? 'Installing…' : 'Install app'}</button>}{done && <span className="notification-setup-ok"><Check /> Installed</span>}<button className="dismiss-notify" onClick={close} aria-label="Hide install message"><X /></button></section>;
 }
 
 function NotificationSetupCard() {
