@@ -111,8 +111,11 @@ async function loadShell(req) {
   return shellCache.html;
 }
 
-function injectIntoShell(shell, { title, description, canonical, image, extra, robots = 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1' }) {
+function injectIntoShell(shell, { title, description, canonical, image, favicon, extra, robots = 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1' }) {
   let html = shell;
+  if (favicon) {
+    html = html.replace(/<link[^>]*rel="(?:icon|shortcut icon|apple-touch-icon)"[^>]*>/g, '');
+  }
   html = html.replace(/<title>[^<]*<\/title>/, `<title>${escHtml(title)}</title>`);
   html = html.replace(/<meta name="description"[^>]*>/, `<meta name="description" content="${escHtml(clamp(description, 200))}" />`);
   html = html.replace(/<meta property="og:title"[^>]*>/, `<meta property="og:title" content="${escHtml(title)}" />`);
@@ -128,6 +131,7 @@ function injectIntoShell(shell, { title, description, canonical, image, extra, r
     `<meta name="twitter:title" content="${escHtml(title)}" />`,
     `<meta name="twitter:description" content="${escHtml(clamp(description, 200))}" />`,
     `<meta name="twitter:image" content="${escHtml(image)}" />`,
+    ...(favicon ? [`<link rel="icon" href="${escHtml(favicon)}" />`, `<link rel="apple-touch-icon" href="${escHtml(favicon)}" />`] : []),
   ];
   return html.replace('</head>', `${tags.join('\n    ')}\n    ${extra || ''}\n  </head>`);
 }
@@ -201,6 +205,7 @@ async function handleStorefrontHtml(req, res) {
     }
     const canonical = `https://${root}/s/${slug}`;
     const page = buildStorePage({ store, products, canonical, root });
+    if (store.logo_url) page.favicon = store.logo_url;
     const html = injectIntoShell(shell, page);
     pageCache.set(slug, { html, status: 200, builtAt: Date.now() });
     return res.status(200).send(html);

@@ -55,7 +55,7 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
     { '@context': 'https://schema.org', '@type': 'OnlineStore', name: String(design.store_name || data.store.name), url: canonical, description, logo: data.store.logo_url || `${window.location.origin}/stoyangu-logo.png`, telephone: data.store.whatsapp, currenciesAccepted: 'KES', areaServed: { '@type': 'City', name: 'Nairobi' } },
     { '@context': 'https://schema.org', '@type': 'ItemList', name: `${data.store.name} products`, numberOfItems: data.products.length, itemListElement: data.products.map((product, index) => ({ '@type': 'ListItem', position: index + 1, item: { '@type': 'Product', name: product.name, image: product.images?.length ? product.images : [product.image_url], category: product.category, offers: { '@type': 'Offer', price: Number(product.price), priceCurrency: 'KES', availability: 'https://schema.org/InStock', url: canonical } } })) },
   ];
-  return <><Seo title={`${String(design.store_name || data.store.name)} | Shop online`} description={description} canonical={canonical} image={data.products[0]?.images?.[0] || data.products[0]?.image_url || data.store.logo_url} schema={schema} /><StorefrontRenderer store={data.store} products={data.products} onOrder={onOrder} onView={onView} /></>;
+  return <><Seo title={`${String(design.store_name || data.store.name)} | Shop online`} description={description} canonical={canonical} image={data.products[0]?.images?.[0] || data.products[0]?.image_url || data.store.logo_url} icon={data.store.logo_url || undefined} schema={schema} /><StorefrontRenderer store={data.store} products={data.products} onOrder={onOrder} onView={onView} /></>;
 }
 
 function formatPrice(value: number | string) {

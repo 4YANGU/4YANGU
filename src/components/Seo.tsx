@@ -7,6 +7,8 @@ type SeoProps = {
   image?: string;
   type?: 'website' | 'product';
   schema?: Record<string, unknown> | Array<Record<string, unknown>>;
+  // Optional per-page favicon (e.g. a store's own logo on its storefront).
+  icon?: string;
 };
 
 function setMeta(selector: string, attribute: 'name' | 'property', key: string, content: string) {
@@ -15,7 +17,7 @@ function setMeta(selector: string, attribute: 'name' | 'property', key: string, 
   element.content = content;
 }
 
-export default function Seo({ title, description, canonical, image = '/stoyangu-logo.png', type = 'website', schema }: SeoProps) {
+export default function Seo({ title, description, canonical, image = '/stoyangu-logo.png', type = 'website', schema, icon }: SeoProps) {
   useEffect(() => {
     document.title = title;
     setMeta('meta[name="description"]', 'name', 'description', description);
@@ -31,11 +33,17 @@ export default function Seo({ title, description, canonical, image = '/stoyangu-
     let link = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (!link) { link = document.createElement('link'); link.rel = 'canonical'; document.head.appendChild(link); }
     link.href = canonical;
+    const iconLinks = Array.from(document.head.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]'));
+    const originalIcons = iconLinks.map((element) => element.href);
+    if (icon) iconLinks.forEach((element) => { element.href = icon; element.removeAttribute('sizes'); element.removeAttribute('type'); });
     const oldSchema = document.getElementById('stoyangu-structured-data'); oldSchema?.remove();
     if (schema) {
       const script = document.createElement('script'); script.id = 'stoyangu-structured-data'; script.type = 'application/ld+json'; script.text = JSON.stringify(schema).replace(/</g, '\\u003c'); document.head.appendChild(script);
     }
-    return () => { document.getElementById('stoyangu-structured-data')?.remove(); };
-  }, [title, description, canonical, image, type, schema]);
+    return () => {
+      document.getElementById('stoyangu-structured-data')?.remove();
+      iconLinks.forEach((element, index) => { element.href = originalIcons[index]; });
+    };
+  }, [title, description, canonical, image, type, schema, icon]);
   return null;
 }
