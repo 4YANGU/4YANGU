@@ -116,6 +116,24 @@ export default async function handler(req, res) {
       }
       return res.status(400).json({ error: 'Unknown store update.' });
     }
+    if (req.method === 'DELETE') {
+      if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+      const id = Number(req.body?.id || req.query?.id);
+      if (!id) return res.status(400).json({ error: 'Store is required.' });
+      const { data: target, error: targetError } = await supabase.from('stores').select('id,slug,name').eq('id', id).single();
+      if (targetError || !target) return res.status(404).json({ error: 'Store not found.' });
+      const { data: ownerProfiles } = await supabase.from('profiles').select('user_id').eq('store_id', id);
+      // Deleting the store row cascades to products, product images, aliases, events,
+      // notifications, highlights, push subscriptions and PWA installations.
+      const { error: deleteError } = await supabase.from('stores').delete().eq('id', id);
+      if (deleteError) throw deleteError;
+      for (const ownerProfile of ownerProfiles || []) {
+        const { error: userError } = await supabase.auth.admin.deleteUser(ownerProfile.user_id);
+        if (userError) console.error(`Could not delete login for store ${target.slug}:`, userError.message);
+      }
+      await supabase.from('profiles').delete().eq('store_id', id);
+      return res.status(200).json({ ok: true, freed: target.slug });
+    }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     console.error('Stores API error:', err);
