@@ -28,7 +28,7 @@ export default async function handler(req, res) {
       const ranked = [...liveProducts].sort((a, b) => Number(b.orders_today) - Number(a.orders_today) || Number(b.views_today) - Number(a.views_today));
       const fallbackWinner = ranked[0] || null;
       const fallbackNeeds = [...liveProducts].filter((product) => product.id !== fallbackWinner?.id).sort((a, b) => (Number(b.views_today) - Number(b.orders_today) * 3) - (Number(a.views_today) - Number(a.orders_today) * 3))[0] || null;
-      const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); return { ...item, body: item.edited_body || item.body, winner_product: liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
+      const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); const isCustomMessage = String(item.batch_key || '').startsWith('custom-'); return { ...item, body: item.edited_body || item.body, winner_product: isCustomMessage ? null : liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: isCustomMessage ? null : liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
       return res.status(200).json({ profile, store, products: liveProducts, notifications: enrichedNotifications });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });

@@ -70,5 +70,5 @@ export type DashboardData = {
   applications?: Application[];
   store?: Store;
   products?: Product[];
-  notifications?: Array<{ id: number; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
+  notifications?: Array<{ id: number; batch_key?: string; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
 };
