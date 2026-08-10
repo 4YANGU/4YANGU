@@ -3,6 +3,14 @@ import StorefrontRenderer from '../components/StorefrontRenderer';
 import Seo from '../components/Seo';
 import type { Product, Store } from '../types';
 
+// A visit equals one tab session: closing the tab and coming back later
+// counts as a new visit, while refreshing inside the same tab stays one visit.
+function visitSessionId() {
+  let id = sessionStorage.getItem('stoyangu-visit-session');
+  if (!id) { id = crypto.randomUUID(); sessionStorage.setItem('stoyangu-visit-session', id); }
+  return id;
+}
+
 export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) {
   const slug = forcedSlug || '';
   const cached = (() => { try { const value = sessionStorage.getItem(`stoyangu-store-${slug}`); return value ? JSON.parse(value) : null; } catch { return null; } })();
@@ -21,14 +29,12 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
     const key = `stoyangu-visit-${data.store.id}-${new Date().toISOString().slice(0, 10)}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, '1');
-    const sessionId = localStorage.getItem('stoyangu-session') || crypto.randomUUID(); localStorage.setItem('stoyangu-session', sessionId);
-    fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'visit', session_id: sessionId }) }).catch(() => undefined);
+    fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'visit', session_id: visitSessionId() }) }).catch(() => undefined);
   }, [data?.store, slug]);
-  const onView = useCallback((productId: number) => { if (viewed.current.has(productId)) return; viewed.current.add(productId); const sessionId = localStorage.getItem('stoyangu-session') || crypto.randomUUID(); localStorage.setItem('stoyangu-session', sessionId); fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'product_view', product_id: productId, session_id: sessionId }) }).catch(() => undefined); }, [slug]);
+  const onView = useCallback((productId: number) => { if (viewed.current.has(productId)) return; viewed.current.add(productId); fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'product_view', product_id: productId, session_id: visitSessionId() }) }).catch(() => undefined); }, [slug]);
   const onOrder = useCallback(async (product: Product, color?: string, size?: string, fulfilment?: string, orderNote?: string) => {
     if (!data?.store) return;
-    const sessionId = localStorage.getItem('stoyangu-session') || crypto.randomUUID();
-    await fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'order', product_id: product.id, session_id: sessionId }) }).catch(() => undefined);
+    await fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'order', product_id: product.id, session_id: visitSessionId() }) }).catch(() => undefined);
     const design = data.store.design_json as Record<string, any>;
     const template = design?.commerce_rules?.whatsapp_message_template || design?.sections?.find?.((section: any) => section?.product_page)?.product_page?.whatsapp_message_template;
     const fallback = `Hi ${data.store.name}! I want to order ${product.name} (${formatPrice(product.price)})${size ? ` in size ${size}` : ''}${color ? `, colour ${color}` : ''}.\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\nCustomer note: ${orderNote}` : ''}\nPlease confirm availability.`;

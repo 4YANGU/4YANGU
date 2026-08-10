@@ -1,4 +1,4 @@
-import { ArrowRight, Check, Mail, Menu, MessageCircle, Play, ShieldCheck, Sparkles, Store as StoreIcon, Video, X } from 'lucide-react';
+import { ArrowRight, Check, Mail, MessageCircle, Play, ShieldCheck, Sparkles, Store as StoreIcon, Video } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import BrandLogo from '../components/BrandLogo';
@@ -20,7 +20,6 @@ export default function MarketingPage() {
   const [phone, setPhone] = useState('+254');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [mobileMenu, setMobileMenu] = useState(false);
   const [featured, setFeatured] = useState<{ store: Store; products: Product[] } | null>(null);
 
   useEffect(() => {
@@ -46,16 +45,15 @@ export default function MarketingPage() {
   const canonical = `https://${String(import.meta.env.VITE_ROOT_DOMAIN || window.location.host).replace(/^www\./, '')}/`;
   return <div className="marketing-page">
     <Seo title="StoYangu" description="Beautiful online stores for Kenyan social-media sellers of clothes, perfumes, watches and other physical products. Customers browse and order through WhatsApp." canonical={canonical} schema={marketingSchema} />
-    <header className="marketing-nav"><a href="/" aria-label="StoYangu home"><BrandLogo /></a><nav aria-label="Main navigation"><a href="#how">Inawork aje?</a><a href="#get-store">Napata StoYangu aje?</a><a href="#pricing">Ni how much?</a></nav><button className="marketing-menu-button" onClick={() => setMobileMenu((open) => !open)} aria-label="Open website menu" aria-expanded={mobileMenu}>{mobileMenu ? <X /> : <Menu />}</button><a className="nav-login" href="/login">Login <ArrowRight size={16} /></a>{mobileMenu && <nav className="marketing-mobile-menu" aria-label="Mobile navigation"><a href="#how" onClick={() => setMobileMenu(false)}>Inawork aje?</a><a href="#get-store" onClick={() => setMobileMenu(false)}>Napata StoYangu aje?</a><a href="#pricing" onClick={() => setMobileMenu(false)}>Ni how much?</a></nav>}</header>
+    <header className="marketing-nav"><a href="/" aria-label="StoYangu home"><BrandLogo /></a><nav aria-label="Main navigation"><a href="#how">Inawork aje?</a><a href="#get-store">Napata StoYangu aje?</a><a href="#pricing">Ni how much?</a></nav><nav className="marketing-quick-links" aria-label="Quick navigation"><a href="#how">Inawork aje?</a><a href="#pricing">Ni how much?</a></nav><a className="nav-login" href="/login">Login <ArrowRight size={16} /></a></header>
     <main>
       <section className="hero-section">
         <div className="hero-glow" />
         <motion.div className="hero-copy" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7 }}>
           <span className="hero-pill"><Sparkles size={15} /> Store yako. Free kuanza.</span>
           <h1>Video Yangu,<br /><em>Store Yangu</em></h1>
-          <p>Pata full store for your customers to shop on, in exchange for a short 1-minute video.</p>
-          <div className="hero-offer"><span>A pro store build costs <s>KES 15,000</s> huku inje.</span><b>Kwako ni FREE</b><small>Tuna-wave kabisa — lipa na a short 1-minute video about your business. After your free 30 days, ni KES 999/month tu for hosting & maintenance ya store yako.</small></div>
-          <div className="hero-commerce-tags"><span>Clothes</span><span>Perfumes</span><span>Watches</span><span>Beauty</span><span>Anything physical</span></div>
+          <div className="hero-offer"><span>A full store build: <s>KES 15,000</s></span><b>FREE kwako</b><small>Lipa na a short 1-minute video about your biashara — then KES 999/month hosting & maintenance after your free 30 days.</small></div>
+          <div className="hero-commerce-tags"><span>Clothes</span><span>Perfumes</span><span>Watches</span><span>Anything physical</span></div>
           <div className="hero-actions"><button className="button-primary" onClick={() => setApplyOpen(true)}>Apply for my store <ArrowRight /></button><a className="text-link" href="#how"><Play size={16} fill="currentColor" /> See how it works</a></div>
           <div className="trust-row"><span><Check /> Full design is free</span><span><Check /> 30 days free</span><span><ShieldCheck /> No pressure</span></div>
         </motion.div>
@@ -93,6 +91,29 @@ export default function MarketingPage() {
           <article className="step-card step-dark"><span className="step-number">01</span><div className="step-visual"><img src="/images/seller-recording-shop.jpg" alt="Black woman recording a product-selling video on her phone" loading="lazy" decoding="async" /></div><div className="step-copy"><div className="step-icon"><Video /></div><h3>Unatengeneza video</h3><p>Record a simple product video in your shop and mention your store link so customers know where to browse.</p></div></article>
           <article className="step-card"><span className="step-number">02</span><div className="step-visual"><img src="/images/category-products-flatlay.jpg" alt="Fashion, watch and perfume products displayed together" loading="lazy" decoding="async" /></div><div className="step-copy"><div className="step-icon"><StoreIcon /></div><h3>Wanaona products zote</h3><p>They see jerseys, hoodies, polos, perfume and every category together in one beautiful shop.</p></div></article>
           <article className="step-card step-green"><span className="step-number">03</span><div className="step-visual whatsapp-visual"><div className="whatsapp-shot"><div className="whatsapp-shot-head"><MessageCircle /><span>Stevo Jerseys</span><small>online</small></div><div className="whatsapp-shot-body"><div className="whatsapp-bubble">Hey, I am interested in the Stevo Home Jersey, KES 2,800, delivered to Kilimani near Yaya Centre. Could you kindly confirm availability and delivery?<time>11:42 ✓✓</time></div></div></div></div><div className="step-copy"><div className="step-icon"><MessageCircle /></div><h3>Unareceive order WhatsApp</h3><p>You receive a clear order with the product, price, location and customer instructions, then continue the conversation directly.</p></div></article>
+        </div>
+      </section>
+
+      <section className="marketing-section comments-section" aria-labelledby="comments-heading">
+        <div className="section-heading"><span className="eyebrow">Umechoka kureply?</span><h2 id="comments-heading">700 comments za “Bei gani?”<br /><em>One link inamaliza zote.</em></h2><p>Every day the same questions flood your TikTok, Instagram and Facebook: price, size, colours, delivery. Stop answering them one by one — send everyone to your store. Each product shows its price, sizes and colours clearly, and the customer orders straight on your WhatsApp.</p></div>
+        <div className="comments-grid">
+          <div className="comments-chaos" aria-hidden="true">
+            <span className="chaos-tag">WITHOUT STOYANGU</span>
+            <div className="chaos-bubble">Bei hii?? 🙏</div>
+            <div className="chaos-bubble">Size 38 iko?</div>
+            <div className="chaos-bubble">Colours gani ziko</div>
+            <div className="chaos-bubble">DM price please</div>
+            <div className="chaos-bubble">Deliver unado?</div>
+            <div className="chaos-bubble">Nitumie details</div>
+            <div className="chaos-count">≈ 700 a day · across TikTok, Instagram &amp; Facebook</div>
+          </div>
+          <div className="comments-calm">
+            <span className="calm-tag">WITH YOUR STORE LINK</span>
+            <div className="calm-product"><div><strong>Chelsea Third Jersey</strong><span>KES 1,100 · Sizes S–XXL · 6 colours</span></div></div>
+            <div className="calm-product"><div><strong>Home Perfume 100ml</strong><span>KES 900 · In stock</span></div></div>
+            <div className="calm-order"><MessageCircle size={14} /> Order via WhatsApp</div>
+            <p className="calm-note">Customer saw the product, price, size and colour — no DM needed.</p>
+          </div>
         </div>
       </section>
 
