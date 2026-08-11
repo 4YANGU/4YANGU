@@ -77,13 +77,13 @@ const imgOf = (value: unknown): string => {
   return '';
 };
 
-const deepImg = (root: unknown, depth = 0): string => {
+const deepImg = (root: unknown, depth = 0, skipKeys?: Set<string>): string => {
   if (root == null || depth > 6) return '';
   if (typeof root === 'string') return safeUrl(root);
   const direct = imgOf(root);
   if (direct) return direct;
-  if (Array.isArray(root)) { for (const item of root) { const found = deepImg(item, depth + 1); if (found) return found; } }
-  if (isObj(root)) for (const value of Object.values(root)) { const found = deepImg(value, depth + 1); if (found) return found; }
+  if (Array.isArray(root)) { for (const item of root) { const found = deepImg(item, depth + 1, skipKeys); if (found) return found; } }
+  if (isObj(root)) for (const [key, value] of Object.entries(root)) { if (skipKeys?.has(key)) continue; const found = deepImg(value, depth + 1, skipKeys); if (found) return found; }
   return '';
 };
 
@@ -126,24 +126,29 @@ function normalizeSection(raw: Obj, store: Store, design: Obj): Obj {
     if (actions.length) section.actions = actions.map((entry) => isObj(entry) ? { ...entry, label: textOf(first(entry, 'label', 'text', 'title', 'name', 'cta')) || entry.label, target: actionHrefOf(entry) } : { label: textOf(entry), target: '#products' });
   }
 
-  // Background imagery: honour every vocabulary, then promote deeply-nested
-  // hero visuals into a full-bleed backdrop automatically.
+  // Background imagery: honour explicit vocabularies; only reach deep into the
+  // tree as a RESCUE when the spec never built any structured visual itself
+  // (so finished designs like Pizzaro's split heroes are never flattened).
   let backdrop = imgOf(first(section, 'background_image', 'background_photo', 'bg_image', 'backdrop', 'cover_image', 'cover'))
-    || (isObj(section.background) ? imgOf(first(section.background, 'url', 'src', 'image', 'public_https_asset')) : '')
-    || (isObj(section.media) ? imgOf(first(section.media, 'background', 'backdrop', 'cover')) : '')
-    || (isObj(section.visual) ? imgOf(first(section.visual, 'background', 'image')) : '')
-    || (isObj(section.assets) ? imgOf(first(section.assets, 'background', 'hero', 'hero_media', 'cover', 'backdrop')) : '');
+    || (isObj(section.background) && !Array.isArray(section.background) ? imgOf(first(section.background, 'url', 'src', 'image', 'public_https_asset')) : '');
   const heroish = /hero|banner|jumbotron|masthead|spotlight|showcase|intro|welcome|landing|home/.test(identity);
-  if (heroish && !backdrop) backdrop = deepImg(section);
+  const heroStructuredVisual = array(first(section.hero_visual, 'slides', 'images', 'items')).length > 0
+    || array(first(section.visual, 'slides', 'images', 'items')).length > 0
+    || array(first(section.media, 'slides', 'images', 'items')).length > 0
+    || Boolean(isObj(section.hero_visual) && Object.keys(section.hero_visual).length);
+  const visualContainers = new Set(['hero_visual', 'visual', 'media', 'slides', 'gallery', 'images']);
+  const specundedImage = deepImg(section, 0, visualContainers);
+  if (heroish && !backdrop && !heroStructuredVisual) backdrop = specundedImage;
   if (backdrop) {
-    if (heroish) section.fullbleed = true;
-    section.style = { ...(isObj(section.style) ? section.style : {}), background_image: backdrop };
-    if (!array(first(section.hero_visual, 'slides')).length && !array(first(section.visual, 'slides')).length) {
-      section.hero_visual = { slides: [{ image: backdrop }] };
-    }
-  } else {
+    if (heroish && (!heroStructuredVisual || !!(section.fullbleed))) section.fullbleed = true;
+    if (heroish || section.style?.background_image === undefined && !isObj(section.style)) section.style = { ...(isObj(section.style) ? section.style : {}), background_image: backdrop };
+  }
+  if (heroish && !heroStructuredVisual && backdrop && !array(first(section.hero_visual, 'slides')).length && !array(first(section.visual, 'slides')).length) {
+    section.hero_visual = { slides: [{ image: backdrop }] };
+  }
+  if (heroish && !heroStructuredVisual) {
     const slides = array(first(section, 'slides', 'images', 'gallery'));
-    if (slides.length && !section.hero_visual && heroish) section.hero_visual = { slides };
+    if (slides.length && !section.hero_visual) section.hero_visual = { slides };
   }
 
   // Category sections can fall back to the store's real categories.
