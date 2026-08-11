@@ -1,0 +1,2888 @@
+{
+  "store_name": "FOOT TRAFFIC EMPIRE HQ",
+  "short_name": "Foot Traffic Tacticals",
+  "schema_version": "4.0",
+  "specification_type": "custom_expedition_tactical_storefront_design",
+  "design_scope": {
+    "description": "Custom expedition tactical storefront design specification for FOOT TRAFFIC EMPIRE HQ (Foot Traffic Tacticals), a premier tactical boots, cargo pants, outdoor watches, bush hats and heavy-duty backpacks store located along Ronald Ngala Street, Royal Palms Mall, Wing A, Mezzanine Floor, SHOP AM 33, Nairobi C.B.D., Kenya.",
+    "section_count": 4,
+    "section_order": [
+      "Home",
+      "Categories",
+      "Products",
+      "Contact"
+    ],
+    "only_sections": [
+      "Home",
+      "Categories",
+      "Products",
+      "Contact"
+    ],
+    "images_policy": "public_https_only",
+    "live_catalog_policy": "Products are supplied by the owner's product list in the app. The preview product records below represent visual preview examples only, not the full sellable catalog.",
+    "implementation_priority": "Reproduce this JSON as the visible source of truth for copy, imagery, styling, responsive behavior, interactions and motion."
+  },
+  "theme": {
+    "name": "Jungle Tactical Expedition HQ",
+    "mode": "tactical_fullbleed_expedition",
+    "creative_direction": "Rugged outdoorsy expedition aesthetic combining deep jungle forest green (#142B20), midnight canopy (#0B1812), flame amber orange (#E65100), high-contrast white space, tactical spec badges, HUD coordinates and Swahili field notes.",
+    "logo_source": {
+      "type": "owner_supplied_official_logo",
+      "source_file_name": "foot_tacticals.jpeg",
+      "public_https_asset": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png",
+      "symbol_public_https_asset": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png",
+      "transparent_background": true,
+      "usage": "Use the official brand logo avatar in the header, mobile menu, and footer. Use the circular emblem symbol for small brand moments and the favicon.",
+      "do_not_redraw": true
+    },
+    "logo_binding": {
+      "system_binding_instruction": "A JSON renderer should inspect system_logo_key or is_store_logo / is_store_logo_mark flags to substitute the store's official logo or mark from the app database.",
+      "database_keys": {
+        "PRIMARY_LOGO": "STORE_LOGO_PRIMARY",
+        "SYMBOL_MARK": "STORE_LOGO_SYMBOL_MARK"
+      },
+      "logo_placements": [
+        {
+          "placement_id": "header_logo",
+          "node_path": "global_ui.header.logo",
+          "system_logo_key": "STORE_LOGO_PRIMARY",
+          "database_field": "store.logo_url",
+          "use_full_logo": true,
+          "fallback_url": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png"
+        },
+        {
+          "placement_id": "mobile_menu_logo",
+          "node_path": "global_ui.mobile_menu.logo_image",
+          "system_logo_key": "STORE_LOGO_PRIMARY",
+          "database_field": "store.logo_url",
+          "use_full_logo": true,
+          "fallback_url": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png"
+        },
+        {
+          "placement_id": "footer_logo",
+          "node_path": "global_ui.footer.logo_image",
+          "system_logo_key": "STORE_LOGO_PRIMARY",
+          "database_field": "store.logo_url",
+          "use_full_logo": true,
+          "fallback_url": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png"
+        },
+        {
+          "placement_id": "favicon",
+          "node_path": "global_ui.favicon.image",
+          "system_logo_key": "STORE_LOGO_SYMBOL_MARK",
+          "database_field": "store.symbol_mark_url",
+          "use_symbol_mark": true,
+          "fallback_url": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png"
+        },
+        {
+          "placement_id": "hero_badge_icon",
+          "node_path": "sections[0].badge.icon_image",
+          "system_logo_key": "STORE_LOGO_SYMBOL_MARK",
+          "database_field": "store.symbol_mark_url",
+          "use_symbol_mark": true,
+          "fallback_url": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png"
+        },
+        {
+          "placement_id": "hero_floating_promo_icon",
+          "node_path": "sections[0].floating_promo.icon_image",
+          "system_logo_key": "STORE_LOGO_SYMBOL_MARK",
+          "database_field": "store.symbol_mark_url",
+          "use_symbol_mark": true,
+          "fallback_url": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png"
+        }
+      ]
+    },
+    "colours": {
+      "primary": "#142B20",
+      "primary_hover": "#0B1812",
+      "primary_dark": "#0B1812",
+      "navy_deep": "#08120D",
+      "primary_soft": "#E8EFEA",
+      "white": "#FFFFFF",
+      "canvas": "#F4F7F5",
+      "ink": "#0A140F",
+      "muted": "#526359",
+      "accent": "#E65100",
+      "brand_orange": "#E65100",
+      "brand_green": "#142B20",
+      "amber_glow": "#F57C00",
+      "border": "#D2DDD6"
+    },
+    "gradients": {
+      "hero_image_shade": "linear-gradient(135deg, rgba(11,24,18,0.88) 0%, rgba(11,24,18,0.65) 50%, rgba(11,24,18,0.92) 100%)",
+      "category_image_shade": "linear-gradient(180deg, rgba(11,24,18,0.02) 20%, rgba(11,24,18,0.90) 100%)",
+      "map_glass": "linear-gradient(135deg, rgba(255,255,255,0.12), transparent 42%, rgba(11,24,18,0.30))",
+      "products_ambient_glow": "radial orange glow using rgba(230,81,0,0.32) with 100px blur"
+    },
+    "typography": {
+      "font_import_url": "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600;1,700&family=Inter:wght@300;400;500;600;700;800&display=swap",
+      "headings_font": "Cormorant Garamond",
+      "everything_else_font": "Inter",
+      "display_family": "Cormorant Garamond",
+      "body_family": "Inter",
+      "hero_heading": {
+        "family": "Cormorant Garamond",
+        "weight": 700,
+        "desktop_size": "clamp(62px, 7.5vw, 112px)",
+        "mobile_size": "clamp(46px, 13.5vw, 68px)",
+        "line_height": 0.94,
+        "letter_spacing": "-0.035em"
+      },
+      "hero_accent": {
+        "family": "Cormorant Garamond",
+        "style": "italic",
+        "weight": 600,
+        "relative_size": "1.08em",
+        "line_height": 0.92,
+        "colour": "#E65100"
+      },
+      "section_heading": {
+        "family": "Cormorant Garamond",
+        "weight": 700,
+        "size": "clamp(50px, 6vw, 86px)",
+        "line_height": 1.02,
+        "letter_spacing": "-0.035em"
+      },
+      "body": {
+        "family": "Inter",
+        "weight": 400,
+        "size": "16px",
+        "line_height": 1.75,
+        "colour": "#526359"
+      },
+      "eyebrow": {
+        "family": "Inter",
+        "weight": 800,
+        "size": "13px",
+        "text_transform": "uppercase",
+        "letter_spacing": "0.16em"
+      }
+    },
+    "radii": {
+      "hero_image": "36px",
+      "section_panel": "36px",
+      "category_card": "26px",
+      "product_card": "25px",
+      "product_image": "18px",
+      "contact_map": "28px",
+      "modal": "30px",
+      "button": "999px",
+      "small_button": "14px",
+      "brand_mark": "50%"
+    },
+    "spacing": {
+      "desktop_section_y": "120px",
+      "desktop_page_x": "6vw",
+      "mobile_section_y": "85px",
+      "mobile_page_x": "20px",
+      "grid_gap": "18px",
+      "hero_image_margin": "16px"
+    },
+    "shadows": {
+      "brand_mark": "0 8px 20px rgba(20,43,32,0.20)",
+      "hero_visual": "0 30px 80px rgba(11,24,18,0.26)",
+      "primary_button": "0 14px 35px rgba(230,81,0,0.28)",
+      "floating_note": "0 20px 55px rgba(11,24,18,0.26)",
+      "map": "0 28px 60px rgba(11,24,18,0.28)",
+      "drawer": "-35px 0 80px rgba(8,18,13,0.25)",
+      "modal": "0 40px 100px rgba(8,18,13,0.35)",
+      "floating_json": "0 16px 40px rgba(11,24,18,0.28)"
+    },
+    "iconography": {
+      "library": "Lucide",
+      "stroke_style": "clean rounded outline",
+      "default_stroke_width": 2,
+      "icons_used": [
+        "ArrowDown",
+        "ArrowRight",
+        "Check",
+        "ChevronLeft",
+        "ChevronRight",
+        "Clock3",
+        "Code2",
+        "Copy",
+        "Download",
+        "ExternalLink",
+        "MapPin",
+        "Menu",
+        "MessageCircle",
+        "ShieldCheck",
+        "Sparkles",
+        "Star",
+        "Truck",
+        "X"
+      ]
+    },
+    "focus_style": {
+      "outline": "3px solid rgba(230,81,0,0.35)",
+      "outline_offset": "3px"
+    }
+  },
+  "global_ui": {
+    "announcement_bar": {
+      "visible": true,
+      "primary_text": "Tactical boots, cargo pants, watches & outdoor packs in Nairobi CBD · Shop AM 33",
+      "secondary_text": "NAV-GPS 1°17'08\"S 36°49'26\"E · Ronald Ngala St · Royal Palms Mall Wing A",
+      "separator": "glowing tactical-orange circular dot",
+      "height": "42px",
+      "background": "#0B1812",
+      "text_colour": "#FFFFFF",
+      "bottom_border": "2px solid #E65100",
+      "mobile_behavior": "Show primary text only"
+    },
+    "header": {
+      "position": "sticky",
+      "top": "0px",
+      "height_desktop": "82px",
+      "height_mobile": "66px",
+      "background": "rgba(255,255,255,0.94)",
+      "backdrop_blur": "18px",
+      "bottom_border": "1px solid rgba(210,221,214,0.80)",
+      "logo": {
+        "is_store_logo": true,
+        "system_logo_key": "STORE_LOGO_PRIMARY",
+        "database_field": "store.logo_url",
+        "type": "official owner-supplied full-colour image logo avatar",
+        "image": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png",
+        "alt": "FOOT TRAFFIC EMPIRE HQ",
+        "display_height": "55px",
+        "transparent_background": true
+      },
+      "navigation": [
+        {
+          "label": "Home",
+          "target": "#home"
+        },
+        {
+          "label": "Categories",
+          "target": "#categories"
+        },
+        {
+          "label": "Products",
+          "target": "#products"
+        },
+        {
+          "label": "Contact",
+          "target": "#contact"
+        }
+      ],
+      "desktop_navigation_style": "Centered text links with animated flame-orange underline from left to right on hover",
+      "shop_now_button": {
+        "label": "Shop NOW",
+        "icon": "ArrowRight",
+        "background": "#E65100",
+        "text_colour": "#FFFFFF",
+        "shape": "pill",
+        "target": "#products",
+        "interaction": "Smooth-scroll to the Products section",
+        "hover": "Translate upward 2px and increase the orange shadow"
+      },
+      "mobile_menu_button": {
+        "icon": "Menu",
+        "aria_label": "Open menu"
+      }
+    },
+    "scroll_progress": {
+      "visible": true,
+      "position": "fixed at viewport top",
+      "height": "3px",
+      "colour": "linear-gradient(90deg, #E65100, #F57C00)",
+      "transform_origin": "left center",
+      "motion_reference": "animations.scroll_progress"
+    },
+    "buttons": {
+      "base": {
+        "minimum_height": "56px",
+        "shape": "pill",
+        "font_size": "16px",
+        "font_weight": 700,
+        "icon_gap": "10px"
+      },
+      "primary": {
+        "background": "#E65100",
+        "text_colour": "#FFFFFF",
+        "hover_background": "#142B20",
+        "hover_transform": "translateY(-2px)"
+      },
+      "ghost": {
+        "background": "#FFFFFF",
+        "text_colour": "#0A140F",
+        "border": "1px solid #D2DDD6",
+        "hover_transform": "translateY(-2px)"
+      },
+      "brand_orange": {
+        "background": "#E65100",
+        "text_colour": "#FFFFFF"
+      }
+    },
+    "floating_json_button": {
+      "visible": true,
+      "preview_only_tool": true,
+      "render_in_client_app": false,
+      "client_store_visibility": "hidden_for_end_customers",
+      "label": "Copy design JSON",
+      "icon": "Code2",
+      "position": "fixed bottom-right, 20px inset",
+      "background": "#E65100",
+      "text_colour": "#FFFFFF",
+      "shape": "pill",
+      "mobile_behavior": "Circular icon-only button",
+      "action": "Open complete JSON drawer"
+    },
+    "mobile_menu": {
+      "is_store_logo": true,
+      "system_logo_key": "STORE_LOGO_PRIMARY",
+      "database_field": "store.logo_url",
+      "background": "#0B1812",
+      "logo_image": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png",
+      "close_icon": "X",
+      "items": [
+        "Home",
+        "Categories",
+        "Products",
+        "Contact"
+      ],
+      "item_numbering": "01 through 04",
+      "item_layout": "number, large label, right arrow",
+      "bottom_action_label": "Shop NOW",
+      "bottom_action_icon": "ArrowRight",
+      "bottom_action_style": "tactical-orange pill",
+      "bottom_action_target": "#products",
+      "ambient_effect": "Large blurred flame-orange orb at upper right"
+    },
+    "json_export_drawer": {
+      "preview_only_tool": true,
+      "render_in_client_app": false,
+      "client_store_visibility": "hidden_for_end_customers",
+      "kicker": "Complete visual JSON",
+      "title": "FOOT TRAFFIC EMPIRE HQ design",
+      "description": "Every Foot Traffic visual detail, responsive rule and animation—ready to copy and paste.",
+      "copy_action_idle": "Copy complete JSON",
+      "copy_action_success": "Copied to clipboard",
+      "download_action": "Download JSON",
+      "download_filename": "foottraffic-empire-hq-design.json",
+      "code_window_filename": "foottraffic-empire-hq-design.json",
+      "status_text": "4 sections · Foot Traffic content · Full motion spec · HTTPS images",
+      "compliance_note": "Product cards are view-only · WhatsApp ordering is product-page only",
+      "validity": "Valid JSON",
+      "layout": "Right-side drawer",
+      "desktop_width": "min(720px, 92vw)",
+      "mobile_width": "100%",
+      "background": "#F4F7F5",
+      "code_background": "#08120D",
+      "code_text_colour": "#D2DDD6",
+      "backdrop": "rgba(8,18,13,0.72) with 8px blur"
+    },
+    "copy_toast": {
+      "message": "JSON copied to clipboard",
+      "icon": "Check",
+      "background": "#142B20",
+      "text_colour": "#FFFFFF",
+      "duration_ms": 2200,
+      "position": "fixed bottom center"
+    },
+    "footer": {
+      "is_store_logo": true,
+      "system_logo_key": "STORE_LOGO_PRIMARY",
+      "database_field": "store.logo_url",
+      "background": "#08120D",
+      "logo_image": "https://tmpfiles.org/dl/1786443128.df3e586fa7d17eb3/wqwXOKEktPK6/foottraffic-logo.png",
+      "logo_presentation": "Official brand logo avatar on a compact white plate for contrast",
+      "tagline": "Tactical Footwear, Apparel & Outdoor Gear · Twende Kazi.",
+      "navigation": [
+        "Home",
+        "Categories",
+        "Products",
+        "Contact"
+      ],
+      "social": {
+        "platform": "TikTok",
+        "handle": "@foottraffictacticals",
+        "url": "https://www.tiktok.com/@foottraffictacticals?lang=en-GB"
+      },
+      "copyright_template": "© {current_year} FOOT TRAFFIC EMPIRE HQ · Ronald Ngala Street, Royal Palms Mall, Wing A, SHOP AM 33, Nairobi CBD",
+      "layout_desktop": "Three columns with centered navigation",
+      "layout_mobile": "Single centered column"
+    },
+    "favicon": {
+      "is_store_logo_mark": true,
+      "system_logo_key": "STORE_LOGO_SYMBOL_MARK",
+      "database_field": "store.symbol_mark_url",
+      "image": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png",
+      "type": "image/png",
+      "description": "Circular avatar crop of the official Foot Traffic Tacticals brand emblem"
+    }
+  },
+  "commerce_rules": {
+    "product_card_action": "View product",
+    "product_card_is_view_only": true,
+    "whatsapp_order_location": "product_page_only",
+    "cart_enabled": false,
+    "checkout_enabled": false,
+    "login_enabled": false,
+    "wishlist_enabled": false,
+    "live_catalog_source": "owner_product_list_in_app",
+    "json_product_records_are": "visual_preview_examples_only",
+    "whatsapp_number": "254708628263",
+    "whatsapp_link_mode": "direct_number_prefilled_message",
+    "whatsapp_message_template": "Hello Foot Traffic Empire HQ! I would like to order the {product_name} ({product_price}) in size {selected_size}. Please confirm availability and delivery or collection at SHOP AM 33, Royal Palms Mall, Wing A, Nairobi CBD."
+  },
+  "animations": {
+    "motion_personality": "editorial_smooth",
+    "default_easing": [
+      0.16,
+      1,
+      0.3,
+      1
+    ],
+    "css_default_easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "scroll_progress": {
+      "type": "spring linked to page scroll progress",
+      "from_scale_x": 0,
+      "to_scale_x": 1,
+      "stiffness": 120,
+      "damping": 30,
+      "rest_delta": 0.001
+    },
+    "section_reveal": {
+      "trigger": "first viewport entry",
+      "initial": {
+        "opacity": 0,
+        "translate_y_px": 28
+      },
+      "animate": {
+        "opacity": 1,
+        "translate_y_px": 0
+      },
+      "duration_seconds": 0.75,
+      "easing": [
+        0.16,
+        1,
+        0.3,
+        1
+      ],
+      "repeat": false
+    },
+    "hero_badge_reveal": {
+      "animation": "section_reveal",
+      "starts_on": "page load"
+    },
+    "hero_heading_reveal": {
+      "initial": {
+        "opacity": 0,
+        "translate_y_px": 36
+      },
+      "animate": {
+        "opacity": 1,
+        "translate_y_px": 0
+      },
+      "duration_seconds": 0.9,
+      "delay_seconds": 0.08,
+      "easing": [
+        0.16,
+        1,
+        0.3,
+        1
+      ]
+    },
+    "hero_tagline_reveal": {
+      "initial": {
+        "opacity": 0,
+        "translate_y_px": 20
+      },
+      "animate": {
+        "opacity": 1,
+        "translate_y_px": 0
+      },
+      "duration_seconds": 0.8,
+      "delay_seconds": 0.2
+    },
+    "hero_actions_reveal": {
+      "initial": {
+        "opacity": 0,
+        "translate_y_px": 20
+      },
+      "animate": {
+        "opacity": 1,
+        "translate_y_px": 0
+      },
+      "duration_seconds": 0.8,
+      "delay_seconds": 0.3
+    },
+    "hero_slideshow": {
+      "auto_advance_interval_ms": 5800,
+      "transition_mode": "wait",
+      "incoming": {
+        "opacity": 0,
+        "scale": 1.04
+      },
+      "active": {
+        "opacity": 1,
+        "scale": 1
+      },
+      "outgoing": {
+        "opacity": 0
+      },
+      "duration_seconds": 1.1,
+      "easing": [
+        0.16,
+        1,
+        0.3,
+        1
+      ],
+      "manual_controls": true,
+      "pause_on_manual_selection": false
+    },
+    "floating_new_drop_note": {
+      "keyframes_y_px": [
+        0,
+        -8,
+        0
+      ],
+      "duration_seconds": 4,
+      "repeat": "infinite",
+      "easing": "easeInOut"
+    },
+    "navigation_link_hover": {
+      "effect": "Flame-orange underline expands from left to right",
+      "duration_seconds": 0.35
+    },
+    "primary_button_hover": {
+      "translate_y_px": -2,
+      "shadow_increase": true,
+      "duration_seconds": 0.25
+    },
+    "category_card_reveal": {
+      "initial": {
+        "opacity": 0,
+        "translate_y_px": 34
+      },
+      "animate": {
+        "opacity": 1,
+        "translate_y_px": 0
+      },
+      "duration_seconds": 0.7,
+      "stagger_rule": "delay = (card_index modulo 3) × 0.08 seconds",
+      "viewport_amount": 0.2,
+      "repeat": false
+    },
+    "category_card_hover": {
+      "image_scale": 1.055,
+      "image_saturation": 1.08,
+      "duration_seconds": 0.8,
+      "arrow_initial": {
+        "opacity": 0,
+        "translate_x_px": -8
+      },
+      "arrow_hover": {
+        "opacity": 1,
+        "translate_x_px": 0
+      },
+      "arrow_duration_seconds": 0.35
+    },
+    "product_filter_transition": {
+      "layout_animation": true,
+      "presence_mode": "popLayout",
+      "incoming": {
+        "opacity": 0,
+        "scale": 0.96
+      },
+      "active": {
+        "opacity": 1,
+        "scale": 1
+      },
+      "outgoing": {
+        "opacity": 0,
+        "scale": 0.96
+      },
+      "duration_seconds": 0.45,
+      "stagger_seconds": 0.05
+    },
+    "product_card_hover": {
+      "image_scale": 1.045,
+      "image_duration_seconds": 0.8,
+      "button_background_from": "#0A140F",
+      "button_background_to": "#E65100",
+      "button_padding_shift_px": 3,
+      "button_duration_seconds": 0.3
+    },
+    "contact_map_pin_pulse": {
+      "type": "CSS keyframe",
+      "start": {
+        "scale": 0.75,
+        "opacity": 1
+      },
+      "end": {
+        "scale": 1.35,
+        "opacity": 0
+      },
+      "duration_seconds": 2.2,
+      "repeat": "infinite",
+      "easing": "ease-out"
+    },
+    "testimonial_reveal": {
+      "initial": {
+        "opacity": 0,
+        "translate_x_px": 30
+      },
+      "animate": {
+        "opacity": 1,
+        "translate_x_px": 0
+      },
+      "duration_seconds": 0.7,
+      "repeat": false
+    },
+    "mobile_menu": {
+      "backdrop_initial_opacity": 0,
+      "backdrop_active_opacity": 1,
+      "item_initial_translate_x_px": -30,
+      "item_initial_opacity": 0,
+      "item_active_translate_x_px": 0,
+      "item_active_opacity": 1,
+      "item_stagger_seconds": 0.08
+    },
+    "json_drawer": {
+      "initial_translate_x": "100%",
+      "active_translate_x": "0%",
+      "exit_translate_x": "100%",
+      "duration_seconds": 0.55,
+      "easing": [
+        0.16,
+        1,
+        0.3,
+        1
+      ],
+      "backdrop_fade": true
+    },
+    "product_modal": {
+      "initial": {
+        "opacity": 0,
+        "translate_y_px": 60,
+        "scale": 0.97
+      },
+      "active": {
+        "opacity": 1,
+        "translate_y_px": 0,
+        "scale": 1
+      },
+      "exit": {
+        "opacity": 0,
+        "translate_y_px": 30,
+        "scale": 0.98
+      },
+      "duration_seconds": 0.55,
+      "easing": [
+        0.16,
+        1,
+        0.3,
+        1
+      ],
+      "backdrop_fade": true
+    },
+    "reduced_motion": {
+      "media_query": "prefers-reduced-motion: reduce",
+      "disable_smooth_scroll": true,
+      "disable_map_pulse": true,
+      "disable_image_hover_transitions": true
+    }
+  },
+  "responsive_design": {
+    "approach": "desktop-first with fluid typography and content-safe mobile stacking",
+    "breakpoints": {
+      "large_tablet": "1100px",
+      "tablet": "800px",
+      "mobile": "560px"
+    },
+    "large_tablet_rules": [
+      "Hero remains immersive full bleed with tighter copy padding",
+      "Product grid changes from four to two columns",
+      "Contact grid uses equal columns",
+      "Contact detail cards stack in one column"
+    ],
+    "tablet_rules": [
+      "Desktop navigation hides and menu button appears",
+      "Shop NOW header button becomes arrow-icon only",
+      "Hero changes to one column",
+      "Hero visual becomes 640px tall",
+      "Sections use 85px vertical and 20px horizontal padding",
+      "Category grid becomes two columns with the Tactical Boots card full width",
+      "Contact panel stacks to one column",
+      "Footer stacks and centers",
+      "Product modal stacks image above content"
+    ],
+    "mobile_rules": [
+      "Hero actions stack full width",
+      "Hero visual becomes 570px tall",
+      "Category grid becomes one column",
+      "Product grid becomes one column",
+      "Filter pills wrap into two columns",
+      "Contact cards become one column",
+      "Floating JSON button becomes circular icon-only",
+      "JSON drawer fills the viewport",
+      "Product modal fills the viewport with no outer radius"
+    ]
+  },
+  "accessibility": {
+    "semantic_landmarks": [
+      "header",
+      "nav",
+      "main",
+      "section",
+      "article",
+      "footer",
+      "aside"
+    ],
+    "keyboard_focus_visible": true,
+    "all_icon_buttons_have_aria_labels": true,
+    "product_dialog": {
+      "role": "dialog",
+      "aria_modal": true,
+      "label_source": "selected product name"
+    },
+    "product_filters": {
+      "container_role": "tablist",
+      "button_role": "tab",
+      "aria_selected": true
+    },
+    "images_have_descriptive_alt_text": true,
+    "reduced_motion_supported": true,
+    "body_scroll_locked_for_overlays": true
+  },
+  "sections": [
+    {
+      "name": "Home",
+      "id": "home",
+      "nav_label": "Home",
+      "layout": {
+        "desktop": "Full-bleed immersive expedition hero with dark jungle overlay and floating HUD equipment cards",
+        "mobile": "Single column stacked hero with full-width action buttons",
+        "minimum_height": "calc(100vh - 110px)",
+        "background": "#142B20",
+        "copy_alignment": "left"
+      },
+      "announcement": "Tactical boots, cargo pants, watches & outdoor packs in Nairobi CBD · Shop AM 33",
+      "badge": {
+        "is_store_logo_mark": true,
+        "system_logo_key": "STORE_LOGO_SYMBOL_MARK",
+        "database_field": "store.symbol_mark_url",
+        "text": "Royal Palms Mall · Wing A · SHOP AM 33",
+        "icon": "official Foot Traffic emblem",
+        "icon_image": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png",
+        "background": "#EBF2ED",
+        "text_colour": "#142B20",
+        "shape": "pill"
+      },
+      "headline": "Equipped for the jungle. Built for the city.",
+      "headline_lines": [
+        {
+          "text": "Equipped for the jungle.",
+          "style": "display"
+        },
+        {
+          "text": "Built for the city.",
+          "style": "accent_italic_amber"
+        }
+      ],
+      "background_watermark": {
+        "text": "TACTICAL",
+        "position": "bottom left",
+        "colour": "rgba(255,255,255,0.03)",
+        "font": "Cormorant Garamond 700",
+        "desktop_size": "clamp(70px, 9vw, 150px)"
+      },
+      "tagline": "Heavy-duty Siwar & SWAT tactical boots, ripstop cargo pants, outdoor timepieces and MOLLE backpacks—curated at Ronald Ngala Street for extreme durability. Twende Kazi!",
+      "actions": [
+        {
+          "label": "Shop the collection",
+          "target": "#products",
+          "style": "primary",
+          "icon": "ArrowRight"
+        },
+        {
+          "label": "Explore categories",
+          "target": "#categories",
+          "style": "ghost",
+          "icon": "ArrowDown"
+        }
+      ],
+      "feature_text": [
+        {
+          "text": "Nairobi CBD & Countrywide Delivery",
+          "icon": "Truck"
+        },
+        {
+          "text": "Tested Quality Checked Gear",
+          "icon": "ShieldCheck"
+        },
+        {
+          "text": "Shop AM 33 Fitting & Pickup",
+          "icon": "Sparkles"
+        }
+      ],
+      "hero_visual": {
+        "radius": "36px",
+        "desktop_minimum_height": "670px",
+        "image_fit": "cover",
+        "shade_gradient": "theme.gradients.hero_image_shade",
+        "brand_motif": "A tall flame-orange outlined elliptical ring enters from the upper-right at a 38 degree angle with a soft amber glow",
+        "current_story_label": "Current mission",
+        "slide_number_format": "two_digit",
+        "controls": {
+          "previous_icon": "ChevronLeft",
+          "next_icon": "ChevronRight",
+          "show_progress_dots": true,
+          "active_dot_colour": "#E65100",
+          "inactive_dot_colour": "#A8B8AD"
+        },
+        "slides": [
+          {
+            "label": "Siwar & SWAT Tactical Boots",
+            "image": "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?auto=format&fit=crop&w=1800&q=90",
+            "alt": "Heavy-duty Siwar desert tactical boots"
+          },
+          {
+            "label": "Heavy-Duty MOLLE Backpacks",
+            "image": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1800&q=90",
+            "alt": "Waterproof MOLLE assault expedition pack"
+          },
+          {
+            "label": "Expedition & Outdoor Gear",
+            "image": "https://images.unsplash.com/photo-1501555088652-021faa106b9b?auto=format&fit=crop&w=1800&q=90",
+            "alt": "Outdoor forest and jungle expedition gear"
+          }
+        ]
+      },
+      "floating_promo": {
+        "is_store_logo_mark": true,
+        "system_logo_key": "STORE_LOGO_SYMBOL_MARK",
+        "database_field": "store.symbol_mark_url",
+        "icon_character": "official Foot Traffic emblem",
+        "icon_image": "https://tmpfiles.org/dl/1786443128.e04c4e131ee8b417/wXw8ODECt7Zs/foottraffic-mark.png",
+        "title": "Twende Kazi",
+        "body": "New Siwar boots & tactical packs in store",
+        "background": "#FFFFFF",
+        "icon_background": "#EBF2ED",
+        "position": "Hero visual upper left",
+        "animation_reference": "animations.floating_new_drop_note"
+      },
+      "animations_used": [
+        "hero_badge_reveal",
+        "hero_heading_reveal",
+        "hero_tagline_reveal",
+        "hero_actions_reveal",
+        "hero_slideshow",
+        "floating_new_drop_note"
+      ]
+    },
+    {
+      "name": "Categories",
+      "id": "categories",
+      "nav_label": "Categories",
+      "layout": {
+        "background": "#F4F7F5",
+        "desktop_grid_columns": 12,
+        "desktop_grid_row_height": "245px",
+        "desktop_card_spans": [
+          "Tactical Boots: 7 columns × 2 rows",
+          "Tactical Pants: 5 columns × 2 rows",
+          "Watches & Hats: 5 columns × 1 row",
+          "Backpacks & Gear: 7 columns × 1 row"
+        ],
+        "tablet": "Two columns; first card spans both columns",
+        "mobile": "One column"
+      },
+      "eyebrow": "Vifaa vya Outdoor na Tactical",
+      "headline": "Built for tough terrain. Ready for any mission.",
+      "intro": "Explore high-traction tactical footwear, ripstop combat pants, field timepieces and heavy-duty backpacks in Nairobi CBD.",
+      "card_design": {
+        "radius": "26px",
+        "image_fit": "cover",
+        "overlay": "theme.gradients.category_image_shade",
+        "number_position": "top right in outlined glass circle",
+        "number_format": "01 through 04",
+        "copy_position": "bottom left",
+        "arrow_behavior": "Hidden and shifted left until hover",
+        "interaction": "Selecting a category scrolls to Products and applies the matching filter when available"
+      },
+      "store_categories": [
+        {
+          "name": "Tactical Boots",
+          "tagline": "Siwar, SWAT & Jungle Trekking Boots",
+          "spec_tag": "VIBRAM LUG SOLE · DESERT PROOF",
+          "image": "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?auto=format&fit=crop&w=1200&q=85",
+          "alt": "Siwar and SWAT desert tactical boots",
+          "product_filter_target": "Tactical Boots"
+        },
+        {
+          "name": "Tactical Pants",
+          "tagline": "Ripstop Cargo Trousers & Combat Pants",
+          "spec_tag": "8 POCKETS · TEFLON COATED",
+          "image": "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&w=1200&q=85",
+          "alt": "Multi-pocket ripstop tactical cargo pants",
+          "product_filter_target": "Tactical Pants"
+        },
+        {
+          "name": "Watches & Hats",
+          "tagline": "Field Timepieces, Bush Hats & Caps",
+          "spec_tag": "SHOCKPROOF · UV BLOCK",
+          "image": "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1200&q=85",
+          "alt": "Shockproof outdoor field watch and jungle bush hat",
+          "product_filter_target": "Watches & Hats"
+        },
+        {
+          "name": "Backpacks & Gear",
+          "tagline": "MOLLE Packs & Forest Hiking Equipment",
+          "spec_tag": "600D WATERPROOF · 45L",
+          "image": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1200&q=85",
+          "alt": "Waterproof MOLLE tactical assault backpack",
+          "product_filter_target": "Backpacks & Gear"
+        }
+      ],
+      "animations_used": [
+        "section_reveal",
+        "category_card_reveal",
+        "category_card_hover"
+      ]
+    },
+    {
+      "name": "Products",
+      "id": "products",
+      "nav_label": "Products",
+      "layout": {
+        "background": "#0B1812",
+        "text_colour": "#FFFFFF",
+        "ambient_glow": "Large blurred flame-orange orb at upper right",
+        "desktop_grid": "Four equal columns",
+        "large_tablet_grid": "Two equal columns",
+        "mobile_grid": "One column",
+        "heading_alignment": "center"
+      },
+      "eyebrow": "Featured Tactical Lineup",
+      "headline": "High-performance gear tested for Nairobi and the wild.",
+      "intro": "A preview of fresh owner-listed gear at SHOP AM 33. Select any piece to inspect specs and order on WhatsApp.",
+      "filter_labels": [
+        "All gear",
+        "Tactical Boots",
+        "Tactical Pants",
+        "Watches & Hats",
+        "Backpacks & Gear"
+      ],
+      "filter_design": {
+        "container": "Outlined translucent forest pill",
+        "inactive_text": "rgba(255,255,255,0.68)",
+        "active_background": "#E65100",
+        "active_text": "#FFFFFF",
+        "mobile_layout": "Wrapped two-column pills"
+      },
+      "product_card": {
+        "style": "image_first_minimal",
+        "background": "#FFFFFF",
+        "text_colour": "#0A140F",
+        "radius": "25px",
+        "outer_padding": "11px",
+        "image_radius": "18px",
+        "image_fit": "cover",
+        "image_number_position": "bottom right",
+        "badge_position": "top left",
+        "badge_style": "white pill with forest-green uppercase text",
+        "badges": [
+          "Bestseller",
+          "New Drop",
+          "Heavy Duty"
+        ],
+        "only_action": "Inspect Gear Specs",
+        "action_icon": "ArrowRight",
+        "action_background": "#0A140F",
+        "action_hover_background": "#E65100",
+        "show_whatsapp": false,
+        "show_cart": false,
+        "show_checkout": false,
+        "show_login": false
+      },
+      "policy_notice_visible": false,
+      "preview_content_notice": "These records reproduce the visible demo cards only. They are not the owner's full catalog and must not replace the live owner product list.",
+      "preview_product_examples": [
+        {
+          "id": 1,
+          "name": "Siwar Desert Tactical Boot",
+          "category": "Tactical Boots",
+          "price": "KSh 4,800",
+          "badge": "Bestseller",
+          "image": "https://images.unsplash.com/photo-1520639888713-7851133b1ed0?auto=format&fit=crop&w=1000&q=90",
+          "description": "High-traction Vibram-style lug sole, reinforced ankle protection and breathable suede canvas. Built for desert trails, urban missions and all-day comfort.",
+          "sizes": [
+            "40",
+            "41",
+            "42",
+            "43",
+            "44",
+            "45"
+          ],
+          "colours": [
+            "#C28E5C",
+            "#142B20",
+            "#0A140F"
+          ]
+        },
+        {
+          "id": 2,
+          "name": "MOLLE Assault 45L Pack",
+          "category": "Backpacks & Gear",
+          "price": "KSh 3,900",
+          "badge": "Heavy Duty",
+          "image": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1000&q=90",
+          "description": "600D waterproof ripstop nylon with multi-compartment tactical webbing, hydration pouch sleeve and reinforced shoulder harness.",
+          "sizes": [
+            "Standard 45L"
+          ],
+          "colours": [
+            "#142B20",
+            "#0A140F",
+            "#3F4A32"
+          ]
+        },
+        {
+          "id": 3,
+          "name": "SWAT Ripstop Cargo Pants",
+          "category": "Tactical Pants",
+          "price": "KSh 2,800",
+          "badge": "New Drop",
+          "image": "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&w=1000&q=90",
+          "description": "Double-reinforced knee flex panels, 8 tactical utility pockets and Teflon-coated weather protection for extreme outdoor movement.",
+          "sizes": [
+            "30",
+            "32",
+            "34",
+            "36",
+            "38"
+          ],
+          "colours": [
+            "#142B20",
+            "#0A140F",
+            "#3F4A32"
+          ]
+        },
+        {
+          "id": 4,
+          "name": "Field Tactical Watch & Bush Hat",
+          "category": "Watches & Hats",
+          "price": "KSh 3,200",
+          "badge": "Bestseller",
+          "image": "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1000&q=90",
+          "description": "Shockproof military compass timepiece paired with a UV-blocking woodland camouflage hat. Perfect for safari trips, hikes and city wear.",
+          "sizes": [
+            "One Size"
+          ],
+          "colours": [
+            "#142B20",
+            "#E65100",
+            "#0A140F"
+          ]
+        }
+      ],
+      "product_page": {
+        "design_scope": "Complete visible and interactive design specification for the product detail experience opened by every View product action.",
+        "presentation": "Centered responsive product-detail modal on desktop and tablet; full-viewport product page on mobile.",
+        "page_shell": {
+          "position": "fixed",
+          "viewport_inset": "0px",
+          "z_index": 80,
+          "desktop_padding": "20px",
+          "layout": "CSS grid with content centered horizontally and vertically",
+          "body_scroll_behavior": "Lock page scroll while open"
+        },
+        "backdrop": {
+          "visible": true,
+          "position": "absolute full viewport",
+          "background": "rgba(8,18,13,0.72)",
+          "backdrop_blur": "8px",
+          "interaction": "Clicking or tapping closes the product page",
+          "animation": "Fade opacity from 0 to 1 on entry and back to 0 on exit"
+        },
+        "dialog": {
+          "role": "dialog",
+          "aria_modal": true,
+          "aria_label_source": "Selected product name",
+          "desktop_width": "min(1020px, 95vw)",
+          "desktop_max_height": "min(780px, 92vh)",
+          "background": "#FFFFFF",
+          "outer_padding": "12px",
+          "radius": "30px",
+          "overflow": "auto",
+          "box_shadow": "0 40px 100px rgba(8,18,13,0.35)",
+          "desktop_columns": "minmax(0, 1.02fr) minmax(360px, 0.98fr)",
+          "animation_reference": "animations.product_modal"
+        },
+        "close_button": {
+          "icon": "X",
+          "aria_label": "Close product",
+          "position": "absolute top-right at 20px",
+          "size": "39px by 39px",
+          "shape": "circle",
+          "background": "rgba(255,255,255,0.93)",
+          "border": "1px solid #D2DDD6",
+          "icon_colour": "#0A140F",
+          "z_index": 4
+        },
+        "media_panel": {
+          "desktop_min_height": "620px",
+          "radius": "22px",
+          "background": "#E8EFEA",
+          "overflow": "hidden",
+          "image_width": "100%",
+          "image_height": "100%",
+          "image_fit": "cover",
+          "image_source": "Selected owner-listed product image",
+          "image_alt_source": "Selected product name",
+          "badge": {
+            "visible": true,
+            "position": "top-left at 16px",
+            "background": "#FFFFFF",
+            "text_colour": "#142B20",
+            "shape": "pill",
+            "padding": "8px 11px",
+            "font_size": "11px",
+            "font_weight": 800,
+            "text_transform": "uppercase",
+            "letter_spacing": "0.10em"
+          }
+        },
+        "content_panel": {
+          "desktop_padding": "52px clamp(22px, 3.2vw, 45px) 28px",
+          "background": "#FFFFFF",
+          "alignment": "left",
+          "category_line": {
+            "format": "{product_category} / Expedition Grade",
+            "colour": "#E65100",
+            "font_size": "11px",
+            "font_weight": 800,
+            "text_transform": "uppercase",
+            "letter_spacing": "0.14em"
+          },
+          "product_name": {
+            "family": "Cormorant Garamond",
+            "weight": 700,
+            "size": "clamp(34px, 3.6vw, 52px)",
+            "line_height": 1.04,
+            "letter_spacing": "-0.03em",
+            "colour": "#0A140F",
+            "margin": "10px 0 6px"
+          },
+          "price": {
+            "colour": "#E65100",
+            "font_size": "22px",
+            "font_weight": 700
+          },
+          "description": {
+            "colour": "#526359",
+            "font_size": "16px",
+            "line_height": 1.7,
+            "margin": "20px 0 26px"
+          }
+        },
+        "category_suffix": "Expedition Grade",
+        "close_icon": "X",
+        "show_product_image": true,
+        "show_badge": true,
+        "show_category": true,
+        "show_name": true,
+        "show_price": true,
+        "show_description": true,
+        "size_selector": {
+          "visible": true,
+          "label": "Select size / fitting",
+          "helper": "True to size",
+          "section_border_top": "1px solid #D2DDD6",
+          "section_padding": "18px 0",
+          "layout": "Horizontal flex row that wraps when needed",
+          "gap": "7px",
+          "button_min_width": "48px",
+          "button_height": "44px",
+          "button_radius": "12px",
+          "unselected_background": "#FFFFFF",
+          "unselected_text": "#0A140F",
+          "unselected_border": "1px solid #D2DDD6",
+          "default_preference": "First size available",
+          "selected_background": "#0A140F",
+          "selected_text": "#FFFFFF",
+          "interaction": "Single selection; update the WhatsApp order message with the chosen size"
+        },
+        "colour_selector": {
+          "visible": true,
+          "label": "Colour",
+          "helper": "Selected",
+          "layout": "Horizontal row of circular colour swatches",
+          "gap": "7px",
+          "swatch_size": "31px by 31px",
+          "swatch_shape": "circle",
+          "swatch_border": "3px solid #FFFFFF",
+          "unselected_ring": "0 0 0 1px #D2DDD6",
+          "selected_ring_colour": "#142B20",
+          "selected_ring": "0 0 0 2px #142B20",
+          "selected_icon": "Check",
+          "selected_icon_colour": "#FFFFFF",
+          "interaction": "Single visual colour selection"
+        },
+        "delivery_note": {
+          "visible": true,
+          "title": "Nairobi CBD delivery or SHOP AM 33 pickup",
+          "body": "Royal Palms Mall, Wing A, Mezzanine Floor",
+          "icon": "Truck",
+          "background": "#EBF2ED",
+          "icon_colour": "#142B20",
+          "title_colour": "#0A140F",
+          "body_colour": "#526359",
+          "padding": "12px 14px",
+          "radius": "13px",
+          "layout": "Icon and copy aligned horizontally with 9px gap"
+        },
+        "only_order_action": "Order on WhatsApp",
+        "order_icon": "MessageCircle",
+        "order_arrow_icon": "ArrowRight",
+        "order_background": "#19A45B",
+        "order_hover_background": "#138B4C",
+        "order_button_design": {
+          "width": "100%",
+          "height": "56px",
+          "shape": "pill",
+          "horizontal_padding": "20px",
+          "text_colour": "#FFFFFF",
+          "font_size": "15px",
+          "font_weight": 800,
+          "box_shadow": "0 12px 28px rgba(25,164,91,0.22)",
+          "layout": "MessageCircle icon, label, then ArrowRight aligned to the far right",
+          "hover": "Translate upward 2px and change background to #138B4C"
+        },
+        "show_whatsapp": true,
+        "show_cart": false,
+        "show_checkout": false,
+        "show_login": false,
+        "order_note": "You’ll confirm availability, size, delivery or SHOP AM 33 pickup directly with Foot Traffic Empire HQ.",
+        "order_note_design": {
+          "alignment": "center",
+          "font_size": "10px",
+          "colour": "#526359",
+          "margin_top": "10px"
+        },
+        "whatsapp_number": "254708628263",
+        "whatsapp_link_mode": "direct_number_prefilled_message",
+        "whatsapp_message_template": "Hello Foot Traffic Empire HQ! I would like to order the {product_name} ({product_price}) in size {selected_size}. Please confirm availability and delivery or collection at SHOP AM 33, Royal Palms Mall, Wing A, Nairobi CBD.",
+        "responsive_behavior": {
+          "tablet_at_800px": "Dialog becomes one column with the image above content, maximum width 610px, and image minimum height 530px.",
+          "mobile_at_560px": "Page shell padding becomes 0; dialog fills 100% width and height with no outer radius; image minimum height is 53vh; content padding is 31px 17px 25px; close button stays fixed for constant access.",
+          "scrolling": "The dialog itself scrolls when content exceeds the viewport."
+        },
+        "interactions": {
+          "open_source": "View product button on a product card",
+          "on_open": "Load the selected product, select the first available size, select the first colour, animate the dialog in and lock the body scroll.",
+          "close_methods": [
+            "Close button",
+            "Backdrop click"
+          ],
+          "on_close": "Animate the dialog out, remove the overlay and restore body scrolling.",
+          "order_behavior": "Open WhatsApp in a new tab with product name, product price, selected size and SHOP AM 33 pickup notes prefilled."
+        },
+        "accessibility": {
+          "semantic_role": "dialog",
+          "aria_modal": true,
+          "dynamic_aria_label": "Selected product name",
+          "close_button_aria_label": "Close product",
+          "colour_buttons_have_aria_labels": true,
+          "product_image_has_dynamic_alt": true,
+          "visible_keyboard_focus": true,
+          "reduced_motion_follows_global_setting": true
+        }
+      },
+      "animations_used": [
+        "section_reveal",
+        "product_filter_transition",
+        "product_card_hover",
+        "product_modal"
+      ]
+    },
+    {
+      "name": "Contact",
+      "id": "contact",
+      "nav_label": "Contact",
+      "layout": {
+        "section_background": "#FFFFFF",
+        "panel_background": "#EBF2ED",
+        "panel_radius": "36px",
+        "panel_top_border": "4px solid #E65100",
+        "desktop": "Two columns with store details left and stylized Nairobi CBD destination map right",
+        "mobile": "Single stacked column"
+      },
+      "eyebrow": "Karibu Foot Traffic HQ",
+      "headline": "Visit SHOP AM 33 at Royal Palms Mall.",
+      "body": "Visit Wing A, Mezzanine Floor, SHOP AM 33 along Ronald Ngala Street in Nairobi C.B.D. to test fit your boots, inspect heavy-duty gear and pick up your order.",
+      "contact_items": [
+        {
+          "label": "Location",
+          "value": "Ronald Ngala Street, Royal Palms Mall, Wing A, Mezzanine Floor, SHOP AM 33, Nairobi C.B.D.",
+          "icon": "MapPin",
+          "action_icon": "ExternalLink",
+          "url": "https://www.google.com/maps/search/?api=1&query=Royal%20Palms%20Mall%20Ronald%20Ngala%20Street%20Nairobi",
+          "opens_new_tab": true
+        },
+        {
+          "label": "Open hours",
+          "value": "Monday–Saturday, 8:00 AM–7:30 PM",
+          "icon": "Clock3",
+          "action": "none"
+        },
+        {
+          "label": "TikTok",
+          "value": "@foottraffictacticals",
+          "icon": "ExternalLink",
+          "action_icon": "ArrowRight",
+          "url": "https://www.tiktok.com/@foottraffictacticals?lang=en-GB"
+        },
+        {
+          "label": "WhatsApp / Call",
+          "value": "+254 708 628 263",
+          "icon": "MessageCircle",
+          "action_icon": "ArrowRight",
+          "url": "https://wa.me/254708628263?text=Hello%20Foot%20Traffic%20Empire%20HQ!%20I%20have%20an%20enquiry%20about%20your%20tactical%20gear%20at%20SHOP%20AM%2033."
+        }
+      ],
+      "location": "Ronald Ngala Street, Royal Palms Mall, Wing A, Mezzanine Floor, SHOP AM 33, Nairobi C.B.D.",
+      "hours": "Monday–Saturday, 8:00 AM–7:30 PM",
+      "phone": "+254 708 628 263",
+      "email": "Message us for boot fittings & gear stock",
+      "socials": [
+        {
+          "platform": "TikTok",
+          "handle": "@foottraffictacticals",
+          "url": "https://www.tiktok.com/@foottraffictacticals?lang=en-GB"
+        }
+      ],
+      "map_visual": {
+        "type": "real_interactive_google_map_embed",
+        "embed_url": "https://maps.google.com/maps?q=Royal%20Palms%20Mall%20Ronald%20Ngala%20Street%20Nairobi&t=&z=16&ie=UTF8&iwloc=&output=embed",
+        "directions_url": "https://www.google.com/maps/search/?api=1&query=Royal%20Palms%20Mall%20Ronald%20Ngala%20Street%20Nairobi",
+        "radius": "28px",
+        "eyebrow": "Nairobi C.B.D. Location Map",
+        "city": "ROYAL PALMS MALL",
+        "room_detail": "Wing A · Mezzanine Floor · SHOP AM 33",
+        "directions_button": {
+          "label": "Get Directions",
+          "icon": "ExternalLink",
+          "background": "#E65100",
+          "text_colour": "#FFFFFF",
+          "shape": "pill",
+          "action": "Opens Google Maps directions to Royal Palms Mall Ronald Ngala Street in a new tab"
+        },
+        "overlay_header": {
+          "background": "rgba(11, 24, 18, 0.90)",
+          "backdrop_blur": "14px",
+          "border": "1px solid rgba(255, 255, 255, 0.18)"
+        },
+        "delivery_chip": {
+          "text": "Same-day Nairobi CBD delivery & countrywide parcel dispatch",
+          "icon": "Truck",
+          "icon_colour": "#E65100",
+          "style": "dark translucent glass"
+        }
+      },
+      "testimonial": {
+        "rating": 5,
+        "star_icon": "Star",
+        "quote": "The Siwar boots are indestructible and comfortable for whole days on trail or in town. SHOP AM 33 is the ultimate tactical spot in Nairobi CBD.",
+        "author": "A satisfied Nairobi buyer",
+        "location": "Nairobi CBD",
+        "citation_display": "— A satisfied Nairobi buyer",
+        "card_background": "#FFFFFF",
+        "style": "floating editorial card",
+        "position": "overlapping lower-right edge of map"
+      },
+      "animations_used": [
+        "section_reveal",
+        "contact_map_pin_pulse",
+        "testimonial_reveal"
+      ]
+    }
+  ]
+}
+
+
+{
+  "theme": {
+    "mode": "dark",
+    "radii": {
+      "lg": "24px",
+      "md": "16px",
+      "sm": "12px",
+      "xl": "32px",
+      "xs": "8px",
+      "pill": "999px"
+    },
+    "colours": {
+      "muted": "#9AA0A6",
+      "border": "#23272B",
+      "canvas": "#FFFDF8",
+      "primary": "#0A0A0A",
+      "success": "#00E673",
+      "gradients": {
+        "hero": "radial-gradient(90% 120% at 30% 20%, #1A1D20 0%, #0A0A0A 60%)",
+        "red_glow": "radial-gradient(400px 200px at 50% 0%, rgba(255,43,43,0.18), transparent 70%)",
+        "blue_glow": "radial-gradient(500px 300px at 80% 80%, rgba(10,132,255,0.15), transparent 70%)",
+        "card_sheen": "linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 55%)"
+      },
+      "off_white": "#F5F3EF",
+      "electric_red": "#FF2B2B",
+      "concrete_grey": "#1D2126",
+      "electric_blue": "#0A84FF",
+      "concrete_light": "#2A2E33",
+      "primary_foreground": "#F5F3EF"
+    },
+    "shadows": {
+      "hard": "0 0 0 1px rgba(255,255,255,0.08), 0 12px 40px rgba(0,0,0,0.5)",
+      "soft": "0 8px 30px rgba(0,0,0,0.35)",
+      "glow_red": "0 0 30px rgba(255,43,43,0.35), 0 0 60px rgba(255,43,43,0.15)",
+      "glow_blue": "0 0 30px rgba(10,132,255,0.35), 0 0 60px rgba(10,132,255,0.15)"
+    },
+    "spacing": {
+      "grid_gap": "24px",
+      "header_h": "72px",
+      "section_y": "96px",
+      "container_max": "1280px"
+    },
+    "gradients": {
+      "hero": "radial-gradient(90% 120% at 30% 20%, #1A1D20 0%, #0A0A0A 60%)",
+      "concrete": "linear-gradient(180deg, #1D2126 0%, #0A0A0A 100%)",
+      "accent_red": "linear-gradient(135deg, #FF2B2B 0%, #FF5A1F 100%)",
+      "accent_blue": "linear-gradient(135deg, #0A84FF 0%, #00D5FF 100%)"
+    },
+    "typography": {
+      "ratio": "1.22",
+      "fallback": "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+      "body_font": "Inter",
+      "body_weights": [
+        400,
+        500,
+        600
+      ],
+      "heading_font": "Montserrat",
+      "heading_weights": [
+        700,
+        800,
+        900
+      ],
+      "display_tracking": "-0.04em",
+      "uppercase_headings": true
+    },
+    "iconography": {
+      "set": "lucide-react",
+      "style": "reticle + stamp + brutalist hash",
+      "accent": "electric dot + crosshair corners",
+      "stroke": 1.75
+    },
+    "logo_source": "/logo-bestonkicks.png",
+    "logo_binding": {
+      "placements": [
+        {
+          "id": "header",
+          "location": "Header — top-left lockup (BK monogram + BESTON KICKS wordmark)",
+          "is_store_logo": true,
+          "database_field": "store.logo_url",
+          "system_logo_key": "STORE_LOGO_PRIMARY"
+        },
+        {
+          "id": "mobile_menu",
+          "location": "Mobile Menu — drawer header lockup",
+          "is_store_logo": true,
+          "database_field": "store.logo_url",
+          "system_logo_key": "STORE_LOGO_PRIMARY"
+        },
+        {
+          "id": "footer",
+          "location": "Footer — large brutalist stamp bottom-left",
+          "is_store_logo": true,
+          "database_field": "store.logo_url",
+          "system_logo_key": "STORE_LOGO_PRIMARY"
+        },
+        {
+          "id": "favicon",
+          "location": "Favicon — /favicon.svg BK mark, 32x32 black + red/blue bars",
+          "is_store_logo": true,
+          "database_field": "store.logo_url",
+          "system_logo_key": "STORE_LOGO_PRIMARY"
+        },
+        {
+          "id": "hero_badge",
+          "location": "Home Hero Badge — floating pill top-left of pedestal (logo + EST. NAIROBI)",
+          "is_store_logo": true,
+          "database_field": "store.logo_url",
+          "system_logo_key": "STORE_LOGO_PRIMARY"
+        },
+        {
+          "id": "hero_promo",
+          "location": "Home Hero Promo — bottom overlay card inside hero pedestal (logo + Worldwide Delivery plug)",
+          "is_store_logo": true,
+          "database_field": "store.logo_url",
+          "system_logo_key": "STORE_LOGO_PRIMARY"
+        }
+      ],
+      "is_store_logo": true,
+      "database_field": "store.logo_url",
+      "system_logo_key": "STORE_LOGO_PRIMARY"
+    },
+    "creative_direction": "Nairobi Hype Brutalist — concrete street temple with electric pulses. Black canvas meets electric red/blue reticle glows, off-white typography slabs, industrial dividers, ticker tapes and stamp badges. Built for sneakerheads who flex with trust."
+  },
+  "sections": [
+    {
+      "id": "home",
+      "body": "Nairobi sneakerheads' plug since day one. Chagua yako from our curated heat — men's, women's, new drops daily. Worldwide delivery from Ronald Ngala Street.",
+      "ctas": [
+        {
+          "href": "#products",
+          "label": "Shop NOW",
+          "variant": "primary"
+        },
+        {
+          "href": "#categories",
+          "label": "Browse Categories",
+          "variant": "secondary"
+        }
+      ],
+      "type": "Home",
+      "eyebrow": "ROYAL PALM MALL • WING B, 2ND FLOOR, BF82 • NAIROBI CBD",
+      "tagline": "Quality You Can Trust, Style You Can Flex — designer-look sneakers, sizes 36–45, original bado mtaani.",
+      "headline": "QUALITY YOU CAN TRUST, STYLE YOU CAN FLEX",
+      "slideshow": {
+        "images": [
+          "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=1200&q=80&auto=format&fit=crop",
+          "https://images.unsplash.com/photo-1608231387042-66d1773070a5?w=1200&q=80&auto=format&fit=crop",
+          "https://images.unsplash.com/photo-1551107696-a4b0c5a0d9a2?w=1200&q=80&auto=format&fit=crop"
+        ],
+        "autoplay_ms": 2600
+      },
+      "spec_cards": [
+        {
+          "desc": "Designer-look quality inspected — stitch, sole, comfort verified.",
+          "icon": "shield-check",
+          "title": "Original Check"
+        },
+        {
+          "desc": "All-day cushion for CBD hustle to weekend flex.",
+          "icon": "footprints",
+          "title": "Street Comfort"
+        },
+        {
+          "desc": "Wrong size? We sort you — WhatsApp us, we move fast.",
+          "icon": "badge-check",
+          "title": "Chagua Yako Guarantee"
+        }
+      ],
+      "proof_points": [
+        {
+          "sub": "Trust earned mtaani",
+          "label": "Pairs Moved",
+          "value": "500+"
+        },
+        {
+          "sub": "Men & Women covered",
+          "label": "Full Size Run",
+          "value": "36–45"
+        },
+        {
+          "sub": "Nairobi → Dunia",
+          "label": "Worldwide Plug",
+          "value": "24H"
+        }
+      ],
+      "marquee_ticker": {
+        "text": "CHAGUA YAKO • ORIGINAL BADO MTAANI • SIZES 36–45 • WORLDWIDE DELIVERY • ROYAL PALM MALL BF82 • +254 793 825 499 • @BESTON_KICKS_",
+        "speed": "28s"
+      },
+      "hero_badge_logo_binding": {
+        "placement": "Hero Badge",
+        "is_store_logo": true,
+        "database_field": "store.logo_url",
+        "system_logo_key": "STORE_LOGO_PRIMARY"
+      },
+      "hero_promo_logo_binding": {
+        "placement": "Hero Promo",
+        "is_store_logo": true,
+        "database_field": "store.logo_url",
+        "system_logo_key": "STORE_LOGO_PRIMARY"
+      }
+    },
+    {
+      "id": "categories",
+      "type": "Categories",
+      "cards": [
+        {
+          "id": "mens",
+          "href": "#products",
+          "note": "Bold silhouettes, heavy tread. Designed for CBD grind & night flex.",
+          "count": "42+ Pairs",
+          "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=900&q=80&auto=format&fit=crop",
+          "title": "Men's Sneakers",
+          "spec_pills": [
+            "Sizes 40–45",
+            "Air Cushion",
+            "Street Core"
+          ]
+        },
+        {
+          "id": "womens",
+          "href": "#products",
+          "note": "Lightweight knit & cloud soles. Cute but serious street energy.",
+          "count": "38+ Pairs",
+          "image": "https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?w=900&q=80&auto=format&fit=crop",
+          "title": "Women's Sneakers",
+          "spec_pills": [
+            "Sizes 36–41",
+            "Light Flex",
+            "Neon / Pastel"
+          ]
+        },
+        {
+          "id": "new",
+          "href": "#products",
+          "note": "Fresh heat straight off the box. Chagua yako before itado.",
+          "count": "Drop This Week",
+          "image": "https://images.unsplash.com/photo-1608231387042-66d1773070a5?w=900&q=80&auto=format&fit=crop",
+          "title": "New Arrivals",
+          "spec_pills": [
+            "This Week",
+            "Limited Stock",
+            "Hype Checked"
+          ]
+        },
+        {
+          "id": "worldwide",
+          "href": "#contact",
+          "note": "We ship from Royal Palm Mall. Pay on delivery in Nairobi CBD, dispatch global.",
+          "count": "Nairobi → Dunia",
+          "image": "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=900&q=80&auto=format&fit=crop",
+          "title": "Worldwide Delivery",
+          "spec_pills": [
+            "DHL / Fargo",
+            "24–72H Kenya",
+            "Worldwide"
+          ]
+        }
+      ],
+      "intro": "From heavyweight men's heat to lightweight women's flex — plus fresh arrivals dropping weekly. Worldwide delivery plug included.",
+      "eyebrow": "CHOOSE YOUR LANE",
+      "headline": "FLEX FOR EVERY FIT"
+    },
+    {
+      "id": "products",
+      "type": "Products",
+      "intro": "View-only catalog — tap Inspect Gear Specs to check details, sizes 36–45, and WhatsApp your order. No cart, straight plug.",
+      "eyebrow": "GEAR IN STOCK",
+      "filters": [
+        "All",
+        "Men's",
+        "Women's",
+        "New Arrivals"
+      ],
+      "headline": "INSPECT THE HEAT",
+      "preview_products": [
+        {
+          "id": "bk-001",
+          "name": "VAPOR FLEX 01 — Shadow Black",
+          "badge": "BESTSELLER",
+          "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=900&q=80&auto=format&fit=crop",
+          "sizes": "40–45",
+          "category": "Men's",
+          "price_kes": "4,500"
+        },
+        {
+          "id": "bk-002",
+          "name": "CLOUD KNIT 350 — Desert Ash",
+          "badge": "NEW",
+          "image": "https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?w=900&q=80&auto=format&fit=crop",
+          "sizes": "36–41",
+          "category": "Women's",
+          "price_kes": "4,200"
+        },
+        {
+          "id": "bk-003",
+          "name": "COURT LEGEND 550 — Off-White Gum",
+          "badge": "LIMITED",
+          "image": "https://images.unsplash.com/photo-1608231387042-66d1773070a5?w=900&q=80&auto=format&fit=crop",
+          "sizes": "38–44",
+          "category": "New Arrivals",
+          "price_kes": "4,800"
+        },
+        {
+          "id": "bk-004",
+          "name": "RETRO FORCE 4 — Brick Red",
+          "badge": "HYPE",
+          "image": "https://images.unsplash.com/photo-1551107696-a4b0c5a0d9a2?w=900&q=80&auto=format&fit=crop",
+          "sizes": "40–45",
+          "category": "Men's",
+          "price_kes": "5,200"
+        }
+      ],
+      "all_products_count": 8,
+      "product_page_modal_spec": {
+        "sections": [
+          "gallery",
+          "title_price",
+          "size_selector",
+          "specs",
+          "delivery_note",
+          "whatsapp_cta",
+          "call_cta"
+        ],
+        "view_only": true,
+        "single_action": "Inspect Gear Specs",
+        "whatsapp_prefill": "Habari Beston Kicks! 🔥 Nataka ku-order *{product}* size {size}, ni how much? Nikko Royal Palm ama mnaeza deliver?",
+        "whatsapp_cta_label": "Order via WhatsApp",
+        "whatsapp_only_here": true
+      }
+    },
+    {
+      "id": "contact",
+      "body": "Opposite Umoinner stage, next to Naivas, Wing B, 2nd Floor, BF82 — Nairobi CBD. Can't make it? WhatsApp your size, we deliver worldwide.",
+      "type": "Contact",
+      "eyebrow": "COME THROUGH • TUNAWANGOJA",
+      "headline": "FIND US AT ROYAL PALM",
+      "location": {
+        "name": "Beston Kicks — Royal Palm Mall",
+        "hours": "Mon–Sat, 8:00 AM–7:30 PM (confirm)",
+        "phone": "+254 793 825 499",
+        "social": {
+          "tiktok": "@beston_kicks_",
+          "tiktok_url": "https://www.tiktok.com/@beston_kicks_"
+        },
+        "address": "Royal Palm Mall, Ronald Ngala St, Wing B, 2nd Floor, BF82 (opp. Umoinner stage, next to Naivas), Nairobi CBD",
+        "whatsapp": "+254793825499"
+      },
+      "map_embed": {
+        "provider": "Google Maps",
+        "embed_url": "https://maps.google.com/maps?q=Royal%20Palm%20Mall%20Ronald%20Ngala%20Street%20Nairobi&t=&z=17&ie=UTF8&iwloc=&output=embed",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&destination=Royal+Palm+Mall+Ronald+Ngala+Street+Nairobi+Kenya"
+      },
+      "review_quote": {
+        "text": "\"Original bado mtaani! Nimechagua yangu BF82, size 44 ikafit perfect. Beston wako legit — delivery ilifika same day CBD.\"",
+        "stars": 5,
+        "author": "Kevin M. — Nairobi CBD"
+      },
+      "directions_button": {
+        "href": "https://www.google.com/maps/dir/?api=1&destination=Royal+Palm+Mall+Ronald+Ngala+Street+Nairobi+Kenya",
+        "label": "Get Directions"
+      }
+    }
+  ],
+  "global_ui": {
+    "footer": {
+      "legal": "© 2026 Beston Kicks. Quality You Can Trust, Style You Can Flex. Nairobi CBD.",
+      "style": "black concrete, large BK stamp, 4 columns + map strip",
+      "logo_placement": "footer"
+    },
+    "header": {
+      "height": "72px",
+      "layout": "logo left, nav center, Shop NOW right, mobile burger",
+      "sticky": true,
+      "background": "#0A0A0A with bottom hairline #23272B",
+      "logo_placement": "header"
+    },
+    "favicon": {
+      "mark": "BK monogram on black with red/blue bars",
+      "path": "/favicon.svg",
+      "logo_binding": {
+        "is_store_logo": true,
+        "database_field": "store.logo_url",
+        "system_logo_key": "STORE_LOGO_PRIMARY"
+      }
+    },
+    "navigation": {
+      "links": [
+        {
+          "href": "#home",
+          "label": "Home"
+        },
+        {
+          "href": "#categories",
+          "label": "Categories"
+        },
+        {
+          "href": "#products",
+          "label": "Products"
+        },
+        {
+          "href": "#contact",
+          "label": "Contact"
+        }
+      ],
+      "active_style": "electric underline + red dot",
+      "mobile_style": "full-screen drawer, off-white, concrete texture"
+    },
+    "mobile_menu": {
+      "type": "slide-over drawer from right",
+      "overlay": "black 60%",
+      "logo_binding": {
+        "is_store_logo": true,
+        "database_field": "store.logo_url",
+        "system_logo_key": "STORE_LOGO_PRIMARY"
+      },
+      "includes_logo": true
+    },
+    "shop_now_button": {
+      "href": "#products",
+      "label": "Shop NOW",
+      "style": "pill, electric red, white text, arrow, glow on hover",
+      "action": "scrollTo #products"
+    },
+    "announcement_bar": {
+      "style": "black with red/blue hash, ticker, Sheng",
+      "content": "CHAGUA YAKO • ORIGINAL BADO MTAANI • SIZES 36–45 • WORLDWIDE DELIVERY • ROYAL PALM MALL BF82 • MON–SAT 8AM–7:30PM • WHATSAPP +254 793 825 499",
+      "enabled": true,
+      "marquee_speed": "28s linear infinite"
+    },
+    "json_export_drawer": {
+      "features": [
+        "copy",
+        "download",
+        "preview"
+      ],
+      "position": "bottom-sheet",
+      "preview_only_tool": true,
+      "render_in_client_app": false
+    },
+    "floating_json_button": {
+      "label": "Copy design JSON",
+      "style": "glass + red accent, hidden in production",
+      "position": "fixed bottom-right",
+      "preview_only_tool": true,
+      "render_in_client_app": false
+    }
+  },
+  "animations": {
+    "ticker": "infinite marquee 28s linear",
+    "transitions": {
+      "page": "fade + slide 220ms",
+      "modal": "scale 0.96 -> 1, backdrop blur"
+    },
+    "hover_effects": {
+      "cards": "glow border (red/blue), lift 4px, reticle corners fade in",
+      "images": "scale 1.06 zoom, sheen sweep",
+      "buttons": "scale 1.02, glow shadow, arrow slide"
+    },
+    "reticle_pulse": "crosshair corners pulse 2s ease-in-out infinite",
+    "motion_personality": "hype-brutalist: snappy 180ms, spring 0.9, reticle pulse, glow borders, ticker drift"
+  },
+  "short_name": "BK",
+  "store_name": "Beston Kicks",
+  "accessibility": {
+    "contrast": "WCAG AA on black/off-white, red/blue only as accent not text",
+    "landmarks": [
+      "banner",
+      "navigation",
+      "main",
+      "section",
+      "contentinfo"
+    ],
+    "aria_labels": {
+      "nav": "Primary navigation",
+      "hero": "Beston Kicks hero",
+      "mobile_menu": "Mobile menu",
+      "product_modal": "Product details dialog"
+    },
+    "focus_states": "2px electric red outline + blue offset, visible on all interactives"
+  },
+  "commerce_rules": {
+    "no_cart": true,
+    "no_login": true,
+    "no_checkout": true,
+    "whatsapp_number": "+254793825499",
+    "whatsapp_order_location": "product_page_only",
+    "product_card_is_view_only": true,
+    "whatsapp_message_template": "Habari Beston Kicks! 🔥 Nataka ku-order *{product_name}* (Size: {size}) — Price: {price}. Location: {address}. Bado iko? Chagua Yako!",
+    "product_card_single_action": "Inspect Gear Specs"
+  },
+  "schema_version": "4.0",
+  "responsive_design": {
+    "breakpoints": {
+      "lg": "1024px",
+      "md": "768px",
+      "sm": "640px",
+      "xl": "1280px"
+    },
+    "stacking_rules": {
+      "hero": "stack on <1024px: text top, pedestal bottom, badge remains absolute",
+      "contact": "2-col desktop (info left, map right), stack mobile",
+      "products": "4-col desktop, 2-col tablet, 1-col mobile",
+      "categories": "4-col desktop, 2-col tablet, 1-col mobile"
+    }
+  }
+}
+
+
+
+
+{
+  "theme": {
+    "mode": "tactical_military",
+    "radii": {
+      "lg": "20px",
+      "md": "14px",
+      "sm": "10px",
+      "xl": "28px",
+      "xs": "6px",
+      "card": "16px",
+      "pill": "999px"
+    },
+    "colours": {
+      "ink": "#0D1F2D",
+      "navy": "#0D1F2D",
+      "muted": "#6B7280",
+      "white": "#FFFFFF",
+      "accent": "#D32F2F",
+      "border": "#E5E7EB",
+      "canvas": "#F5F5F5",
+      "overlay": "rgba(13, 31, 45, 0.72)",
+      "primary": "#1a1a1a",
+      "success": "#1B5E20",
+      "navy_light": "#1A3448",
+      "accent_soft": "#FFEBEE",
+      "border_dark": "#D1D5DB",
+      "canvas_dark": "#EDEDED",
+      "muted_light": "#9CA3AF",
+      "accent_hover": "#B71C1C",
+      "primary_dark": "#101010",
+      "primary_soft": "#2E2E2E"
+    },
+    "shadows": {
+      "nav": "0 1px 3px rgba(0,0,0,0.08)",
+      "card": "0 4px 24px rgba(13,31,45,0.08)",
+      "modal": "0 25px 60px rgba(13,31,45,0.25)",
+      "button": "0 4px 14px rgba(211,47,47,0.35)",
+      "card_hover": "0 12px 40px rgba(13,31,45,0.14)"
+    },
+    "spacing": {
+      "lg": "40px",
+      "md": "24px",
+      "sm": "16px",
+      "xl": "64px",
+      "xs": "8px",
+      "2xl": "96px",
+      "section": "120px"
+    },
+    "gradients": {
+      "hero_overlay": "linear-gradient(180deg, rgba(13,31,45,0.15) 0%, rgba(13,31,45,0.85) 100%)",
+      "card_gradient": "linear-gradient(180deg, rgba(26,26,26,0) 40%, rgba(13,31,45,0.9) 100%)",
+      "navy_gradient": "linear-gradient(135deg, #0D1F2D 0%, #1A3448 100%)",
+      "accent_gradient": "linear-gradient(135deg, #D32F2F 0%, #B71C1C 100%)",
+      "announcement_gradient": "linear-gradient(90deg, #1a1a1a 0%, #0D1F2D 100%)"
+    },
+    "typography": {
+      "scale": {
+        "h1": "clamp(2rem, 4.5vw, 3.5rem)",
+        "h2": "clamp(1.65rem, 3.5vw, 2.5rem)",
+        "h3": "1.25rem",
+        "body": "1rem",
+        "micro": "0.75rem",
+        "small": "0.875rem",
+        "display": "clamp(2.5rem, 6vw, 4.75rem)",
+        "eyebrow": "0.72rem"
+      },
+      "weights": {
+        "bold": 700,
+        "light": 300,
+        "medium": 500,
+        "regular": 400,
+        "semibold": 600,
+        "extrabold": 800
+      },
+      "body_font": "Inter",
+      "mono_font": "JetBrains Mono",
+      "line_height": {
+        "body": 1.6,
+        "tight": 1.2,
+        "heading": 1.05
+      },
+      "heading_font": "Cormorant Garamond",
+      "letter_spacing": {
+        "body": "-0.01em",
+        "eyebrow": "0.18em",
+        "heading": "-0.02em"
+      }
+    },
+    "focus_style": {
+      "ring": "0 0 0 3px rgba(211,47,47,0.35)",
+      "offset": "2px",
+      "outline": "2px solid #D32F2F"
+    },
+    "iconography": {
+      "style": "lucide",
+      "size_lg": 24,
+      "size_md": 20,
+      "size_sm": 16,
+      "accent_icons": "filled_shield",
+      "stroke_width": 1.75
+    },
+    "logo_source": "https://cdn-icons-png.flaticon.com/512/2972/2972023.png",
+    "favicon_source": "https://cdn-icons-png.flaticon.com/512/2972/2972023.png",
+    "logo_alt_source": "https://images.unsplash.com/photo-1595590424283-b8f17842773f?auto=format&fit=crop&w=200&q=80"
+  },
+  "tagline": "Mission Ready. Always Prepared.",
+  "sections": [
+    {
+      "id": "home",
+      "type": "Home",
+      "badge": {
+        "font": "JetBrains Mono",
+        "size": "0.7rem",
+        "text": "● MISSION READY COLLECTION 2024",
+        "border": "1px solid rgba(211,47,47,0.2)",
+        "radius": "999px",
+        "padding": "7px 14px",
+        "dot_color": "#D32F2F",
+        "background": "rgba(211,47,47,0.1)",
+        "text_color": "#D32F2F",
+        "letter_spacing": "0.12em"
+      },
+      "eyebrow": "EST. NAIROBI • ROYAL PALMS MALL",
+      "tagline": "Mission Ready. Always Prepared.",
+      "headline": "GEAR THAT\nNEVER BACKS\nDOWN.",
+      "trust_bar": [
+        "Genuine Products",
+        "WhatsApp Ordering",
+        "Nairobi CBD Delivery",
+        "TikTok @hb.tactical.gears"
+      ],
+      "hero_slides": [
+        {
+          "id": "slide_1",
+          "alt": "Tactical operator in forest terrain with backpack and gear",
+          "image": "https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?auto=format&fit=crop&w=1920&q=80",
+          "position": "center",
+          "headline_overlay": "BUILT FOR THE FIELD"
+        },
+        {
+          "id": "slide_2",
+          "alt": "Tactical backpack and military equipment flat lay on dark background",
+          "image": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=1920&q=80",
+          "position": "center",
+          "headline_overlay": "CARRY THE MISSION"
+        },
+        {
+          "id": "slide_3",
+          "alt": "Combat boots on rugged terrain at sunrise",
+          "image": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1920&q=80",
+          "position": "center",
+          "headline_overlay": "STEP WITH AUTHORITY"
+        }
+      ],
+      "primary_cta": {
+        "href": "#products",
+        "icon": "arrow-right",
+        "label": "Shop NOW",
+        "variant": "accent"
+      },
+      "subheadline": "Elite tactical gear, combat boots, vests and backpacks — built for operators, law enforcement, and those who refuse to compromise. Nairobi's trusted tactical outfitter.",
+      "feature_text": {
+        "stats": [
+          {
+            "label": "Active Clients",
+            "value": "3.2K+"
+          },
+          {
+            "label": "Rating",
+            "value": "4.9★"
+          },
+          {
+            "label": "Delivery",
+            "value": "24H"
+          }
+        ],
+        "statement": "Trusted by 3,200+ officers & outdoor professionals across Kenya."
+      },
+      "secondary_cta": {
+        "href": "#categories",
+        "icon": "layers",
+        "label": "Explore Categories",
+        "variant": "outline_dark"
+      },
+      "floating_promo": {
+        "badge": "NEW DROP",
+        "image": "https://images.unsplash.com/photo-1605034313761-73ea4a0cfbf3?auto=format&fit=crop&w=400&q=80",
+        "title": "OPERATOR APPROVED",
+        "subtitle": "Genuine • Rugged • Mission-Tested",
+        "price_note": "From KSh 3,500"
+      },
+      "headline_accent_color": "#D32F2F",
+      "headline_accent_words": [
+        "NEVER"
+      ]
+    },
+    {
+      "id": "categories",
+      "type": "Categories",
+      "intro": "Every piece selected for durability, function and field performance. Tap a category to filter the arsenal.",
+      "layout": "5_card_grid",
+      "eyebrow": "BROWSE BY MISSION",
+      "headline": "GEAR BY CATEGORY",
+      "card_style": "image_overlay_with_filter",
+      "headline_accent": "CATEGORY",
+      "store_categories": [
+        {
+          "alt": "Pair of black leather combat boots on concrete floor",
+          "name": "Combat Boots",
+          "count": 4,
+          "image": "https://images.unsplash.com/photo-1605034313761-73ea4a0cfbf3?auto=format&fit=crop&w=800&q=80",
+          "accent": "#D32F2F",
+          "tagline": "Ground your mission",
+          "description": "All-terrain, steel-toe and desert-ready boots for relentless footwork.",
+          "product_filter_target": "Combat Boots"
+        },
+        {
+          "alt": "Tactical plate carrier vest displayed on mannequin",
+          "name": "Tactical Vests",
+          "count": 4,
+          "image": "https://images.unsplash.com/photo-1595590424283-b8f17842773f?auto=format&fit=crop&w=800&q=80",
+          "accent": "#0D1F2D",
+          "tagline": "Armor your core",
+          "description": "MOLLE plate carriers, tactical vests and chest rigs for full protection.",
+          "product_filter_target": "Tactical Vests"
+        },
+        {
+          "alt": "Olive tactical backpack with MOLLE webbing outdoors",
+          "name": "Backpacks",
+          "count": 3,
+          "image": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=800&q=80",
+          "accent": "#1a1a1a",
+          "tagline": "Carry the load",
+          "description": "Assault packs, 24H packs and MOLLE backpacks from 25L to 50L.",
+          "product_filter_target": "Backpacks"
+        },
+        {
+          "alt": "Tactical gloves and knife accessories on dark surface",
+          "name": "Accessories",
+          "count": 4,
+          "image": "https://images.unsplash.com/photo-1584551246679-0daf3d275d0f?auto=format&fit=crop&w=800&q=80",
+          "accent": "#D32F2F",
+          "tagline": "Details win battles",
+          "description": "Gloves, holsters, belts, kneepads, NVG mounts and field essentials.",
+          "product_filter_target": "Accessories"
+        },
+        {
+          "alt": "Man in tactical cargo pants and combat shirt outdoors",
+          "name": "Apparel",
+          "count": 3,
+          "image": "https://images.unsplash.com/photo-1507680434567-5739c80be1ac?auto=format&fit=crop&w=800&q=80",
+          "accent": "#0D1F2D",
+          "tagline": "Wear the standard",
+          "description": "Combat shirts, cargo pants, thermal layers and tactical uniforms.",
+          "product_filter_target": "Apparel"
+        }
+      ]
+    },
+    {
+      "id": "products",
+      "type": "Products",
+      "intro": "View-only catalog. Tap any product to view details and order directly via WhatsApp. No cart — just direct contact with our team.",
+      "eyebrow": "THE ARSENAL",
+      "headline": "MISSION-TESTED GEAR",
+      "products": [
+        {
+          "id": "HB-001",
+          "alt": "Elite Desert Combat Boots - tan tactical boots",
+          "sku": "HB-CB-001",
+          "name": "Elite Desert Combat Boots",
+          "badge": "BESTSELLER",
+          "image": "https://images.unsplash.com/photo-1605034313761-73ea4a0cfbf3?auto=format&fit=crop&w=800&q=80",
+          "price": 8500,
+          "specs": {
+            "Sole": "Rubber Vortec",
+            "Color": "Desert Tan / Black",
+            "Height": "8 inch",
+            "Material": "Leather / Cordura"
+          },
+          "rating": 4.9,
+          "gallery": [
+            "https://images.unsplash.com/photo-1605034313761-73ea4a0cfbf3?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 127,
+          "category": "Combat Boots",
+          "features": [
+            "Full-grain leather & Cordura",
+            "YKK side zipper",
+            "EVA cushioned midsole",
+            "Oil & slip resistant sole"
+          ],
+          "description": "Built for scorching terrain and long patrols. Full-grain leather + 1000D Cordura, breathable mesh, oil-resistant outsole.",
+          "price_display": "KSh 8,500",
+          "original_price": 9800
+        },
+        {
+          "id": "HB-002",
+          "alt": "Shadow Ops Plate Carrier Vest - black MOLLE vest",
+          "sku": "HB-TV-002",
+          "name": "Shadow Ops Plate Carrier Vest",
+          "badge": "NEW",
+          "image": "https://images.unsplash.com/photo-1595590424283-b8f17842773f?auto=format&fit=crop&w=800&q=80",
+          "price": 12500,
+          "specs": {
+            "Color": "Black / Ranger Green",
+            "Plates": "Fits 10x12 SAPI",
+            "Weight": "1.2kg",
+            "Material": "500D Cordura"
+          },
+          "rating": 5,
+          "gallery": [
+            "https://images.unsplash.com/photo-1595590424283-b8f17842773f?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1584551246679-0daf3d275d0f?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 89,
+          "category": "Tactical Vests",
+          "features": [
+            "Laser-cut MOLLE",
+            "Quick-release system",
+            "Adjustable cummerbund",
+            "Padded shoulders"
+          ],
+          "description": "Low-profile plate carrier with laser-cut MOLLE, quick-release buckles and padded shoulder straps. Fits SAPI plates.",
+          "price_display": "KSh 12,500"
+        },
+        {
+          "id": "HB-003",
+          "alt": "Recon 45L Assault Backpack - olive drab",
+          "sku": "HB-BP-003",
+          "name": "Recon 45L Assault Backpack",
+          "badge": "IN STOCK",
+          "image": "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=800&q=80",
+          "price": 7800,
+          "specs": {
+            "Color": "Olive / Coyote / Black",
+            "Volume": "45L",
+            "Weight": "1.4kg",
+            "Material": "600D Polyester"
+          },
+          "rating": 4.8,
+          "gallery": [
+            "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 203,
+          "category": "Backpacks",
+          "features": [
+            "45L capacity",
+            "Hydration ready (3L)",
+            "MOLLE webbing",
+            "Rain cover included"
+          ],
+          "description": "45L assault pack with hydration compartment, MOLLE expansion and reinforced base. Built for 72-hour ops.",
+          "price_display": "KSh 7,800"
+        },
+        {
+          "id": "HB-004",
+          "alt": "Field Pro Tactical Gloves - black hard-knuckle",
+          "sku": "HB-AC-004",
+          "name": "Field Pro Tactical Gloves",
+          "badge": "HOT",
+          "image": "https://images.unsplash.com/photo-1584551246679-0daf3d275d0f?auto=format&fit=crop&w=800&q=80",
+          "price": 3500,
+          "specs": {
+            "Use": "Shooting / Patrol",
+            "Color": "Black / Tan",
+            "Sizes": "M / L / XL",
+            "Material": "Synthetic Leather"
+          },
+          "rating": 4.7,
+          "gallery": [
+            "https://images.unsplash.com/photo-1584551246679-0daf3d275d0f?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 156,
+          "category": "Accessories",
+          "features": [
+            "Carbon knuckle",
+            "Touchscreen thumb",
+            "Double-stitched palm",
+            "Velcro wrist"
+          ],
+          "description": "Hard-knuckle tactical gloves with touchscreen compatibility and reinforced palm. For shooting and fast-roping.",
+          "price_display": "KSh 3,500"
+        },
+        {
+          "id": "HB-005",
+          "alt": "Urban Commando Cargo Pants - khaki tactical pants",
+          "sku": "HB-AP-005",
+          "name": "Urban Commando Cargo Pants",
+          "badge": null,
+          "image": "https://images.unsplash.com/photo-1507680434567-5739c80be1ac?auto=format&fit=crop&w=800&q=80",
+          "price": 5500,
+          "specs": {
+            "Fit": "Regular / Slim",
+            "Color": "Khaki / Black / Olive",
+            "Sizes": "30-40",
+            "Material": "65/35 Poly-Cotton Ripstop"
+          },
+          "rating": 4.8,
+          "gallery": [
+            "https://images.unsplash.com/photo-1507680434567-5739c80be1ac?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 98,
+          "category": "Apparel",
+          "features": [
+            "Ripstop Teflon coated",
+            "10 pockets",
+            "Stretch flex",
+            "DWR finish"
+          ],
+          "description": "Ripstop cargo pants with 10 pockets, flex crotch and DWR water resistance. Field to street ready.",
+          "price_display": "KSh 5,500"
+        },
+        {
+          "id": "HB-006",
+          "alt": "MOLLE chest rig with magazine pouches",
+          "sku": "HB-TV-006",
+          "name": "Heavy Duty MOLLE Chest Rig",
+          "badge": "RESTOCKED",
+          "image": "https://images.unsplash.com/photo-1593113598332-cd288d649433?auto=format&fit=crop&w=800&q=80",
+          "price": 9200,
+          "specs": {
+            "Color": "Multicam / Black",
+            "Weight": "780g",
+            "Modular": "Yes",
+            "Material": "500D Nylon"
+          },
+          "rating": 4.9,
+          "gallery": [
+            "https://images.unsplash.com/photo-1593113598332-cd288d649433?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 64,
+          "category": "Tactical Vests",
+          "features": [
+            "6x AK/M4 pouches",
+            "Admin panel",
+            "H-harness",
+            "Hydration tube ports"
+          ],
+          "description": "Modular chest rig with 6 mag pouches, admin panel and hydration routing. Light, breathable, mission-ready.",
+          "price_display": "KSh 9,200"
+        },
+        {
+          "id": "HB-007",
+          "alt": "Black Ranger Alpha Combat Boots polished",
+          "sku": "HB-CB-007",
+          "name": "Ranger Alpha Combat Boots — Black",
+          "badge": null,
+          "image": "https://images.unsplash.com/photo-1520637102912-2df6bb2aec6d?w=800&auto=format&fit=crop&q=80",
+          "price": 7900,
+          "specs": {
+            "Sole": "Vibram",
+            "Color": "Black",
+            "Height": "8 inch",
+            "Closure": "Lace + Zip"
+          },
+          "rating": 4.6,
+          "gallery": [
+            "https://images.unsplash.com/photo-1520637102912-2df6bb2aec6d?w=800&auto=format&fit=crop&q=80"
+          ],
+          "reviews": 112,
+          "category": "Combat Boots",
+          "features": [
+            "Side zipper",
+            "Steel shank",
+            "Polishable leather",
+            "Anti-bacterial insole"
+          ],
+          "description": "Polished black combat boots for parade and patrol. Side zipper, steel shank, comfort insole for 12-hour wear.",
+          "price_display": "KSh 7,900"
+        },
+        {
+          "id": "HB-008",
+          "alt": "Bravo 35L Tactical Backpack in coyote brown",
+          "sku": "HB-BP-008",
+          "name": "Bravo Tactical Backpack 35L",
+          "badge": null,
+          "image": "https://images.unsplash.com/photo-1622560480605-d83c853bc5c3?auto=format&fit=crop&w=800&q=80",
+          "price": 6500,
+          "specs": {
+            "Color": "Coyote / Black",
+            "Volume": "35L",
+            "Weight": "1.1kg",
+            "Material": "600D"
+          },
+          "rating": 4.7,
+          "gallery": [
+            "https://images.unsplash.com/photo-1622560480605-d83c853bc5c3?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 87,
+          "category": "Backpacks",
+          "features": [
+            "Laptop sleeve 15 inch",
+            "CCW compartment",
+            "MOLLE front",
+            "Compression straps"
+          ],
+          "description": "35L everyday tactical pack with laptop sleeve, MOLLE front and concealed carry compartment.",
+          "price_display": "KSh 6,500"
+        },
+        {
+          "id": "HB-009",
+          "alt": "Tactical drop leg holster on belt",
+          "sku": "HB-AC-009",
+          "name": "Tactical Drop Leg Holster",
+          "badge": null,
+          "image": "https://images.unsplash.com/photo-1598550476439-6847785fcea6?auto=format&fit=crop&w=800&q=80",
+          "price": 4200,
+          "specs": {
+            "Fit": "Universal",
+            "Leg": "Left / Right",
+            "Color": "Black / Tan",
+            "Material": "1000D Nylon"
+          },
+          "rating": 4.8,
+          "gallery": [
+            "https://images.unsplash.com/photo-1598550476439-6847785fcea6?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 73,
+          "category": "Accessories",
+          "features": [
+            "Universal fit",
+            "Retention strap",
+            "MOLLE platform",
+            "Adjustable straps"
+          ],
+          "description": "Universal drop-leg holster with retention strap, MOLLE platform and adjustable thigh rig. Fits Glock / SIG etc.",
+          "price_display": "KSh 4,200"
+        },
+        {
+          "id": "HB-010",
+          "alt": "NVG mount on tactical helmet",
+          "sku": "HB-AC-010",
+          "name": "Night Vision Goggle Mount (NVG) — Helmet",
+          "badge": "LIMITED",
+          "image": "https://images.unsplash.com/photo-1544717297-fa95b6ee9643?auto=format&fit=crop&w=800&q=80",
+          "price": 5800,
+          "specs": {
+            "Color": "Black / Tan",
+            "Mount": "Wilcox L4",
+            "Weight": "180g",
+            "Material": "Aluminum 6061"
+          },
+          "rating": 5,
+          "gallery": [
+            "https://images.unsplash.com/photo-1544717297-fa95b6ee9643?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 41,
+          "category": "Accessories",
+          "features": [
+            "Aluminum CNC",
+            "Fits PVS-14/31",
+            "FAST/MICH compatible",
+            "Wilcox style"
+          ],
+          "description": "Aluminum NVG shroud + J-arm for PVS-14/31. Compatible with FAST/MICH helmets. Precision machined.",
+          "price_display": "KSh 5,800",
+          "original_price": 7200
+        },
+        {
+          "id": "HB-011",
+          "alt": "Thermal base layer top in olive on hanger",
+          "sku": "HB-AP-011",
+          "name": "Combat Thermal Base Layer Set",
+          "badge": null,
+          "image": "https://images.unsplash.com/photo-1618354691321-e851c56960d1?auto=format&fit=crop&w=800&q=80",
+          "price": 4800,
+          "specs": {
+            "Sizes": "S-XXL",
+            "Colors": "Olive / Black",
+            "Weight": "260gsm",
+            "Material": "Poly-Spandex Blend"
+          },
+          "rating": 4.7,
+          "gallery": [
+            "https://images.unsplash.com/photo-1618354691321-e851c56960d1?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 55,
+          "category": "Apparel",
+          "features": [
+            "Moisture wicking",
+            "Flatlock seams",
+            "4-way stretch",
+            "Odor control"
+          ],
+          "description": "Moisture-wicking thermal set (top + bottom) for cold night ops. Flatlock seams, 4-way stretch.",
+          "price_display": "KSh 4,800"
+        },
+        {
+          "id": "HB-012",
+          "alt": "Hydration pack with tube on tactical vest",
+          "sku": "HB-BP-012",
+          "name": "Hydration Pack 3L + MOLLE Pouches",
+          "badge": null,
+          "image": "https://images.unsplash.com/photo-1581605405669-fcdf81165afa?auto=format&fit=crop&w=800&q=80",
+          "price": 5200,
+          "specs": {
+            "Color": "Black / Coyote",
+            "Weight": "420g",
+            "Capacity": "3L",
+            "Material": "TPU / Nylon"
+          },
+          "rating": 4.6,
+          "gallery": [
+            "https://images.unsplash.com/photo-1581605405669-fcdf81165afa?auto=format&fit=crop&w=800&q=80"
+          ],
+          "reviews": 39,
+          "category": "Backpacks",
+          "features": [
+            "3L TPU bladder",
+            "MOLLE carrier",
+            "Insulated tube",
+            "Quick disconnect"
+          ],
+          "description": "3L hydration bladder + carrier with MOLLE pouches. Keeps you hydrated on long patrols without removing pack.",
+          "price_display": "KSh 5,200"
+        }
+      ],
+      "filter_style": "pill_dark_active_accent",
+      "product_card": {
+        "ratio": "4:3",
+        "layout": "image_top_info_bottom",
+        "actions": [
+          "View product"
+        ],
+        "badge_style": "top_left_category",
+        "price_style": "bold_large_with_currency",
+        "hover_effect": "image_zoom_and_elevate",
+        "is_view_only": true,
+        "primary_action_label": "View product",
+        "primary_action_style": "text_link_with_arrow"
+      },
+      "product_page": {
+        "layout": "split_gallery_left_details_right",
+        "whatsapp_cta": {
+          "icon": "whatsapp",
+          "note": "You’ll be redirected to WhatsApp with product details auto-filled. Our team replies within minutes (Mon–Sat, 9AM–7PM).",
+          "label": "Order on WhatsApp",
+          "sublabel": "Primary: +254 796 229961",
+          "background": "#25D366",
+          "text_color": "#FFFFFF",
+          "hover_background": "#128C7E",
+          "secondary_numbers_note": "Also reachable: +254 718 270297 • +254 758 724256"
+        },
+        "gallery_ratio": "1:1",
+        "details_sections": [
+          "title",
+          "price",
+          "category",
+          "sku",
+          "rating",
+          "description",
+          "features",
+          "specs",
+          "whatsapp_cta",
+          "secondary_contacts"
+        ]
+      },
+      "filter_labels": [
+        "All",
+        "Combat Boots",
+        "Tactical Vests",
+        "Backpacks",
+        "Accessories",
+        "Apparel"
+      ],
+      "preview_product_examples": [
+        {
+          "id": "HB-001",
+          "alt": "Desert tan combat boots side view",
+          "sku": "HB-CB-001",
+          "name": "Elite Desert Combat Boots",
+          "badge": "BESTSELLER",
+          "image": "https://images.unsplash.com/photo-1605034313761-73ea4a0cfbf3?auto=format&fit=crop&w=800&q=80",
+          "price": 8500,
+          "rating": 4.9,
+          "reviews": 127,
+          "category": "Combat Boots",
+          "price_display": "KSh 8,500"
+        },
+        {
+          "id": "HB-002",
+          "alt": "Black tactical plate carrier vest front view",
+          "sku": "HB-TV-002",
+          "name": "Shadow Ops Plate Carrier Vest",
+          "badge": "NEW",
+          "image": "https://images.unsplash.com/photo-1595590424283-b8f17842773f?auto=format&fit=crop&w=800&q=80",
+          "price": 12500,
+          "rating": 5,
+          "reviews": 89,
+          "category": "Tactical Vests",
+          "price_display": "KSh 12,500"
+        }
+      ]
+    },
+    {
+      "id": "contact",
+      "body": "Visit our physical store at Royal Palms Mall for fitting, inspection and same-day pickup. Prefer WhatsApp? Our team responds in minutes during business hours.",
+      "type": "Contact",
+      "email": "N/A",
+      "hours": {
+        "detail": "Monday to Saturday: 9:00 AM – 7:00 PM\nSunday: Closed (WhatsApp enquiries still answered)",
+        "display": "Mon–Sat, 9AM–7PM",
+        "timezone": "EAT (UTC+3)"
+      },
+      "phone": "WhatsApp only",
+      "eyebrow": "VISIT THE BASE",
+      "headline": "FIND US IN THE HEART OF NAIROBI",
+      "location": {
+        "city": "Nairobi, Kenya",
+        "name": "Royal Palms Mall",
+        "street": "Ronald Ngala Street, Wing B, Shop BM58",
+        "landmark": "Opposite Naivas Supermarket, CBD",
+        "full_address": "Royal Palms Mall, Ronald Ngala Street, Wing B, Shop BM58, Nairobi, Kenya"
+      },
+      "map_visual": {
+        "zoom": 17,
+        "embed_url": "https://maps.google.com/maps?q=Royal+Palms+Mall+Ronald+Ngala+Nairobi&output=embed",
+        "marker_title": "HB TACTICAL GEARS — Royal Palms Mall, Wing B, Shop BM58",
+        "directions_url": "https://www.google.com/maps/dir/?api=1&destination=Royal+Palms+Mall+Ronald+Ngala+Nairobi",
+        "directions_button_label": "Get Directions"
+      },
+      "testimonial": {
+        "role": "Administration Police — Nairobi",
+        "quote": "Best tactical store in Nairobi! Got my boots and plate carrier fitted same day. Team is knowledgeable and fast on WhatsApp. Highly recommended for anyone in service.",
+        "author": "CPL. Mwangi K.",
+        "avatar": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
+        "rating": 5,
+        "verified": true
+      },
+      "contact_items": [
+        {
+          "href": "https://wa.me/254796229961",
+          "icon": "message-circle",
+          "label": "WhatsApp (Primary)",
+          "value": "+254 796 229961",
+          "is_primary": true
+        },
+        {
+          "href": "https://wa.me/254718270297",
+          "icon": "phone",
+          "label": "WhatsApp",
+          "value": "+254 718 270297",
+          "is_primary": false
+        },
+        {
+          "href": "https://wa.me/254758724256",
+          "icon": "phone",
+          "label": "WhatsApp",
+          "value": "+254 758 724256",
+          "is_primary": false
+        },
+        {
+          "href": "https://www.tiktok.com/@hb.tactical.gears",
+          "icon": "video",
+          "label": "TikTok",
+          "value": "@hb.tactical.gears",
+          "is_primary": false
+        }
+      ]
+    }
+  ],
+  "global_ui": {
+    "footer": {
+      "links": [
+        "Privacy",
+        "Terms",
+        "Shipping",
+        "Returns"
+      ],
+      "layout": "four_column",
+      "social": {
+        "tiktok": "@hb.tactical.gears",
+        "tiktok_url": "https://www.tiktok.com/@hb.tactical.gears"
+      },
+      "copyright": "© 2024 HB TACTICAL GEARS — Mission Ready. Always Prepared. Nairobi, Kenya.",
+      "background": "#0D1F2D",
+      "text_color": "#94A3B8",
+      "accent_color": "#D32F2F"
+    },
+    "header": {
+      "height": "72px",
+      "layout": "logo_left_nav_center_cta_right",
+      "sticky": true,
+      "background": "rgba(255,255,255,0.92)",
+      "logo_height": "40px",
+      "backdrop_blur": "12px",
+      "border_bottom": "1px solid #E5E7EB"
+    },
+    "favicon": {
+      "type": "image/png",
+      "sizes": "512x512",
+      "source": "https://cdn-icons-png.flaticon.com/512/2972/2972023.png"
+    },
+    "desktop_nav": {
+      "font": "Inter",
+      "size": "0.9rem",
+      "links": [
+        {
+          "href": "#home",
+          "label": "Home"
+        },
+        {
+          "href": "#categories",
+          "label": "Categories"
+        },
+        {
+          "href": "#products",
+          "label": "Products"
+        },
+        {
+          "href": "#contact",
+          "label": "Contact"
+        }
+      ],
+      "weight": 500,
+      "uppercase": true,
+      "letter_spacing": "0.04em",
+      "active_indicator": "underline_accent"
+    },
+    "mobile_menu": {
+      "style": "slide_over_dark",
+      "overlay": "rgba(13,31,45,0.6)",
+      "background": "#0D1F2D",
+      "breakpoint": "1024px",
+      "text_color": "#FFFFFF"
+    },
+    "shop_now_button": {
+      "font": "Inter",
+      "href": "#products",
+      "icon": "arrow-right",
+      "label": "Shop NOW",
+      "radius": "999px",
+      "shadow": "0 4px 14px rgba(211,47,47,0.35)",
+      "weight": 700,
+      "padding": "11px 24px",
+      "variant": "primary_accent",
+      "uppercase": true,
+      "background": "#D32F2F",
+      "text_color": "#FFFFFF",
+      "letter_spacing": "0.06em",
+      "hover_background": "#B71C1C"
+    },
+    "announcement_bar": {
+      "font": "Inter",
+      "text": "⚡ FREE DELIVERY within Nairobi CBD  •  Mon–Sat 9AM–7PM  •  WhatsApp Only Ordering  •  Royal Palms Mall, Wing B, Shop BM58",
+      "height": "38px",
+      "enabled": true,
+      "font_size": "0.78rem",
+      "background": "linear-gradient(90deg, #1a1a1a 0%, #0D1F2D 100%)",
+      "text_color": "#FFFFFF",
+      "dismissible": false,
+      "letter_spacing": "0.06em"
+    },
+    "json_export_drawer": {
+      "title": "Storefront Design JSON — Preview Tool",
+      "width": "560px",
+      "enabled": true,
+      "position": "right_drawer",
+      "background": "#0D1F2D",
+      "preview_only_tool": true,
+      "render_in_client_app": false
+    },
+    "floating_json_button": {
+      "label": "View JSON",
+      "style": "floating_preview_badge",
+      "enabled": true,
+      "position": "bottom-right",
+      "preview_only_tool": true,
+      "render_in_client_app": false
+    }
+  },
+  "animations": {
+    "easing": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "duration_base": "300ms",
+    "duration_fast": "180ms",
+    "duration_slow": "600ms",
+    "product_modal": {
+      "type": "scale_fade",
+      "spring": {
+        "damping": 30,
+        "stiffness": 400
+      }
+    },
+    "hero_slideshow": {
+      "autoplay": true,
+      "transition": "crossfade_scale",
+      "duration_ms": 900,
+      "interval_ms": 5500,
+      "pause_on_hover": true
+    },
+    "section_reveal": {
+      "type": "fade_up",
+      "stagger": "80ms",
+      "distance": "18px",
+      "threshold": 0.12
+    },
+    "scroll_progress": {
+      "color": "#D32F2F",
+      "height": "3px",
+      "enabled": true,
+      "position": "top_fixed"
+    },
+    "motion_personality": "tactical_precision",
+    "product_filter_transition": {
+      "type": "layout_spring",
+      "damping": 30,
+      "stiffness": 300
+    }
+  },
+  "store_name": "HB TACTICAL GEARS",
+  "accessibility": {
+    "aria_roles": true,
+    "focus_visible": true,
+    "color_contrast": "WCAG_AA",
+    "skip_to_content": true,
+    "keyboard_navigation": true,
+    "screen_reader_labels": true,
+    "reduced_motion_support": true
+  },
+  "commerce_rules": {
+    "currency": "KES",
+    "cart_enabled": false,
+    "price_format": "KSh {price}",
+    "login_enabled": false,
+    "currency_symbol": "KSh",
+    "checkout_enabled": false,
+    "wishlist_enabled": false,
+    "whatsapp_base_url": "https://wa.me/",
+    "product_card_action": "View product",
+    "product_card_actions": [
+      "View product"
+    ],
+    "primary_whatsapp_number": "+254796229961",
+    "whatsapp_order_location": "product_page_only",
+    "product_card_is_view_only": true,
+    "whatsapp_message_template": "Hello HB TACTICAL GEARS 👋\n\nI'm interested in *{product_name}* \nSKU: {sku}\nPrice: {price}\nCategory: {category}\n\nPlease confirm availability and delivery options to Nairobi.\n\nThank you!",
+    "secondary_whatsapp_numbers": [
+      "+254718270297",
+      "+254758724256"
+    ],
+    "whatsapp_order_visible_on_grid": false
+  },
+  "schema_version": "3.2",
+  "responsive_design": {
+    "grid": {
+      "mobile": "1_column",
+      "tablet": "2_columns",
+      "desktop": "4_columns",
+      "large_tablet": "3_columns"
+    },
+    "breakpoints": {
+      "mobile": "640px",
+      "tablet": "768px",
+      "large_tablet": "1024px",
+      "small_mobile": "380px"
+    },
+    "stacking_rules": {
+      "hero": "stack_center_on_mobile",
+      "contact": "stack_reverse_on_mobile",
+      "products": "2_col_tablet_1_col_mobile",
+      "categories": "2_col_tablet_1_col_mobile"
+    },
+    "header_breakpoint": "1024px",
+    "container_max_width": "1280px"
+  }
+}
+
+
