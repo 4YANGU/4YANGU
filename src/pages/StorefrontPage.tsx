@@ -13,7 +13,8 @@ function visitSessionId() {
 
 export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) {
   const slug = forcedSlug || '';
-  const cached = (() => { try { const value = sessionStorage.getItem(`stoyangu-store-${slug}`); return value ? JSON.parse(value) : null; } catch { return null; } })();
+  const freshPreview = new URLSearchParams(window.location.search).has('fresh');
+  const cached = freshPreview ? null : (() => { try { const value = sessionStorage.getItem(`stoyangu-store-${slug}`); return value ? JSON.parse(value) : null; } catch { return null; } })();
   const [data, setData] = useState<{ store: Store; products: Product[] } | null>(cached); const [error, setError] = useState('');
   const viewed = useRef(new Set<number>());
   useEffect(() => {

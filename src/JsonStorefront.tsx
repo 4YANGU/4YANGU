@@ -89,14 +89,9 @@ function actionHref(item: AnyRecord): string {
 // those zones up so they render like normal sections while styling stays put.
 function expandZones(node: AnyRecord): AnyRecord {
   if (!isObject(node.layout)) return node;
-  const zones = asArray(take(node.layout, 'zones', 'areas', 'regions', 'rows', 'panels', 'slots', 'columns'));
-  // Split-style layouts: columns declared as left/right/center objects.
-  const splitSides = ['left', 'right', 'center', 'top', 'bottom', 'primary', 'secondary']
-    .map((key) => node.layout[key])
-    .filter(isObject);
-  const lifted = [...zones, ...splitSides];
-  if (!lifted.length) return node;
-  return { ...node, layout_zones: lifted };
+  const zones = asArray(take(node.layout, 'zones', 'areas', 'regions', 'rows', 'panels', 'slots'));
+  if (!zones.length) return node;
+  return { ...node, layout_zones: zones };
 }
 const styleAliases: Record<string, string> = {
   background_colour: 'backgroundColor', background_color: 'backgroundColor', text_colour: 'color', text_color: 'color',
@@ -172,21 +167,7 @@ function getSections(design: AnyRecord): AnyRecord[] {
   }
   const ignored = new Set(['theme','design_tokens','tokens','global_ui','globalUI','header','footer','navigation','breakpoints','metadata']);
   const inferred = Object.entries(design).filter(([key, value]) => !ignored.has(key) && isObject(value)).map(([id, value]) => ({ id, ...value }));
-  if (inferred.length) return inferred;
-  // Deepest fallback for highly custom specs: walk the whole document and pick up
-  // every section-shaped node in declaration order, wherever it lives.
-  const configish = new Set([...ignored, 'design_scope', 'specification_type', 'store_name', 'short_name', 'schema_version', 'meta', 'settings', 'app', 'seo', 'logo_binding']);
-  const scavenged: AnyRecord[] = [];
-  Object.entries(design).forEach(([key, value]) => {
-    if (configish.has(key) && key !== 'design_scope') return;
-    if (Array.isArray(value)) scavenged.push(...value.filter(isObject));
-    else if (isObject(value)) {
-      const inner = asArray(take(value, 'sections', 'blocks', 'zones', 'content', 'children', 'panels')).filter(isObject);
-      if (inner.length) scavenged.push(...inner);
-      else if (take(value, 'headline', 'heading', 'title', 'type', 'layout', 'image')) scavenged.push({ id: key, ...value });
-    }
-  });
-  return scavenged.length ? scavenged : [{ id: 'hero', type: 'hero' }, { id: 'products', type: 'products' }, { id: 'contact', type: 'contact' }];
+  return inferred.length ? inferred : [{ id: 'hero', type: 'hero' }, { id: 'products', type: 'products' }, { id: 'contact', type: 'contact' }];
 }
 
 function collectFontUrls(design: AnyRecord) {

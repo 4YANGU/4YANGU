@@ -186,7 +186,7 @@ async function handleStorefrontHtml(req, res) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(200).send(shell);
     }
-    const cached = pageCache.get(slug);
+    const cached = req.query?.fresh ? undefined : pageCache.get(slug);
     if (cached && Date.now() - cached.builtAt < PAGE_TTL_MS) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=1800');
@@ -194,7 +194,7 @@ async function handleStorefrontHtml(req, res) {
     }
     const { store, products } = await loadStore(slug);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=1800');
+    res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=300, stale-while-revalidate=1800');
     if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
@@ -202,14 +202,14 @@ async function handleStorefrontHtml(req, res) {
         description: 'This StoYangu store is not available right now. Discover other Kenyan stores on StoYangu.'
         canonical, image: `https://${root}/stoyangu-logo.png`, extra: '', robots: 'noindex, follow',
       });
-      pageCache.set(slug, { html, status: 404, builtAt: Date.now() });
+      if (!req.query?.fresh) pageCache.set(slug, { html, status: 404, builtAt: Date.now() });
       return res.status(404).send(html);
     }
     const canonical = `https://${root}/s/${slug}`;
     const page = buildStorePage({ store, products, canonical, root });
     if (store.logo_url) page.favicon = store.logo_url;
     const html = injectIntoShell(shell, page);
-    pageCache.set(slug, { html, status: 200, builtAt: Date.now() });
+    if (!req.query?.fresh) pageCache.set(slug, { html, status: 200, builtAt: Date.now() });
     return res.status(200).send(html);
   } catch (err) {
     console.error('Storefront HTML error:', err);
