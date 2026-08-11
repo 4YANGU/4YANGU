@@ -17,12 +17,6 @@ const safeUrl = (value: unknown) => {
   if (/^\/(?!\/)/.test(text) || /^https:\/\//i.test(text) || /^data:image\/(png|jpeg|webp);base64,/i.test(text)) return text;
   return '';
 };
-const safeVideo = (value: unknown): string => {
-  const text = String(resolveText(value) || (isObject(value) ? '' : '') || '').trim();
-  if (/^https?:\/\/[^\s<>"]+\.(mp4|webm|mov)(\?[^\s<>"]*)?$/i.test(text)) return text;
-  return '';
-};
-
 const safeHref = (value: unknown, fallback = '#') => {
   const text = String(value || '').trim();
   if (/^#[a-z0-9_-]+$/i.test(text) || /^\/(?!\/)/.test(text) || /^https:\/\//i.test(text) || /^(mailto|tel):[^\s]+$/i.test(text)) return text;
@@ -34,70 +28,6 @@ const safeCssValue = (value: unknown): string | number | undefined => {
   if (/[{}<>]|javascript:|expression\s*\(/i.test(value)) return undefined;
   return value.slice(0, 500);
 };
-
-// Any-shaped JSON → clean readable text (strings, numbers, arrays of lines,
-// nested {text}/{label}/{parts} objects all resolve into prose).
-const resolveText = (value: unknown, depth = 0): string => {
-  if (value == null || typeof value === 'boolean') return '';
-  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
-  if (depth > 6) return '';
-  if (Array.isArray(value)) return value.map((item) => resolveText(item, depth + 1)).filter(Boolean).join(' · ');
-  if (isObject(value)) {
-    const direct = take(value, 'text', 'content', 'value', 'label', 'title', 'headline', 'message', 'html');
-    if (direct != null && !isObject(direct) && !Array.isArray(direct)) return String(direct).trim();
-    const parts = take(value, 'parts', 'lines', 'segments', 'items', 'runs');
-    if (parts != null) return resolveText(parts, depth + 1);
-    return resolveText(Object.values(value), depth + 1);
-  }
-  return '';
-};
-
-// Any-shaped JSON → a usable image URL, even when the image lives inside an
-// object like { public_https_asset: 'https://...' }.
-const safeImage = (value: unknown): string => {
-  const direct = safeUrl(value);
-  if (direct) return direct;
-  if (isObject(value)) return safeUrl(take(value, 'url', 'src', 'href', 'link', 'public_https_asset', 'asset', 'path', 'image', 'source'));
-  return '';
-};
-
-// Find the first usable image anywhere inside a spec subtree (hero visual,
-// media deck, assets bag, gallery item...) so hero sections can go full-bleed
-// even when the spec never spells out "background_image".
-function deepImage(root: unknown, depth = 0): string {
-  if (root == null || depth > 6) return '';
-  if (typeof root === 'string') return safeUrl(root);
-  if (Array.isArray(root)) { for (const item of root) { const found = deepImage(item, depth + 1); if (found) return found; } return ''; }
-  if (isObject(root)) {
-    const direct = safeImage(root);
-    if (direct) return direct;
-    for (const value of Object.values(root)) { const found = deepImage(value, depth + 1); if (found) return found; }
-  }
-  return '';
-}
-
-// A spec button can point at a section in a dozen spellings — normalize all.
-function actionHref(item: AnyRecord): string {
-  const raw = take(item, 'url', 'href', 'link', 'to', 'target', 'go', 'destination', 'scroll_to', 'on_click');
-  let text = typeof raw === 'string' ? raw : isObject(raw) ? String(resolveText(take(raw, 'scroll_to', 'section', 'url', 'href', 'id', 'target')) || '') : '';
-  text = text.trim();
-  if (text && /^[a-z0-9-_]+$/i.test(text) && !/^https?:/.test(text)) text = `#${text}`;
-  return safeHref(text, '#products');
-}
-
-// Design specs often bury visible content inside layout zones/regions. Lift
-// those zones up so they render like normal sections while styling stays put.
-function expandZones(node: AnyRecord): AnyRecord {
-  if (!isObject(node.layout)) return node;
-  const zones = asArray(take(node.layout, 'zones', 'areas', 'regions', 'rows', 'panels', 'slots', 'columns'));
-  // Split-style layouts: columns declared as left/right/center objects.
-  const splitSides = ['left', 'right', 'center', 'top', 'bottom', 'primary', 'secondary']
-    .map((key) => node.layout[key])
-    .filter(isObject);
-  const lifted = [...zones, ...splitSides];
-  if (!lifted.length) return node;
-  return { ...node, layout_zones: lifted };
-}
 const styleAliases: Record<string, string> = {
   background_colour: 'backgroundColor', background_color: 'backgroundColor', text_colour: 'color', text_color: 'color',
   border_radius: 'borderRadius', box_shadow: 'boxShadow', font_family: 'fontFamily', font_size: 'fontSize', font_weight: 'fontWeight',
@@ -157,36 +87,12 @@ function normaliseDesign(raw: unknown): AnyRecord {
 }
 
 function getSections(design: AnyRecord): AnyRecord[] {
-  const direct = take(design, 'sections', 'page_sections', 'content_sections', 'pages', 'screens', 'routes');
-  let sections = asArray(direct).filter(isObject);
-  if (sections.length) {
-    // Specs sometimes group content under pages/routes — flatten one level.
-    const flattened: AnyRecord[] = [];
-    sections.forEach((entry) => {
-      const inner = asArray(take(entry, 'sections', 'blocks', 'content', 'zones', 'children')).filter(isObject);
-      const looksLikeSection = take(entry, 'type', 'component', 'kind', 'headline', 'heading', 'title') != null;
-      if (inner.length && !looksLikeSection) flattened.push(...inner);
-      else flattened.push(entry);
-    });
-    if (flattened.length) return flattened;
-  }
+  const direct = take(design, 'sections', 'page_sections', 'content_sections', 'pages');
+  const sections = asArray(direct).filter(isObject);
+  if (sections.length) return sections;
   const ignored = new Set(['theme','design_tokens','tokens','global_ui','globalUI','header','footer','navigation','breakpoints','metadata']);
   const inferred = Object.entries(design).filter(([key, value]) => !ignored.has(key) && isObject(value)).map(([id, value]) => ({ id, ...value }));
-  if (inferred.length) return inferred;
-  // Deepest fallback for highly custom specs: walk the whole document and pick up
-  // every section-shaped node in declaration order, wherever it lives.
-  const configish = new Set([...ignored, 'design_scope', 'specification_type', 'store_name', 'short_name', 'schema_version', 'meta', 'settings', 'app', 'seo', 'logo_binding']);
-  const scavenged: AnyRecord[] = [];
-  Object.entries(design).forEach(([key, value]) => {
-    if (configish.has(key) && key !== 'design_scope') return;
-    if (Array.isArray(value)) scavenged.push(...value.filter(isObject));
-    else if (isObject(value)) {
-      const inner = asArray(take(value, 'sections', 'blocks', 'zones', 'content', 'children', 'panels')).filter(isObject);
-      if (inner.length) scavenged.push(...inner);
-      else if (take(value, 'headline', 'heading', 'title', 'type', 'layout', 'image')) scavenged.push({ id: key, ...value });
-    }
-  });
-  return scavenged.length ? scavenged : [{ id: 'hero', type: 'hero' }, { id: 'products', type: 'products' }, { id: 'contact', type: 'contact' }];
+  return inferred.length ? inferred : [{ id: 'hero', type: 'hero' }, { id: 'products', type: 'products' }, { id: 'contact', type: 'contact' }];
 }
 
 function collectFontUrls(design: AnyRecord) {
@@ -207,19 +113,7 @@ function collectFontUrls(design: AnyRecord) {
 
 function themeVariables(design: AnyRecord): CSSProperties {
   const theme = take(design, 'theme', 'design_tokens', 'tokens') || {};
-  let colors = take(theme, 'colors', 'colours', 'palette') || take(design, 'colors', 'colours') || {};
-  if (!isObject(colors) || !Object.keys(colors).length) {
-    // Many specs describe colours in prose ("jungle green (#142B20)").
-    // Rescue those hex values so the theme still takes effect.
-    const prose = JSON.stringify(theme);
-    const rescued: Record<string, string> = {};
-    const roleMap: Array<[RegExp, string]> = [[/\b(background|canvas|surface|bg)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'background'], [/\b(accent|primary|brand|highlight|cta|amber|orange|gold)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'primary'], [/\b(text|ink|foreground)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'text'], [/\b(heading|title)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'heading']];
-    roleMap.forEach(([pattern, slot]) => { const match = prose.match(pattern); if (match && !rescued[slot]) rescued[slot] = match[2]; });
-    const allHexes = Array.from(prose.matchAll(/#[0-9a-fA-F]{6}\b/g)).map((match) => match[0]);
-    if (!rescued.primary && allHexes.length) rescued.primary = allHexes[allHexes.length > 1 ? 1 : 0];
-    if (!rescued.background && allHexes.length > 2) rescued.background = allHexes[0];
-    colors = rescued;
-  }
+  const colors = take(theme, 'colors', 'colours', 'palette') || take(design, 'colors', 'colours') || {};
   const out: AnyRecord = {};
   if (isObject(colors)) Object.entries(colors).forEach(([name, value]) => {
     const safe = safeCssValue(isObject(value) ? value.value : value);
@@ -253,7 +147,7 @@ function motionSpec(node: AnyRecord, reduced: boolean) {
   return { initial: initial || (animate ? { opacity: 0 } : undefined), animate, transition };
 }
 
-function AnimatedBox({ node, path, children, className, breakpoints, as = 'div', styleOverride }: { node: AnyRecord; path: string; children: React.ReactNode; className?: string; breakpoints: AnyRecord; as?: string; styleOverride?: CSSProperties }) {
+function AnimatedBox({ node, path, children, className, breakpoints, as = 'div' }: { node: AnyRecord; path: string; children: React.ReactNode; className?: string; breakpoints: AnyRecord; as?: string }) {
   const reduced = Boolean(useReducedMotion());
   const ref = useRef<HTMLDivElement>(null);
   const spec = take(node, 'motion', 'animation', 'animations') || {};
@@ -265,7 +159,7 @@ function AnimatedBox({ node, path, children, className, breakpoints, as = 'div',
   }, [spec, reduced]);
   const MotionTag = (motion as AnyRecord)[as] || motion.div;
   const css = responsiveCss(node, path, breakpoints);
-  return <><MotionTag ref={ref} className={`${classId(path)} ${className || ''}`} style={{ ...mergedStyle(node), ...styleOverride }} {...motionSpec(node, reduced)}>{children}</MotionTag>{css && <style>{css}</style>}</>;
+  return <><MotionTag ref={ref} className={`${classId(path)} ${className || ''}`} style={mergedStyle(node)} {...motionSpec(node, reduced)}>{children}</MotionTag>{css && <style>{css}</style>}</>;
 }
 
 function Slideshow({ node, path, breakpoints }: { node: AnyRecord; path: string; breakpoints: AnyRecord }) {
@@ -347,100 +241,44 @@ function deepPrimitiveContent(node: AnyRecord) {
   return values;
 }
 
-function GenericNode({ node: input, path, store, products, onOrder, onView, breakpoints, depth = 0 }: { node: unknown; path: string; store: Store; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView']; breakpoints: AnyRecord; depth?: number }): React.ReactNode {
-  const node = (isObject(input) ? expandZones(input) : input) as AnyRecord;
+function GenericNode({ node, path, store, products, onOrder, onView, breakpoints, depth = 0 }: { node: unknown; path: string; store: Store; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView']; breakpoints: AnyRecord; depth?: number }): React.ReactNode {
   if (node == null || typeof node === 'boolean') return null;
   if (typeof node === 'string' || typeof node === 'number') return <p className="json-text">{String(node)}</p>;
-  if (Array.isArray(node)) {
-    const primitives = node.filter((item) => typeof item === 'string' || typeof item === 'number');
-    if (node.length && primitives.length === node.length) return <div className="json-pills">{primitives.map((item, index) => <span key={index}>{String(item)}</span>)}</div>;
-    const linkable = (item: unknown) => isObject(item) && (resolveText(take(item, 'label', 'text', 'title', 'name', 'cta')) || '').length > 0;
-    if (node.length && node.every(linkable)) return <div className="json-links">{node.map((item, index) => <a key={index} href={actionHref(item)} style={toStyle(take(item, 'style', 'styles'))}>{resolveText(take(item, 'label', 'text', 'title', 'name', 'cta'))}</a>)}</div>;
-    return <>{node.map((item, index) => <GenericNode key={`${path}-${index}`} node={item} path={`${path}.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} />)}</>;
-  }
+  if (Array.isArray(node)) return <>{node.map((item, index) => <GenericNode key={`${path}-${index}`} node={item} path={`${path}.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} />)}</>;
   if (!isObject(node)) return null;
   if (depth > 80) return <div className="json-depth-safe">{deepPrimitiveContent(node).map((value, index) => <p key={index}>{value}</p>)}</div>;
   const identity = words(take(node, 'type', 'component', 'kind', 'id', 'name') || '').toLowerCase();
-  if (identity === 'shop' || /(^|\s)(products?|catalog|collection|product grid|product collection|shop by categor(y|ies)|categor(y|ies))(\s|$)/.test(identity)) return <ProductCollection node={node} products={products} onOrder={onOrder} onView={onView} />;
+  if (identity === 'shop' || /(^|\s)(products?|catalog|collection|product grid|product collection)(\s|$)/.test(identity)) return <ProductCollection node={node} products={products} onOrder={onOrder} onView={onView} />;
   if (/slide|carousel/.test(identity) || Array.isArray(node.slides)) return <Slideshow node={node} path={path} breakpoints={breakpoints} />;
-  const title = resolveText(take(node, 'headline', 'heading', 'title', 'name', 'main_headline', 'heading_text', 'headline_text', 'primary_text', 'hero_title'));
-  const eyebrow = resolveText(take(node, 'eyebrow', 'kicker', 'overline', 'label', 'badge_text', 'announcement', 'pill'));
-  const body = resolveText(take(node, 'body', 'description', 'subtitle', 'subheading', 'copy', 'paragraph', 'tagline', 'supporting_text', 'sub_headline', 'lede'));
-  const text = resolveText(node.text);
-  let image = safeImage(take(node, 'image_url', 'image', 'src', 'photo', 'background_image', 'image_asset', 'media', 'visual', 'art', 'banner'));
-  const alt = String(resolveText(take(node, 'alt', 'image_alt', 'aria_label')) || title || '');
-  const cta = take(node, 'cta', 'button', 'action', 'primary_action', 'cta_button', 'action_button', 'primary_button');
-  const video = safeVideo(take(node, 'video', 'background_video', 'video_url')) || (isObject(node.background) ? safeVideo(take(node.background, 'url', 'src', 'video') || take(node.background, 'sources', 'source')) : '');
-  const consumedKeys = ['headline','heading','title','name','main_headline','heading_text','headline_text','primary_text','hero_title','eyebrow','kicker','overline','label','badge_text','announcement','pill','body','description','subtitle','subheading','copy','text','paragraph','tagline','supporting_text','sub_headline','lede','image_url','image','src','photo','background_image','image_asset','media','visual','art','banner','alt','image_alt','aria_label','cta','button','action','primary_action','cta_button','action_button','primary_button','semantic_tag','element','tag','role','zones','accessibility','aria'];
+  const title = take(node, 'headline', 'heading', 'title', 'name');
+  const eyebrow = take(node, 'eyebrow', 'kicker', 'overline', 'label');
+  const body = take(node, 'body', 'description', 'subtitle', 'subheading', 'copy');
+  const text = node.text;
+  const image = safeUrl(take(node, 'image_url', 'image', 'src', 'photo', 'background_image'));
+  const alt = String(take(node, 'alt', 'image_alt', 'aria_label', 'title') || '');
+  const cta = take(node, 'cta', 'button', 'action', 'primary_action');
   const nested = Object.entries(node).filter(([key, value]) => {
-    if (configKeys.has(key) || consumedKeys.includes(key)) return false;
+    if (configKeys.has(key) || ['headline','heading','title','eyebrow','kicker','overline','label','body','description','subtitle','subheading','copy','text','image_url','image','src','photo','background_image','alt','image_alt','aria_label','cta','button','action','primary_action'].includes(key)) return false;
     return Array.isArray(value) || isObject(value);
   });
   const extras = Object.entries(node).filter(([key, value]) => {
-    if (configKeys.has(key) || consumedKeys.includes(key)) return false;
+    if (configKeys.has(key) || ['headline','heading','title','eyebrow','kicker','overline','label','body','description','subtitle','subheading','copy','text','image_url','image','src','photo','background_image','alt','image_alt','aria_label','cta','button','action','primary_action','semantic_tag','element','tag','role'].includes(key)) return false;
     return typeof value === 'string' || typeof value === 'number';
   });
-  // Spec authors style parts directly: headline_style, body_style,
-  // button_style... Also accept style co-located on the content object itself
-  // (e.g. headline: { text: '...', style: {...} }).
-  const partStyle = (name: string, content: unknown): CSSProperties => {
-    const fromNode = toStyle(take(node, `${name}_style`, `${name}_styles`, `${name}Style`));
-    const fromContent = isObject(content) ? toStyle(take(content, 'style', 'styles')) : {};
-    return { ...fromNode, ...fromContent };
-  };
-  const styleTitle = partStyle('headline', take(node, 'headline') ?? take(node, 'heading') ?? node.title);
-  const styleEyebrow = partStyle('eyebrow', node.eyebrow);
-  const styleBody = partStyle('body', take(node, 'body') ?? take(node, 'description'));
-  const styleText = partStyle('text', node.text);
-  const styleCta = partStyle('button', cta) as CSSProperties;
-  const styleImage = partStyle('image', take(node, 'image', 'image_url'));
-  // Background imagery and scrims belong on the wrapper, not as an inline photo.
-  const wrapper = mergedStyle(node);
-  // Full-bleed backdrop detection across every common spec vocabulary.
-  let bgImage = safeImage(take(node, 'background_image', 'background_photo', 'bg_image', 'backdrop', 'cover_image', 'cover'))
-    || (isObject(node.background) ? safeImage(take(node.background, 'url', 'src', 'image', 'public_https_asset')) : '')
-    || (isObject(node.media) ? safeImage(take(node.media, 'background', 'backdrop', 'cover')) : '')
-    || (isObject(node.visual) ? safeImage(take(node.visual, 'background', 'image')) : '')
-    || (isObject(node.visual_asset) ? safeImage(take(node.visual_asset, 'url', 'src')) : '')
-    || (isObject(node.assets) ? safeImage(take(node.assets, 'background', 'hero', 'hero_media', 'cover', 'backdrop')) : '');
-  if (!bgImage && /hero|banner|jumbotron|masthead|spotlight|showcase|intro/.test(identity)) bgImage = deepImage(node);
-  if (bgImage && !wrapper.backgroundImage) { wrapper.backgroundImage = `url("${bgImage}")`; wrapper.backgroundSize = wrapper.backgroundSize || 'cover'; wrapper.backgroundPosition = wrapper.backgroundPosition || 'center'; }
-  // Text over a photo needs automatic contrast: a default dark scrim unless the
-  // spec says otherwise, plus white text handled by the .json-on-media classes.
-  let scrimValue = take(node, 'overlay_colour', 'overlay_color', 'scrim_color', 'scrim') || (isObject(node.overlay) ? take(node.overlay, 'colour', 'color') : undefined) || (typeof node.overlay === 'string' ? node.overlay : undefined);
-  const scrimOpacity = Number(take(node, 'overlay_opacity', 'scrim_opacity') ?? (isObject(node.overlay) ? node.overlay.opacity : undefined) ?? (bgImage ? 0.42 : scrimValue ? 0.45 : 0)) || 0;
-  if (bgImage && !scrimValue) scrimValue = '#000000';
-  if (bgImage || scrimValue) { wrapper.position = 'relative'; }
-  if (image && image === bgImage) image = '';
   const semantic = String(take(node, 'semantic_tag', 'element', 'tag') || (/hero/.test(identity) ? 'section' : 'div')).toLowerCase();
   const allowedTags = new Set(['section','article','aside','div','nav','main','header','footer']);
   const as = allowedTags.has(semantic) ? semantic : 'div';
   const access = isObject(node.accessibility) ? node.accessibility : isObject(node.aria) ? node.aria : {};
-  const mediaTone = bgImage ? 'json-on-media json-fullbleed' : scrimValue ? 'json-on-media' : '';
-  return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'} ${mediaTone}`} breakpoints={breakpoints} as={as} styleOverride={wrapper}>
-    {Boolean(scrimValue) && scrimOpacity > 0 && <div className="json-scrim" style={{ background: String(safeCssValue(scrimValue) || '#000'), opacity: Math.max(0, Math.min(1, scrimOpacity)) }} />}
-
-    {Boolean(eyebrow) && <span className="json-eyebrow" style={styleEyebrow}>{eyebrow}</span>}
-    {Boolean(title) && <h2 aria-label={access.label || node.aria_label} style={styleTitle}>{title}</h2>}
-    {Boolean(body) && <p className="json-body" style={styleBody}>{body}</p>}
-    {Boolean(text) && text !== body && <p className="json-text" style={styleText}>{text}</p>}
-    {image && <img className="json-image" src={image} alt={alt} style={styleImage} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
-    {video && <video className="json-video" src={video} autoPlay muted loop playsInline />}
-    {cta && (typeof cta === 'string' ? <a className="json-button" style={styleCta} href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={{ ...styleCta, ...toStyle(cta.style) }} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(resolveText(take(cta, 'label', 'text', 'title')) || 'Shop now')}</a>)}
+  return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'}`} breakpoints={breakpoints} as={as}>
+    {eyebrow != null && <span className="json-eyebrow">{String(eyebrow)}</span>}
+    {title != null && <h2 aria-label={access.label || node.aria_label}>{String(title)}</h2>}
+    {body != null && <p className="json-body">{String(body)}</p>}
+    {text != null && text !== body && <p className="json-text">{String(text)}</p>}
+    {image && <img className="json-image" src={image} alt={alt} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
+    {cta && (typeof cta === 'string' ? <a className="json-button" href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={toStyle(cta.style)} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(take(cta, 'label', 'text', 'title') || 'Shop now')}</a>)}
     {extras.map(([key, value]) => <p key={key} className="json-extra" data-field={key}>{String(value)}</p>)}
     {nested.map(([key, value]) => <div key={key} style={['items','cards','columns','blocks'].includes(key) ? { display: 'contents' } : undefined} className={`json-nested json-nested-${key.replace(/[^a-z0-9]/gi, '-')}`}><GenericNode node={value} path={`${path}.${key}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} /></div>)}
   </AnimatedBox>;
-}
-
-// A single broken section must never take the whole store down.
-class SectionBoundary extends Component<{ children: React.ReactNode; label?: string }, { failed: boolean }> {
-  state = { failed: false };
-  static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(error: Error) { console.error('Store section safely recovered:', this.props.label, error); }
-  render() {
-    if (!this.state.failed) return this.props.children;
-    return <div className="store-section-safe"><p>This section is being restyled. Karibu — browse around.</p></div>;
-  }
 }
 
 class StorefrontBoundary extends Component<{ children: React.ReactNode; store: Store; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView'] }, { failed: boolean }> {
@@ -457,7 +295,7 @@ export default function JsonStorefront({ store, products, onOrder, onView }: Eng
   const design = useMemo(() => normaliseDesign(store.design_json), [store.design_json]);
   const sections = useMemo(() => getSections(design), [design]);
   const global = take(design, 'global_ui', 'globalUI', 'site_chrome') || {};
-  const announcement = take(global, 'announcement_bar', 'announcementBar', 'announcement', 'top_bar', 'topbar', 'ticker', 'notice_bar') || take(design, 'announcement_bar', 'announcement', 'top_bar', 'topbar', 'ticker', 'notice_bar');
+  const announcement = take(global, 'announcement_bar', 'announcementBar') || design.announcement_bar;
   const header = take(global, 'header', 'navigation') || design.header || {};
   const footer = take(global, 'footer') || design.footer || {};
   const breakpoints = take(design, 'breakpoints', 'responsive_breakpoints') || take(design.theme || {}, 'breakpoints') || {};
@@ -471,20 +309,18 @@ export default function JsonStorefront({ store, products, onOrder, onView }: Eng
     });
     return () => links.forEach((link) => link?.remove());
   }, [fontUrls]);
-  const themeLogo = safeImage(take(design.theme || {}, 'logo_source', 'logo', 'brand_logo'));
-  const headerLogo = store.logo_url || themeLogo;
   const navItems = asArray(take(header, 'navigation', 'nav', 'links', 'items'));
   const announcementParts = asArray(take(announcement || {}, 'segments', 'items', 'messages', 'text') ?? announcement);
   return <StorefrontBoundary store={store} products={products} onOrder={onOrder} onView={onView}>
     <div className="json-storefront" style={{ ...themeVariables(design), ...toStyle(take(design, 'style', 'global_style')) }}>
       {announcementParts.length > 0 && <div className="store-announcement" style={mergedStyle(isObject(announcement) ? announcement : {})}>{announcementParts.map((part, index) => <span key={index}>{String(isObject(part) ? take(part, 'text', 'label', 'message') || '' : part)}</span>)}</div>}
       <header className={`store-header ${header.sticky ? 'sticky' : ''}`} style={mergedStyle(header)}>
-        <a href="#top" className="store-brand">{headerLogo ? <img src={headerLogo} alt={`${store.name} logo`} /> : <ShoppingBag />}<span>{store.name}</span></a>
+        <a href="#top" className="store-brand">{store.logo_url ? <img src={store.logo_url} alt={`${store.name} logo`} /> : <ShoppingBag />}<span>{store.name}</span></a>
         {navItems.length > 0 && <nav className="store-nav" aria-label="Store navigation">{navItems.map((item, index) => <a key={index} href={safeHref(take(isObject(item) ? item : {}, 'href', 'url'), `#${words(isObject(item) ? take(item, 'label', 'text') : item).toLowerCase().replace(/\s/g, '-')}`)}>{String(isObject(item) ? take(item, 'label', 'text', 'title') : item)}</a>)}</nav>}
         {navItems.length > 0 && <button className="store-menu-button" onClick={() => setMenu(!menu)} aria-label="Toggle menu">{menu ? <X /> : <Menu />}</button>}
         {menu && <nav className="store-mobile-nav">{navItems.map((item, index) => <a key={index} onClick={() => setMenu(false)} href={safeHref(take(isObject(item) ? item : {}, 'href', 'url'), '#products')}>{String(isObject(item) ? take(item, 'label', 'text', 'title') : item)}</a>)}</nav>}
       </header>
-      <main id="top" className="store-sections">{sections.map((section, index) => <section id={String(section.id || section.name || `section-${index}`).toLowerCase().replace(/[^a-z0-9-]/g, '-')} key={`${section.id || 'section'}-${index}`} className="store-section"><SectionBoundary label={String(resolveText(take(section, 'title', 'headline', 'name', 'id')) || `section ${index + 1}`)}><GenericNode node={section} path={`sections.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} /></SectionBoundary></section>)}</main>
+      <main id="top">{sections.map((section, index) => <section id={String(section.id || section.name || `section-${index}`).toLowerCase().replace(/[^a-z0-9-]/g, '-')} key={`${section.id || 'section'}-${index}`} className="store-section"><GenericNode node={section} path={`sections.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} /></section>)}</main>
       {Object.keys(footer).length > 0 && <footer className="store-json-footer"><GenericNode node={footer} path="footer" store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} /></footer>}
       <a className="powered-stoyangu" href="https://stoyangu.com" target="_blank" rel="noreferrer"><img src="/stoyangu-logo.png" alt="StoYangu" /><span>Powered by StoYangu</span></a>
     </div>
