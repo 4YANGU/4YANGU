@@ -20,3 +20,10 @@
 .sj-hero--fullbleed h1,.sj-hero--fullbleed .sj-hero-tagline{color:#fff;text-shadow:0 2px 30px rgba(0,0,0,.4)}
 .sj-hero--fullbleed .sj-hero-badge{color:#fff}
 .sj-hero--fullbleed p,.sj-hero--fullbleed .sj-hero-features{color:rgba(255,255,255,.92)}
+
+/* Marquee announcements (ticker specs) */
+.sj-announcement.sj-announcement--marquee{overflow:hidden;padding:0}
+.sj-marquee-track{display:flex;width:max-content;animation:sj-marquee 28s linear infinite;padding:.55rem 0}
+.sj-marquee-group{display:flex;gap:0}
+.sj-marquee-group>*{padding:0 1rem;white-space:nowrap}
+@keyframes sj-marquee{to{transform:translateX(-50%)}}

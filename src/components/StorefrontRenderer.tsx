@@ -168,8 +168,15 @@ function themeVars(design: Obj): CSSProperties {
   });
   const primary = first(colours, 'primary', 'brand_blue', 'brand', 'accent') || '#5A966E';
   const accent = first(colours, 'accent', 'brand_red', 'secondary') || primary;
-  const background = first(colours, 'canvas', 'background', 'surface', 'white') || '#FFFDF7';
-  const ink = first(colours, 'ink', 'text', 'foreground', 'navy_deep') || '#17261F';
+  let background = first(colours, 'canvas', 'background', 'surface', 'white') || '#FFFDF7';
+  let ink = first(colours, 'ink', 'text', 'foreground', 'navy_deep') || '#17261F';
+  // Specs that declare dark mode but leave a light canvas: honour the mode.
+  const modeDark = /dark|night|black/i.test(String((isObj(theme) && (theme.mode || theme.name)) || ''));
+  const looksLight = /^\s*#((f[de]|e[89def])([0-9a-f]){5})|white|ivory|cream/i.test(String(background));
+  if (modeDark && looksLight) {
+    background = first(colours, 'background_dark', 'night', 'concrete_grey', 'charcoal', 'dark', 'primary') || '#0B0D0F';
+    if (/^\s*#(1[0-3][0-9a-f]|2[0-4][0-9a-f])|#111|#101|#172|#0/i.test(String(ink))) ink = first(colours, 'heading_light', 'off_white', 'primary_foreground') || '#F5F3EF';
+  }
   const muted = first(colours, 'muted', 'subtle') || '#6B776F';
   out['--sj-primary'] = safeCss(primary); out['--sj-accent'] = safeCss(accent); out['--sj-bg'] = safeCss(background); out['--sj-ink'] = safeCss(ink); out['--sj-muted'] = safeCss(muted);
   out['--sj-body-font'] = safeCss(first(typography, 'body_family', 'body_font', 'everything_else_font') || typography.body?.family || 'Inter, sans-serif');
@@ -211,12 +218,15 @@ function ScrollProgress({ design }: { design: Obj }) {
 }
 
 function Announcement({ config }: { config: Obj }) {
-  if (config.visible === false) return null;
+  const enabled = first(config, 'visible', 'enabled', 'show');
+  if (enabled === false || (typeof enabled === 'string' && enabled.trim().toLowerCase() === 'false')) return null;
   const segments = array(first(config, 'segments', 'items', 'messages'));
-  const primary = first(config, 'primary_text', 'text', 'message');
-  const secondary = config.secondary_text;
-  return <div className="sj-announcement" style={{ ...toStyle(config, {}), height: safeCss(config.height), borderBottom: safeCss(config.bottom_border) }}>
-    {segments.length ? segments.map((item, index) => <span key={index}>{String(isObj(item) ? first(item, 'text', 'label', 'message') || '' : item)}</span>) : <><span>{String(primary || '')}</span>{secondary && <><i /><span className="sj-announcement-secondary">{String(secondary)}</span></>}</>}
+  const primary = first(config, 'primary_text', 'text', 'message', 'content');
+  const secondary = first(config, 'secondary_text', 'secondary');
+  const marquee = Boolean(first(config, 'marquee_speed', 'marquee', 'ticker'));
+  const body = <>{segments.length ? segments.map((item, index) => <span key={index} className={marquee ? 'sj-marquee-item' : ''}>{String(isObj(item) ? first(item, 'text', 'label', 'message') || '' : item)}</span>) : <><span className={marquee ? 'sj-marquee-item' : ''}>{String(primary || '')}</span>{secondary && <><i /><span className={marquee ? 'sj-marquee-item sj-announcement-secondary' : 'sj-announcement-secondary'}>{String(secondary)}</span></>}</>}</>;
+  return <div className={`sj-announcement ${marquee ? 'sj-announcement--marquee' : ''}`} style={{ ...toStyle(config, {}), height: safeCss(config.height), borderBottom: safeCss(config.bottom_border) }}>
+    {marquee ? <div className="sj-marquee-track" style={{ animationDuration: String(marquee).match(/\d+/) ? `${Number(String(marquee).match(/\d+/))}s` : '28s' }}><div className="sj-marquee-group">{body}</div><div className="sj-marquee-group" aria-hidden="true">{body}</div></div> : body}
   </div>;
 }
 
@@ -224,11 +234,15 @@ function Header({ design, store, onSectionNavigate }: { design: Obj; store: Stor
   const config = isObj(design.global_ui?.header) ? design.global_ui.header : {};
   const menuConfig = isObj(design.global_ui?.mobile_menu) ? design.global_ui.mobile_menu : {};
   const [open, setOpen] = useState(false);
-  const nav = array(first(config, 'navigation', 'nav', 'links'));
+  const navLocal = array(first(config, 'navigation', 'nav', 'links'));
+  const navGroup = first(design.global_ui, 'navigation', 'nav');
+  const nav = navLocal.length ? navLocal : isObj(navGroup) ? array(first(navGroup, 'links', 'items')) : array(navGroup);
+  const shopUIKeys = first(design.global_ui, 'shop_now_button', 'shop_button', 'primary_action');
+  const shopConfig = isObj(shopUIKeys) ? shopUIKeys : {};
   const menuItems = array(first(menuConfig, 'items', 'navigation'));
   const logoConfig = isObj(config.logo) ? config.logo : { image: config.logo_image, is_store_logo: true };
   const logo = resolveLogo(logoConfig, store);
-  const shop = isObj(config.shop_now_button) ? config.shop_now_button : {};
+  const shop = isObj(config.shop_now_button) && Object.keys(config.shop_now_button).length ? config.shop_now_button : shopConfig;
   const handleSection = (event: React.MouseEvent<HTMLAnchorElement>, target: string) => { if (onSectionNavigate) { event.preventDefault(); onSectionNavigate(target); } };
   return <>
     <header className={`sj-header ${config.position === 'sticky' || config.sticky ? 'is-sticky' : ''}`} style={mergedStyle(design, config)}>
@@ -270,7 +284,7 @@ function Slideshow({ visual, design }: { visual: Obj; design: Obj }) {
 
 function HeroSection({ section, design, store }: { section: Obj; design: Obj; store: Store }) {
   const reduced = Boolean(useReducedMotion());
-  const suppliedVisual = isObj(first(section, 'hero_visual', 'visual', 'media')) ? first(section, 'hero_visual', 'visual', 'media') : {};
+  const suppliedVisual = isObj(first(section, 'hero_visual', 'visual', 'media', 'slideshow', 'hero_media', 'media_gallery', 'gallery', 'spotlight')) ? first(section, 'hero_visual', 'visual', 'media', 'slideshow', 'hero_media', 'media_gallery', 'gallery', 'spotlight') : {};
   const visual = Object.keys(suppliedVisual).length ? suppliedVisual : safeUrl(first(section, 'image', 'image_url', 'photo')) ? { slides: [{ image: first(section, 'image', 'image_url', 'photo'), alt: section.alt || section.headline }] } : {};
   const hasVisual = array(first(visual, 'slides', 'images', 'items')).length > 0;
   // Full-bleed heroes, but ONLY when the spec explicitly calls for that treatment
@@ -278,11 +292,13 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
   const intentSignal = [String(first(section, 'presentation', 'treatment', 'hero_mode', 'display_mode') || ''), String(isObj(visual) ? visual.presentation || visual.treatment || '' : ''), String(design.theme?.mode || ''), String(design.theme?.name || ''), String(design.design_scope?.specification_type || '')].join(' ').toLowerCase();
   const specImage = array(first(visual, 'slides', 'images', 'items'))[0];
   const heroImg = safeUrl(isObj(specImage) ? first(specImage, 'image', 'src', 'url') : specImage) || safeUrl(first(section, 'background_image', 'image', 'image_url', 'backdrop', 'cover_image', 'photo'));
-  const wantsFullbleed = /full.?bleed|immersive|edge.to.edge|background/.test(intentSignal) && Boolean(heroImg);
+  // Full-bleed only when the spec asks for it AND the hero built no slideshow of its own
+  // (a slideshow means split layout was intended — never flatten it).
+  const wantsFullbleed = !hasVisual && /full.?bleed|immersive|edge.to.edge|background/.test(intentSignal) && Boolean(heroImg);
   const heroStyle = mergedStyle(design, section.layout, section.style);
   if (wantsFullbleed && heroImg) { heroStyle.backgroundImage = `url("${heroImg}")`; heroStyle.backgroundSize = 'cover'; heroStyle.backgroundPosition = 'center'; }
   const lines = array(section.headline_lines);
-  const actions = array(first(section, 'actions', 'buttons'));
+  const actions = array(first(section, 'actions', 'buttons', 'ctas', 'cta_stack', 'links'));
   const badge = isObj(section.badge) ? section.badge : {};
   const promo = isObj(section.floating_promo) ? section.floating_promo : {};
   return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual && !wantsFullbleed ? '' : 'no-visual'} ${wantsFullbleed ? 'sj-hero--fullbleed' : ''}`} style={heroStyle}>{wantsFullbleed && <i className="sj-hero-veil" aria-hidden="true" />}
@@ -291,7 +307,7 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
       {Object.keys(badge).length > 0 && <Reveal design={design} node={badge} animation="hero_badge_reveal" className="sj-hero-badge" style={mergedStyle(design, badge)}><span style={{ background: safeCss(badge.icon_background) }}>{resolveLogo(badge, store) ? <img src={resolveLogo(badge, store)} alt="" /> : <Icon name={badge.icon} size={14} />}</span>{String(badge.text || '')}</Reveal>}
       <Reveal design={design} node={section} animation="hero_heading_reveal"><h1>{lines.length ? lines.map((line, index) => <span key={index} className={String(line.style || '').includes('accent') ? 'accent' : ''}>{String(line.text || line)}</span>) : String(section.headline || section.heading || design.store_name || store.name)}</h1></Reveal>
       {(section.tagline || section.body || section.intro) && <Reveal design={design} node={section} animation="hero_tagline_reveal"><p className="sj-hero-tagline">{String(first(section, 'tagline', 'body', 'intro'))}</p></Reveal>}
-      {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = isObj(action) ? action : { label: action }; const buttons = design.global_ui?.buttons || {}; return <a key={index} className={`sj-action ${entry.style || 'primary'}`} style={mergedStyle(design, buttons.base, buttons[entry.style || 'primary'], entry)} href={safeHref(first(entry, 'target', 'href'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
+      {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = isObj(action) ? action : { label: action }; const buttons = design.global_ui?.buttons || {}; const entryStyle = entry.style || entry.variant || 'primary'; return <a key={index} className={`sj-action ${entryStyle}`} style={mergedStyle(design, buttons.base, buttons[entryStyle], entry)} href={safeHref(first(entry, 'target', 'href', 'scroll_to'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
       {array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp')).length > 0 && <div className="sj-hero-features">{array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp')).map((item, index) => <span key={index}><Icon name={isObj(item) ? item.icon : undefined} size={15} />{String(isObj(item) ? item.text || item.label || '' : item)}</span>)}</div>}
     </div>
     {hasVisual && !wantsFullbleed && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
