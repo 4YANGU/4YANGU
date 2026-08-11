@@ -52,6 +52,169 @@ function parseDesign(raw: unknown): Obj {
   }
 }
 
+// === Universal spec translator ============================================
+// AI storefront specs speak many vocabularies. These helpers normalize any
+// incoming design document into this engine's native shape before rendering,
+// only filling in what is missing — explicit fields always win.
+
+const textOf = (value: unknown, depth = 0): string => {
+  if (value == null || typeof value === 'boolean' || depth > 6) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (Array.isArray(value)) return value.map((item) => textOf(item, depth + 1)).filter(Boolean).join(' · ');
+  if (isObj(value)) {
+    const direct = first(value, 'text', 'content', 'value', 'label', 'title', 'headline', 'message');
+    if (typeof direct === 'string' || typeof direct === 'number') return String(direct).trim();
+    return textOf(first(value, 'parts', 'lines', 'segments', 'items', 'runs'), depth + 1);
+  }
+  return '';
+};
+
+const imgOf = (value: unknown): string => {
+  const direct = safeUrl(value);
+  if (direct) return direct;
+  if (isObj(value)) return safeUrl(first(value, 'url', 'src', 'href', 'link', 'public_https_asset', 'asset', 'path', 'image', 'source'));
+  if (Array.isArray(value)) { for (const item of value) { const found = imgOf(item); if (found) return found; } }
+  return '';
+};
+
+const deepImg = (root: unknown, depth = 0): string => {
+  if (root == null || depth > 6) return '';
+  if (typeof root === 'string') return safeUrl(root);
+  const direct = imgOf(root);
+  if (direct) return direct;
+  if (Array.isArray(root)) { for (const item of root) { const found = deepImg(item, depth + 1); if (found) return found; } }
+  if (isObj(root)) for (const value of Object.values(root)) { const found = deepImg(value, depth + 1); if (found) return found; }
+  return '';
+};
+
+const actionHrefOf = (entry: Obj): string => {
+  const raw = first(entry, 'target', 'href', 'url', 'link', 'to', 'destination', 'scroll_to', 'go', 'on_click');
+  let text = typeof raw === 'string' ? raw : isObj(raw) ? textOf(first(raw, 'scroll_to', 'section', 'url', 'href', 'id', 'target')) : '';
+  text = text.trim();
+  if (text && /^[a-z0-9-_]+$/i.test(text) && !/^https?\:/.test(text)) text = `#${text}`;
+  return safeHref(text, '#products');
+};
+
+function normalizeSection(raw: Obj, store: Store, design: Obj): Obj {
+  const section = { ...raw };
+  const identity = label(first(section, 'type', 'component', 'kind', 'id', 'name') || '').toLowerCase();
+  if (!section.id && section.name) section.id = section.name;
+
+  // Headline → headline_lines the display engine expects (style flags kept).
+  if (!array(section.headline_lines).length) {
+    const source = first(section, 'headline', 'heading', 'title', 'main_headline', 'heading_text', 'headline_text', 'primary_text', 'hero_title');
+    const parts = isObj(source) ? array(first(source, 'parts', 'lines', 'segments', 'items')) : [];
+    if (parts.length) section.headline_lines = parts.map((part) => isObj(part) ? { text: textOf(first(part, 'text', 'content', 'value', 'label') ?? part), style: part.style || part.treatment || (part.accent || part.emphasis ? 'accent' : undefined) } : { text: textOf(part) });
+    else { const text = textOf(source); if (text) section.headline_lines = [{ text }]; }
+  }
+
+  // Tagline, badge and buttons from any spelling.
+  if (!first(section, 'tagline', 'body', 'intro')) {
+    const tagline = textOf(first(section, 'body', 'description', 'subtitle', 'subheading', 'tagline', 'intro', 'supporting_text', 'sub_headline', 'lede', 'copy'));
+    if (tagline) section.tagline = tagline;
+  }
+  if (!isObj(section.badge) || !Object.keys(section.badge).length) {
+    const badgeText = textOf(first(section, 'badge_text', 'eyebrow', 'pill', 'kicker', 'overline', 'announcement'));
+    if (isObj(section.badge_config)) section.badge = section.badge_config;
+    else if (badgeText) section.badge = { text: badgeText };
+  }
+  if (!array(first(section, 'actions', 'buttons')).length) {
+    const ctas = array(first(section, 'actions', 'buttons', 'cta_stack', 'cta_row', 'ctas', 'links'));
+    const single = first(section, 'cta', 'button', 'action', 'primary_action', 'cta_button', 'action_button', 'primary_button');
+    const fromSingle = single ? (isObj(single) ? [single] : [{ label: single }]) : [];
+    const actions = (ctas.length ? ctas : fromSingle).filter((entry) => entry != null);
+    if (actions.length) section.actions = actions.map((entry) => isObj(entry) ? { ...entry, label: textOf(first(entry, 'label', 'text', 'title', 'name', 'cta')) || entry.label, target: actionHrefOf(entry) } : { label: textOf(entry), target: '#products' });
+  }
+
+  // Background imagery: honour every vocabulary, then promote deeply-nested
+  // hero visuals into a full-bleed backdrop automatically.
+  let backdrop = imgOf(first(section, 'background_image', 'background_photo', 'bg_image', 'backdrop', 'cover_image', 'cover'))
+    || (isObj(section.background) ? imgOf(first(section.background, 'url', 'src', 'image', 'public_https_asset')) : '')
+    || (isObj(section.media) ? imgOf(first(section.media, 'background', 'backdrop', 'cover')) : '')
+    || (isObj(section.visual) ? imgOf(first(section.visual, 'background', 'image')) : '')
+    || (isObj(section.assets) ? imgOf(first(section.assets, 'background', 'hero', 'hero_media', 'cover', 'backdrop')) : '');
+  const heroish = /hero|banner|jumbotron|masthead|spotlight|showcase|intro|welcome|landing|home/.test(identity);
+  if (heroish && !backdrop) backdrop = deepImg(section);
+  if (backdrop) {
+    if (heroish) section.fullbleed = true;
+    section.style = { ...(isObj(section.style) ? section.style : {}), background_image: backdrop };
+    if (!array(first(section.hero_visual, 'slides')).length && !array(first(section.visual, 'slides')).length) {
+      section.hero_visual = { slides: [{ image: backdrop }] };
+    }
+  } else {
+    const slides = array(first(section, 'slides', 'images', 'gallery'));
+    if (slides.length && !section.hero_visual && heroish) section.hero_visual = { slides };
+  }
+
+  // Category sections can fall back to the store's real categories.
+  if (/categor|collection/.test(identity) && !array(first(section, 'store_categories', 'categories', 'items', 'cards')).length) {
+    const cats = array(store.categories).filter(Boolean);
+    if (cats.length) section.store_categories = cats.map((name) => ({ name: String(name), tagline: 'Shop all' }));
+  }
+
+  const zones = isObj(section.layout) ? array(first(section.layout, 'zones', 'areas', 'regions', 'rows', 'panels', 'slots')).filter(isObj) : [];
+  const splitSides = isObj(section.layout) ? ['left', 'right', 'center', 'primary', 'secondary'].map((key) => section.layout[key]).filter(isObj) : [];
+  if ((zones.length || splitSides.length) && !array(section.blocks).length) section.blocks = [...zones, ...splitSides];
+  return section;
+}
+
+function normalizeDesignSpec(design: Obj, store: Store): Obj {
+  if (!isObj(design) || !Object.keys(design).length) return design;
+  const normalized: Obj = { ...design };
+  const theme = isObj(normalized.theme) ? { ...normalized.theme } : {};
+
+  // Colours written as prose ("jungle green (#142B20)") get rescued into a palette.
+  let colours = first(theme, 'colours', 'colors', 'palette') || first(normalized, 'colours', 'colors');
+  if (!isObj(colours) || !Object.keys(colours).length) {
+    const prose = JSON.stringify(theme) + JSON.stringify(normalized.design_scope || {}) + JSON.stringify(normalized.style || {});
+    const rescued: Obj = {};
+    const roles: Array<[RegExp, string]> = [
+      [/\b(background|canvas|surface|bg|base)\b[^"#]{0,45}?(#[0-9a-fA-F]{6})/i, 'background'],
+      [/\b(heading|display|title)\b[^"#]{0,45}?(#[0-9a-fA-F]{6})/i, 'ink'],
+      [/\b(accent|primary|brand|highlight|cta|amber|orange|gold|flame)\b[^"#]{0,45}?(#[0-9a-fA-F]{6})/i, 'primary'],
+      [/\b(text|ink|foreground)\b[^"#]{0,45}?(#[0-9a-fA-F]{6})/i, 'ink'],
+    ];
+    roles.forEach(([pattern, slot]) => { const match = prose.match(pattern); if (match && !rescued[slot]) rescued[slot] = match[2]; });
+    const hexes = Array.from(prose.matchAll(/#[0-9a-fA-F]{6}\b/g)).map((match) => match[0]);
+    if (!rescued.primary && hexes.length) rescued.primary = hexes[hexes.length > 1 ? 1 : 0];
+    if (!rescued.background && hexes.length > 2) rescued.background = hexes[0];
+    if (!rescued.ink && hexes.length) rescued.ink = '#ffffff';
+    if (Object.keys(rescued).length) colours = { ...(isObj(colours) ? colours : {}), ...rescued };
+  }
+  if (colours) normalized.theme = { ...theme, colours };
+
+  // Announcement bar aliases.
+  const globalUi = isObj(normalized.global_ui) ? { ...normalized.global_ui } : {};
+  const announcement = first(globalUi, 'announcement_bar', 'announcementBar', 'announcement', 'top_bar', 'topbar', 'ticker', 'notice_bar') || first(normalized, 'announcement_bar', 'announcement', 'top_bar', 'topbar', 'ticker', 'notice_bar');
+  if (!isObj(globalUi.announcement_bar) && announcement) globalUi.announcement_bar = announcement;
+  normalized.global_ui = globalUi;
+
+  // Sections from any layout (incl. pages/routes grouping one level deep).
+  const direct = first(normalized, 'sections', 'page_sections', 'content_sections', 'pages', 'screens', 'routes');
+  let sections = array(direct).filter(isObj);
+  const flat: Obj[] = [];
+  sections.forEach((entry) => {
+    const inner = array(first(entry, 'sections', 'blocks', 'content', 'zones', 'children')).filter(isObj);
+    const itself = first(entry, 'type', 'component', 'kind', 'headline', 'heading', 'title') != null;
+    if (inner.length && !itself) flat.push(...inner); else flat.push(entry);
+  });
+  if (flat.length) sections = flat;
+  if (!sections.length) {
+    const configish = new Set(['theme', 'design_tokens', 'tokens', 'global_ui', 'globalUI', 'header', 'footer', 'navigation', 'breakpoints', 'metadata', 'design_scope', 'specification_type', 'store_name', 'short_name', 'schema_version', 'meta', 'settings', 'app', 'seo', 'animations', 'logo_binding']);
+    Object.entries(normalized).forEach(([key, value]) => {
+      if (configish.has(key) || key === 'sections') return;
+      if (Array.isArray(value)) sections.push(...value.filter(isObj));
+      else if (isObj(value)) {
+        const inner = array(first(value, 'sections', 'blocks', 'zones', 'content', 'children', 'panels')).filter(isObj);
+        if (inner.length) sections.push(...inner);
+        else if (first(value, 'headline', 'heading', 'title', 'type', 'layout', 'image')) sections.push({ id: key, ...value });
+      }
+    });
+  }
+  normalized.sections = sections.map((section) => normalizeSection(section, store, normalized));
+  return normalized;
+}
+
 function token(design: Obj, value: unknown): unknown {
   if (typeof value !== 'string') return value;
   const direct = get(design, value);
@@ -277,7 +440,9 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
   const actions = array(first(section, 'actions', 'buttons'));
   const badge = isObj(section.badge) ? section.badge : {};
   const promo = isObj(section.floating_promo) ? section.floating_promo : {};
-  return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual ? '' : 'no-visual'}`} style={mergedStyle(design, section.layout, section.style)}>
+  const fullbleed = Boolean(section.fullbleed);
+  return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual && !fullbleed ? '' : 'no-visual'} ${fullbleed ? 'sj-hero--fullbleed' : ''}`} style={mergedStyle(design, section.layout, section.style)}>
+    {fullbleed && <i className="sj-hero-veil" aria-hidden="true" />}
     {section.background_watermark?.text && <span className="sj-watermark" style={mergedStyle(design, section.background_watermark)}>{String(section.background_watermark.text)}</span>}
     <div className="sj-hero-copy">
       {Object.keys(badge).length > 0 && <Reveal design={design} node={badge} animation="hero_badge_reveal" className="sj-hero-badge" style={mergedStyle(design, badge)}><span style={{ background: safeCss(badge.icon_background) }}>{resolveLogo(badge, store) ? <img src={resolveLogo(badge, store)} alt="" /> : <Icon name={badge.icon} size={14} />}</span>{String(badge.text || '')}</Reveal>}
@@ -286,7 +451,7 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
       {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = isObj(action) ? action : { label: action }; const buttons = design.global_ui?.buttons || {}; return <a key={index} className={`sj-action ${entry.style || 'primary'}`} style={mergedStyle(design, buttons.base, buttons[entry.style || 'primary'], entry)} href={safeHref(first(entry, 'target', 'href'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
       {array(section.feature_text).length > 0 && <div className="sj-hero-features">{array(section.feature_text).map((item, index) => <span key={index}><Icon name={item.icon} size={15} />{String(item.text || '')}</span>)}</div>}
     </div>
-    {hasVisual && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
+    {hasVisual && !fullbleed && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
       <Slideshow visual={visual} design={design} />
       {Object.keys(promo).length > 0 && <motion.div className="sj-floating-promo" style={mergedStyle(design, promo)} animate={reduced ? undefined : { y: [0, -8, 0] }} transition={{ duration: Number(design.animations?.floating_new_drop_note?.duration_seconds || 4), repeat: Infinity, ease: 'easeInOut' }}><span style={{ background: safeCss(promo.icon_background) }}>{resolveLogo(promo, store) ? <img src={resolveLogo(promo, store)} alt="" /> : <Sparkles />}</span><div><strong>{String(promo.title || '')}</strong><small>{String(promo.body || '')}</small></div></motion.div>}
     </Reveal>}
@@ -419,7 +584,7 @@ function sectionKind(section: Obj) {
 }
 
 export default function StorefrontRenderer({ store, products, onOrder, onView }: RendererProps) {
-  const design = useMemo(() => parseDesign(store.design_json), [store.design_json]);
+  const design = useMemo(() => normalizeDesignSpec(parseDesign(store.design_json), store), [store.design_json, store]);
   useDesignFonts(design);
   const sections = useMemo(() => {
     const source = first(design, 'sections', 'page_sections', 'content_sections', 'pages');
