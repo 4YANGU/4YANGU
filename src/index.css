@@ -221,3 +221,7 @@ img { max-width: 100%; }
 .spec-scan span{font-size:.7rem;color:#5d6d63;line-height:1.5}
 .spec-scan b.ok{color:#2e6b44}
 .spec-scan b.bad{color:#a74a43}
+
+/* AI spec prompt kit button */
+.prompt-copy-button{margin-left:auto;border:1px solid #b8ccb9;background:#fff;color:var(--green);border-radius:10px;padding:.5rem .75rem;font-size:.68rem;font-weight:800;display:flex;align-items:center;gap:.4rem;white-space:nowrap}
+.prompt-copy-button svg{width:14px}

@@ -308,7 +308,7 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
       <Reveal design={design} node={section} animation="hero_heading_reveal"><h1>{lines.length ? lines.map((line, index) => <span key={index} className={String(line.style || '').includes('accent') ? 'accent' : ''}>{String(line.text || line)}</span>) : String(section.headline || section.heading || design.store_name || store.name)}</h1></Reveal>
       {(section.tagline || section.body || section.intro) && <Reveal design={design} node={section} animation="hero_tagline_reveal"><p className="sj-hero-tagline">{String(first(section, 'tagline', 'body', 'intro'))}</p></Reveal>}
       {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = isObj(action) ? action : { label: action }; const buttons = design.global_ui?.buttons || {}; const entryStyle = entry.style || entry.variant || 'primary'; return <a key={index} className={`sj-action ${entryStyle}`} style={mergedStyle(design, buttons.base, buttons[entryStyle], entry)} href={safeHref(first(entry, 'target', 'href', 'scroll_to'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
-      {array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp')).length > 0 && <div className="sj-hero-features">{array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp')).map((item, index) => <span key={index}><Icon name={isObj(item) ? item.icon : undefined} size={15} />{String(isObj(item) ? item.text || item.label || '' : item)}</span>)}</div>}
+      {array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp', 'spec_cards')).length > 0 && <div className="sj-hero-features">{array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp', 'spec_cards')).map((item, index) => <span key={index}><Icon name={isObj(item) ? item.icon : undefined} size={15} />{String(isObj(item) ? item.text || [item.title, item.desc].filter(Boolean).join(' — ') || item.headline || item.label || '' : item)}</span>)}</div>}
     </div>
     {hasVisual && !wantsFullbleed && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
       <Slideshow visual={visual} design={design} />
@@ -324,8 +324,8 @@ function CategoriesSection({ section, design, onSelect }: { section: Obj; design
     <Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Categories')}</h2>{section.intro && <p>{String(section.intro)}</p>}</Reveal>
     <div className="sj-category-grid" style={{ gridAutoRows: safeCss(section.layout?.desktop_grid_row_height) }}>{categories.map((category, index) => { const entry = isObj(category) ? category : { name: category }; return <Reveal key={index} design={design} node={entry} animation="category_card_reveal" index={index} className={`sj-category-card sj-category-${index + 1}`} style={mergedStyle(design, cardDesign, entry.style)}>
       <button onClick={() => { onSelect(String(first(entry, 'product_filter_target', 'name', 'title') || 'All')); document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' }); }} aria-label={`Shop ${String(entry.name || entry.title || '')}`}>
-        {safeUrl(entry.image) && <img src={safeUrl(entry.image)} alt={String(entry.alt || entry.name || '')} />}
-        <span className="sj-category-number">{String(index + 1).padStart(2, '0')}</span><div><small>{String(entry.tagline || '')}</small><strong>{String(entry.name || entry.title || '')}</strong><ArrowRight /></div>
+        {safeUrl(entry.image) && <img src={safeUrl(entry.image)} alt={String(entry.alt || entry.name || entry.title || '')} />}
+        <span className="sj-category-number">{String(index + 1).padStart(2, '0')}</span><div>{entry.count && <small className="sj-category-count">{String(entry.count)}</small>}<small>{String(first(entry, 'tagline', 'note', 'description') || '')}</small><strong>{String(entry.name || entry.title || '')}</strong>{array(entry.spec_pills).length > 0 && <i className="sj-spec-pills">{array(entry.spec_pills).map((pill, p) => <em key={p}>{String(isObj(pill) ? pill.text || pill.label || '' : pill).replace(/^[\[\]"']+|[\[\]"']+$/g, '')}</em>)}</i>}<ArrowRight /></div>
       </button>
     </Reveal>; })}</div>
   </section>;
@@ -387,16 +387,32 @@ function SimilarProducts({ current, products, onSelect }: { current: Product; pr
 
 function ContactSection({ section, design }: { section: Obj; design: Obj }) {
   const reduced = Boolean(useReducedMotion());
-  const contacts = array(first(section, 'contact_items', 'details', 'items'));
+  let contacts = array(first(section, 'contact_items', 'details', 'items'));
+  if (!contacts.length) {
+    const implied: Obj[] = [];
+    const push = (icon: string, labelText: string, value: unknown, url?: string) => {
+      const text = typeof value === 'string' ? value : isObj(value) ? String(first(value, 'value', 'text', 'display') || '') : '';
+      if (text) implied.push({ icon, label: labelText, value: text, url });
+    };
+    push('MapPin', 'Find us', section.location);
+    push('Clock3', 'Hours', section.hours || (isObj(section.opening_hours) ? section.opening_hours.text : undefined));
+    push('MessageCircle', 'WhatsApp / Call', section.phone, typeof section.phone === 'string' ? `https://wa.me/${section.phone.replace(/\D/g, '')}` : undefined);
+    push('Mail', 'Email', section.email, typeof section.email === 'string' ? `mailto:${section.email}` : undefined);
+    const socials = array(first(section, 'socials', 'social', 'social_links'));
+    socials.forEach((entry) => { const row = isObj(entry) ? entry : { value: entry }; push(String(row.icon || 'Instagram'), String(row.label || 'Social'), first(row, 'handle', 'value', 'text', 'username'), String(first(row, 'url', 'href') || '')); });
+    contacts = implied;
+  }
   const map = isObj(first(section, 'map_visual', 'map')) ? first(section, 'map_visual', 'map') : {};
-  const testimonial = isObj(section.testimonial) ? section.testimonial : {};
-  const embed = safeUrl(map.embed_url);
+  const testimonialRaw = first(section, 'testimonial', 'review_quote', 'review', 'testimonial_card');
+  const testimonial = isObj(testimonialRaw) ? testimonialRaw : typeof testimonialRaw === 'string' && testimonialRaw.trim() ? { quote: testimonialRaw } : {};
+  if (!testimonial.author && isObj(section.review_author)) testimonial.author = section.review_author;
+  const embed = safeUrl(map.embed_url) || safeUrl(first(section, 'map_embed', 'embed_url', 'google_maps_embed', 'map_iframe_url'));
   return <section id={idSafe(section.id || 'contact')} className="sj-section sj-contact" style={mergedStyle(design, section.layout, section.style)}>
     <div className="sj-contact-copy"><Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Contact')}</h2>{section.body && <p>{String(section.body)}</p>}</Reveal>
       <div className="sj-contact-list">{contacts.map((item, index) => { const entry = isObj(item) ? item : { value: item }; const href = safeHref(entry.url, ''); const content = <><span><Icon name={entry.icon || 'MapPin'} /></span><div><small>{String(entry.label || '')}</small><strong>{String(entry.value || entry.text || '')}</strong></div>{entry.action_icon && <Icon name={entry.action_icon} size={16} />}</>; return href ? <a key={index} href={href} target={entry.opens_new_tab ? '_blank' : undefined} rel="noreferrer">{content}</a> : <div key={index}>{content}</div>; })}</div>
     </div>
     <Reveal design={design} node={map} animation="section_reveal" className="sj-map-wrap" style={mergedStyle(design, map)}>{embed && /^https:\/\/maps\.google\.com/i.test(embed) ? <iframe src={embed} title={String(map.city || 'Store location')} loading="lazy" referrerPolicy="no-referrer-when-downgrade" /> : <div className="sj-map-placeholder"><MapPin /><strong>{String(section.location || map.city || '')}</strong></div>}<motion.span className="sj-map-pulse" animate={reduced ? undefined : { scale: [Number(design.animations?.contact_map_pin_pulse?.start?.scale || .75), Number(design.animations?.contact_map_pin_pulse?.end?.scale || 1.35)], opacity: [Number(design.animations?.contact_map_pin_pulse?.start?.opacity || 1), Number(design.animations?.contact_map_pin_pulse?.end?.opacity || 0)] }} transition={{ duration: Number(design.animations?.contact_map_pin_pulse?.duration_seconds || 2.2), repeat: Infinity, ease: design.animations?.contact_map_pin_pulse?.easing || 'easeOut' }}><MapPin /></motion.span>
-      <div className="sj-map-overlay"><div><small>{String(map.eyebrow || '')}</small><strong>{String(map.city || section.location || '')}</strong><span>{String(map.room_detail || '')}</span></div>{map.directions_url && <a href={safeHref(map.directions_url)} target="_blank" rel="noreferrer">{String(map.directions_button?.label || 'Get directions')}<ExternalLink /></a>}</div>
+      <div className="sj-map-overlay"><div><small>{String(map.eyebrow || '')}</small><strong>{String(map.city || section.location || '')}</strong><span>{String(map.room_detail || '')}</span></div>{(map.directions_url || safeUrl(first(section, 'directions_url', '')) || safeUrl(map.directions_button?.url) || safeUrl(first(section, 'directions_button', '')) || safeUrl(first(isObj(section.directions_button) ? section.directions_button : {}, 'url', 'href'))) && <a href={safeHref(map.directions_url || safeUrl(first(isObj(section.directions_button) ? section.directions_button : {}, 'url', 'href')) || safeUrl(first(section, 'directions_url', 'directions_button')))} target="_blank" rel="noreferrer">{String(map.directions_button?.label || (isObj(section.directions_button) ? section.directions_button.label : '') || 'Get directions')}<ExternalLink /></a>}</div>
       {Object.keys(testimonial).length > 0 && <motion.blockquote className="sj-testimonial" {...animationProps(design, testimonial, 'testimonial_reveal', reduced)}><div>{Array.from({ length: Math.min(5, Number(testimonial.rating || 0)) }).map((_, index) => <Star key={index} fill="currentColor" />)}</div><p>“{String(testimonial.quote || '')}”</p><cite>{String(testimonial.citation_display || testimonial.author || '')}</cite></motion.blockquote>}
     </Reveal>
   </section>;
@@ -438,7 +454,7 @@ function sectionKind(section: Obj) {
   if (/home|hero|landing|welcome/.test(identity) || section.hero_visual || section.headline_lines) return 'hero';
   if (/categor|collection nav/.test(identity) || section.store_categories) return 'categories';
   if (/product|catalog|shop/.test(identity) || section.product_card || section.product_page) return 'products';
-  if (/contact|visit|location|find us/.test(identity) || section.map_visual || section.contact_items) return 'contact';
+  if (/contact|visit|location|find us/.test(identity) || section.map_visual || section.contact_items || section.map_embed || section.review_quote) return 'contact';
   return 'generic';
 }
 
