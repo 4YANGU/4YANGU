@@ -187,3 +187,14 @@ img { max-width: 100%; }
   .sticker-copy p{font-size:.68rem;margin-bottom:.8rem}
   .sticker-copy .button-primary{width:100%;justify-content:center}
 }
+
+/* Universal JSON renderer upgrades */
+.json-pills{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.8rem}
+.json-pills span{border:1px solid color-mix(in srgb,var(--store-primary) 35%,transparent);color:inherit;border-radius:999px;padding:.42rem .72rem;font-size:.68rem;font-weight:700}
+.json-links{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1rem}
+.json-links a{background:var(--store-primary);color:#fff;border-radius:11px;padding:.6rem .95rem;font-size:.72rem;font-weight:800}
+.store-section-safe{padding:44px;text-align:center;opacity:.55;font-size:.78rem}
+
+/* TikTok handle on applications + optional-field hint */
+.application-tiktok{color:#101f30!important;font-weight:800;border-bottom:2px solid var(--green);width:max-content}
+.optional-hint{font-weight:500;color:#8a958e}

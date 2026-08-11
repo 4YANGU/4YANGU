@@ -28,6 +28,41 @@ const safeCssValue = (value: unknown): string | number | undefined => {
   if (/[{}<>]|javascript:|expression\s*\(/i.test(value)) return undefined;
   return value.slice(0, 500);
 };
+
+// Any-shaped JSON → clean readable text (strings, numbers, arrays of lines,
+// nested {text}/{label}/{parts} objects all resolve into prose).
+const resolveText = (value: unknown, depth = 0): string => {
+  if (value == null || typeof value === 'boolean') return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
+  if (depth > 6) return '';
+  if (Array.isArray(value)) return value.map((item) => resolveText(item, depth + 1)).filter(Boolean).join(' · ');
+  if (isObject(value)) {
+    const direct = take(value, 'text', 'content', 'value', 'label', 'title', 'headline', 'message', 'html');
+    if (direct != null && !isObject(direct) && !Array.isArray(direct)) return String(direct).trim();
+    const parts = take(value, 'parts', 'lines', 'segments', 'items', 'runs');
+    if (parts != null) return resolveText(parts, depth + 1);
+    return resolveText(Object.values(value), depth + 1);
+  }
+  return '';
+};
+
+// Any-shaped JSON → a usable image URL, even when the image lives inside an
+// object like { public_https_asset: 'https://...' }.
+const safeImage = (value: unknown): string => {
+  const direct = safeUrl(value);
+  if (direct) return direct;
+  if (isObject(value)) return safeUrl(take(value, 'url', 'src', 'href', 'link', 'public_https_asset', 'asset', 'path', 'image', 'source'));
+  return '';
+};
+
+// Design specs often bury visible content inside layout zones/regions. Lift
+// those zones up so they render like normal sections while styling stays put.
+function expandZones(node: AnyRecord): AnyRecord {
+  if (!isObject(node.layout)) return node;
+  const zones = asArray(take(node.layout, 'zones', 'areas', 'regions', 'rows', 'panels', 'slots'));
+  if (!zones.length) return node;
+  return { ...node, layout_zones: zones };
+}
 const styleAliases: Record<string, string> = {
   background_colour: 'backgroundColor', background_color: 'backgroundColor', text_colour: 'color', text_color: 'color',
   border_radius: 'borderRadius', box_shadow: 'boxShadow', font_family: 'fontFamily', font_size: 'fontSize', font_weight: 'fontWeight',
@@ -241,28 +276,36 @@ function deepPrimitiveContent(node: AnyRecord) {
   return values;
 }
 
-function GenericNode({ node, path, store, products, onOrder, onView, breakpoints, depth = 0 }: { node: unknown; path: string; store: Store; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView']; breakpoints: AnyRecord; depth?: number }): React.ReactNode {
+function GenericNode({ node: input, path, store, products, onOrder, onView, breakpoints, depth = 0 }: { node: unknown; path: string; store: Store; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView']; breakpoints: AnyRecord; depth?: number }): React.ReactNode {
+  const node = (isObject(input) ? expandZones(input) : input) as AnyRecord;
   if (node == null || typeof node === 'boolean') return null;
   if (typeof node === 'string' || typeof node === 'number') return <p className="json-text">{String(node)}</p>;
-  if (Array.isArray(node)) return <>{node.map((item, index) => <GenericNode key={`${path}-${index}`} node={item} path={`${path}.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} />)}</>;
+  if (Array.isArray(node)) {
+    const primitives = node.filter((item) => typeof item === 'string' || typeof item === 'number');
+    if (node.length && primitives.length === node.length) return <div className="json-pills">{primitives.map((item, index) => <span key={index}>{String(item)}</span>)}</div>;
+    const linkable = (item: unknown) => isObject(item) && (resolveText(take(item, 'label', 'text', 'title', 'name')) || '').length > 0 && Boolean(take(item, 'url', 'href', 'link', 'to'));
+    if (node.length && node.every(linkable)) return <div className="json-links">{node.map((item, index) => { const target = safeHref(take(item, 'url', 'href', 'link', 'to')); return target.startsWith('#') && !document.getElementById(target.slice(1)) ? null : <a key={index} href={target}>{resolveText(take(item, 'label', 'text', 'title', 'name'))}</a>; })}</div>;
+    return <>{node.map((item, index) => <GenericNode key={`${path}-${index}`} node={item} path={`${path}.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} />)}</>;
+  }
   if (!isObject(node)) return null;
   if (depth > 80) return <div className="json-depth-safe">{deepPrimitiveContent(node).map((value, index) => <p key={index}>{value}</p>)}</div>;
   const identity = words(take(node, 'type', 'component', 'kind', 'id', 'name') || '').toLowerCase();
   if (identity === 'shop' || /(^|\s)(products?|catalog|collection|product grid|product collection)(\s|$)/.test(identity)) return <ProductCollection node={node} products={products} onOrder={onOrder} onView={onView} />;
   if (/slide|carousel/.test(identity) || Array.isArray(node.slides)) return <Slideshow node={node} path={path} breakpoints={breakpoints} />;
-  const title = take(node, 'headline', 'heading', 'title', 'name');
-  const eyebrow = take(node, 'eyebrow', 'kicker', 'overline', 'label');
-  const body = take(node, 'body', 'description', 'subtitle', 'subheading', 'copy');
-  const text = node.text;
-  const image = safeUrl(take(node, 'image_url', 'image', 'src', 'photo', 'background_image'));
-  const alt = String(take(node, 'alt', 'image_alt', 'aria_label', 'title') || '');
-  const cta = take(node, 'cta', 'button', 'action', 'primary_action');
+  const title = resolveText(take(node, 'headline', 'heading', 'title', 'name', 'main_headline', 'heading_text', 'headline_text', 'primary_text', 'hero_title'));
+  const eyebrow = resolveText(take(node, 'eyebrow', 'kicker', 'overline', 'label', 'badge_text', 'announcement', 'pill'));
+  const body = resolveText(take(node, 'body', 'description', 'subtitle', 'subheading', 'copy', 'paragraph', 'tagline', 'supporting_text', 'sub_headline', 'lede'));
+  const text = resolveText(node.text);
+  const image = safeImage(take(node, 'image_url', 'image', 'src', 'photo', 'background_image', 'image_asset', 'media', 'visual', 'art', 'banner'));
+  const alt = String(resolveText(take(node, 'alt', 'image_alt', 'aria_label')) || title || '');
+  const cta = take(node, 'cta', 'button', 'action', 'primary_action', 'cta_button', 'action_button', 'primary_button');
+  const consumedKeys = ['headline','heading','title','name','main_headline','heading_text','headline_text','primary_text','hero_title','eyebrow','kicker','overline','label','badge_text','announcement','pill','body','description','subtitle','subheading','copy','text','paragraph','tagline','supporting_text','sub_headline','lede','image_url','image','src','photo','background_image','image_asset','media','visual','art','banner','alt','image_alt','aria_label','cta','button','action','primary_action','cta_button','action_button','primary_button','semantic_tag','element','tag','role','zones','accessibility','aria'];
   const nested = Object.entries(node).filter(([key, value]) => {
-    if (configKeys.has(key) || ['headline','heading','title','eyebrow','kicker','overline','label','body','description','subtitle','subheading','copy','text','image_url','image','src','photo','background_image','alt','image_alt','aria_label','cta','button','action','primary_action'].includes(key)) return false;
+    if (configKeys.has(key) || consumedKeys.includes(key)) return false;
     return Array.isArray(value) || isObject(value);
   });
   const extras = Object.entries(node).filter(([key, value]) => {
-    if (configKeys.has(key) || ['headline','heading','title','eyebrow','kicker','overline','label','body','description','subtitle','subheading','copy','text','image_url','image','src','photo','background_image','alt','image_alt','aria_label','cta','button','action','primary_action','semantic_tag','element','tag','role'].includes(key)) return false;
+    if (configKeys.has(key) || consumedKeys.includes(key)) return false;
     return typeof value === 'string' || typeof value === 'number';
   });
   const semantic = String(take(node, 'semantic_tag', 'element', 'tag') || (/hero/.test(identity) ? 'section' : 'div')).toLowerCase();
@@ -270,15 +313,26 @@ function GenericNode({ node, path, store, products, onOrder, onView, breakpoints
   const as = allowedTags.has(semantic) ? semantic : 'div';
   const access = isObject(node.accessibility) ? node.accessibility : isObject(node.aria) ? node.aria : {};
   return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'}`} breakpoints={breakpoints} as={as}>
-    {eyebrow != null && <span className="json-eyebrow">{String(eyebrow)}</span>}
-    {title != null && <h2 aria-label={access.label || node.aria_label}>{String(title)}</h2>}
-    {body != null && <p className="json-body">{String(body)}</p>}
-    {text != null && text !== body && <p className="json-text">{String(text)}</p>}
+    {Boolean(eyebrow) && <span className="json-eyebrow">{eyebrow}</span>}
+    {Boolean(title) && <h2 aria-label={access.label || node.aria_label}>{title}</h2>}
+    {Boolean(body) && <p className="json-body">{body}</p>}
+    {Boolean(text) && text !== body && <p className="json-text">{text}</p>}
     {image && <img className="json-image" src={image} alt={alt} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
     {cta && (typeof cta === 'string' ? <a className="json-button" href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={toStyle(cta.style)} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(take(cta, 'label', 'text', 'title') || 'Shop now')}</a>)}
     {extras.map(([key, value]) => <p key={key} className="json-extra" data-field={key}>{String(value)}</p>)}
     {nested.map(([key, value]) => <div key={key} style={['items','cards','columns','blocks'].includes(key) ? { display: 'contents' } : undefined} className={`json-nested json-nested-${key.replace(/[^a-z0-9]/gi, '-')}`}><GenericNode node={value} path={`${path}.${key}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} /></div>)}
   </AnimatedBox>;
+}
+
+// A single broken section must never take the whole store down.
+class SectionBoundary extends Component<{ children: React.ReactNode; label?: string }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: Error) { console.error('Store section safely recovered:', this.props.label, error); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <div className="store-section-safe"><p>This section is being restyled. Karibu — browse around.</p></div>;
+  }
 }
 
 class StorefrontBoundary extends Component<{ children: React.ReactNode; store: Store; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView'] }, { failed: boolean }> {
@@ -309,18 +363,20 @@ export default function JsonStorefront({ store, products, onOrder, onView }: Eng
     });
     return () => links.forEach((link) => link?.remove());
   }, [fontUrls]);
+  const themeLogo = safeImage(take(design.theme || {}, 'logo_source', 'logo', 'brand_logo'));
+  const headerLogo = store.logo_url || themeLogo;
   const navItems = asArray(take(header, 'navigation', 'nav', 'links', 'items'));
   const announcementParts = asArray(take(announcement || {}, 'segments', 'items', 'messages', 'text') ?? announcement);
   return <StorefrontBoundary store={store} products={products} onOrder={onOrder} onView={onView}>
     <div className="json-storefront" style={{ ...themeVariables(design), ...toStyle(take(design, 'style', 'global_style')) }}>
       {announcementParts.length > 0 && <div className="store-announcement" style={mergedStyle(isObject(announcement) ? announcement : {})}>{announcementParts.map((part, index) => <span key={index}>{String(isObject(part) ? take(part, 'text', 'label', 'message') || '' : part)}</span>)}</div>}
       <header className={`store-header ${header.sticky ? 'sticky' : ''}`} style={mergedStyle(header)}>
-        <a href="#top" className="store-brand">{store.logo_url ? <img src={store.logo_url} alt={`${store.name} logo`} /> : <ShoppingBag />}<span>{store.name}</span></a>
+        <a href="#top" className="store-brand">{headerLogo ? <img src={headerLogo} alt={`${store.name} logo`} /> : <ShoppingBag />}<span>{store.name}</span></a>
         {navItems.length > 0 && <nav className="store-nav" aria-label="Store navigation">{navItems.map((item, index) => <a key={index} href={safeHref(take(isObject(item) ? item : {}, 'href', 'url'), `#${words(isObject(item) ? take(item, 'label', 'text') : item).toLowerCase().replace(/\s/g, '-')}`)}>{String(isObject(item) ? take(item, 'label', 'text', 'title') : item)}</a>)}</nav>}
         {navItems.length > 0 && <button className="store-menu-button" onClick={() => setMenu(!menu)} aria-label="Toggle menu">{menu ? <X /> : <Menu />}</button>}
         {menu && <nav className="store-mobile-nav">{navItems.map((item, index) => <a key={index} onClick={() => setMenu(false)} href={safeHref(take(isObject(item) ? item : {}, 'href', 'url'), '#products')}>{String(isObject(item) ? take(item, 'label', 'text', 'title') : item)}</a>)}</nav>}
       </header>
-      <main id="top">{sections.map((section, index) => <section id={String(section.id || section.name || `section-${index}`).toLowerCase().replace(/[^a-z0-9-]/g, '-')} key={`${section.id || 'section'}-${index}`} className="store-section"><GenericNode node={section} path={`sections.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} /></section>)}</main>
+      <main id="top" className="store-sections">{sections.map((section, index) => <section id={String(section.id || section.name || `section-${index}`).toLowerCase().replace(/[^a-z0-9-]/g, '-')} key={`${section.id || 'section'}-${index}`} className="store-section"><SectionBoundary label={String(resolveText(take(section, 'title', 'headline', 'name', 'id')) || `section ${index + 1}`)}><GenericNode node={section} path={`sections.${index}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} /></SectionBoundary></section>)}</main>
       {Object.keys(footer).length > 0 && <footer className="store-json-footer"><GenericNode node={footer} path="footer" store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} /></footer>}
       <a className="powered-stoyangu" href="https://stoyangu.com" target="_blank" rel="noreferrer"><img src="/stoyangu-logo.png" alt="StoYangu" /><span>Powered by StoYangu</span></a>
     </div>

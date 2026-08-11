@@ -37,8 +37,11 @@ export default async function handler(req, res) {
       if (req.body?.website) return res.status(201).json({ ok: true });
       const name = String(req.body?.name || '').trim().slice(0, 100);
       const phone = String(req.body?.phone || '').trim().slice(0, 24);
+      const tiktok = String(req.body?.tiktok || '').trim().replace(/^@/, '').slice(0, 30);
       if (name.length < 2 || !/^\+?[0-9\s-]{9,16}$/.test(phone)) return res.status(400).json({ error: 'Please add a valid name and phone number.' });
-      const { data, error } = await supabase.from('applications').insert({ name, phone, status: 'new' }).select().single();
+      if (tiktok && !/^[A-Za-z0-9._-]{2,30}$/.test(tiktok)) return res.status(400).json({ error: 'Please add a valid TikTok username.' });
+      const applicationName = tiktok ? `${name} · TikTok: @${tiktok}` : name;
+      const { data, error } = await supabase.from('applications').insert({ name: applicationName.slice(0, 150), phone, status: 'new' }).select().single();
       if (error) throw error;
       return res.status(201).json(data);
     }
