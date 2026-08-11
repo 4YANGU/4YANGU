@@ -324,7 +324,7 @@ function GenericNode({ node: input, path, store, products, onOrder, onView, brea
   const eyebrow = resolveText(take(node, 'eyebrow', 'kicker', 'overline', 'label', 'badge_text', 'announcement', 'pill'));
   const body = resolveText(take(node, 'body', 'description', 'subtitle', 'subheading', 'copy', 'paragraph', 'tagline', 'supporting_text', 'sub_headline', 'lede'));
   const text = resolveText(node.text);
-  const image = safeImage(take(node, 'image_url', 'image', 'src', 'photo', 'background_image', 'image_asset', 'media', 'visual', 'art', 'banner'));
+  let image = safeImage(take(node, 'image_url', 'image', 'src', 'photo', 'background_image', 'image_asset', 'media', 'visual', 'art', 'banner'));
   const alt = String(resolveText(take(node, 'alt', 'image_alt', 'aria_label')) || title || '');
   const cta = take(node, 'cta', 'button', 'action', 'primary_action', 'cta_button', 'action_button', 'primary_button');
   const video = safeVideo(take(node, 'video', 'background_video', 'video_url')) || (isObject(node.background) ? safeVideo(take(node.background, 'url', 'src', 'video') || take(node.background, 'sources', 'source')) : '');
@@ -353,17 +353,29 @@ function GenericNode({ node: input, path, store, products, onOrder, onView, brea
   const styleImage = partStyle('image', take(node, 'image', 'image_url'));
   // Background imagery and scrims belong on the wrapper, not as an inline photo.
   const wrapper = mergedStyle(node);
-  const bgImage = safeImage(take(node, 'background_image', 'background_photo', 'bg_image')) || (isObject(node.background) ? safeImage(take(node.background, 'url', 'src', 'image', 'public_https_asset')) : '');
+  // Full-bleed backdrop detection across every common spec vocabulary.
+  let bgImage = safeImage(take(node, 'background_image', 'background_photo', 'bg_image', 'backdrop', 'cover_image', 'cover'))
+    || (isObject(node.background) ? safeImage(take(node.background, 'url', 'src', 'image', 'public_https_asset')) : '')
+    || (isObject(node.media) ? safeImage(take(node.media, 'background', 'backdrop', 'cover')) : '')
+    || (isObject(node.visual) ? safeImage(take(node.visual, 'background', 'image')) : '')
+    || (isObject(node.visual_asset) ? safeImage(take(node.visual_asset, 'url', 'src')) : '')
+    || (isObject(node.assets) ? safeImage(take(node.assets, 'background', 'hero', 'hero_media', 'cover', 'backdrop')) : '');
   if (bgImage && !wrapper.backgroundImage) { wrapper.backgroundImage = `url("${bgImage}")`; wrapper.backgroundSize = wrapper.backgroundSize || 'cover'; wrapper.backgroundPosition = wrapper.backgroundPosition || 'center'; }
-  const scrimValue = take(node, 'overlay_colour', 'overlay_color', 'scrim_color', 'scrim') || (isObject(node.overlay) ? take(node.overlay, 'colour', 'color') : undefined) || (typeof node.overlay === 'string' ? node.overlay : undefined);
-  const scrimOpacity = Number(take(node, 'overlay_opacity', 'scrim_opacity') ?? (isObject(node.overlay) ? node.overlay.opacity : undefined) ?? (scrimValue ? 0.45 : 0)) || 0;
+  // Text over a photo needs automatic contrast: a default dark scrim unless the
+  // spec says otherwise, plus white text handled by the .json-on-media classes.
+  let scrimValue = take(node, 'overlay_colour', 'overlay_color', 'scrim_color', 'scrim') || (isObject(node.overlay) ? take(node.overlay, 'colour', 'color') : undefined) || (typeof node.overlay === 'string' ? node.overlay : undefined);
+  const scrimOpacity = Number(take(node, 'overlay_opacity', 'scrim_opacity') ?? (isObject(node.overlay) ? node.overlay.opacity : undefined) ?? (bgImage ? 0.42 : scrimValue ? 0.45 : 0)) || 0;
+  if (bgImage && !scrimValue) scrimValue = '#000000';
   if (bgImage || scrimValue) { wrapper.position = 'relative'; }
+  if (image && image === bgImage) image = '';
   const semantic = String(take(node, 'semantic_tag', 'element', 'tag') || (/hero/.test(identity) ? 'section' : 'div')).toLowerCase();
   const allowedTags = new Set(['section','article','aside','div','nav','main','header','footer']);
   const as = allowedTags.has(semantic) ? semantic : 'div';
   const access = isObject(node.accessibility) ? node.accessibility : isObject(node.aria) ? node.aria : {};
-  return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'}`} breakpoints={breakpoints} as={as} styleOverride={wrapper}>
+  const mediaTone = bgImage ? 'json-on-media json-fullbleed' : scrimValue ? 'json-on-media' : '';
+  return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'} ${mediaTone}`} breakpoints={breakpoints} as={as} styleOverride={wrapper}>
     {Boolean(scrimValue) && scrimOpacity > 0 && <div className="json-scrim" style={{ background: String(safeCssValue(scrimValue) || '#000'), opacity: Math.max(0, Math.min(1, scrimOpacity)) }} />}
+
     {Boolean(eyebrow) && <span className="json-eyebrow" style={styleEyebrow}>{eyebrow}</span>}
     {Boolean(title) && <h2 aria-label={access.label || node.aria_label} style={styleTitle}>{title}</h2>}
     {Boolean(body) && <p className="json-body" style={styleBody}>{body}</p>}
@@ -401,7 +413,7 @@ export default function JsonStorefront({ store, products, onOrder, onView }: Eng
   const design = useMemo(() => normaliseDesign(store.design_json), [store.design_json]);
   const sections = useMemo(() => getSections(design), [design]);
   const global = take(design, 'global_ui', 'globalUI', 'site_chrome') || {};
-  const announcement = take(global, 'announcement_bar', 'announcementBar') || design.announcement_bar;
+  const announcement = take(global, 'announcement_bar', 'announcementBar', 'announcement', 'top_bar', 'topbar', 'ticker', 'notice_bar') || take(design, 'announcement_bar', 'announcement', 'top_bar', 'topbar', 'ticker', 'notice_bar');
   const header = take(global, 'header', 'navigation') || design.header || {};
   const footer = take(global, 'footer') || design.footer || {};
   const breakpoints = take(design, 'breakpoints', 'responsive_breakpoints') || take(design.theme || {}, 'breakpoints') || {};

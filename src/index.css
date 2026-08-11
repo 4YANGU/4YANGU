@@ -205,3 +205,12 @@ img { max-width: 100%; }
 /* Spec-driven scrims + background hosts */
 .json-scrim{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
 .node-has-media>*:not(.json-scrim){position:relative}
+
+/* Full-bleed spec heroes: photo behind content, automatic light text */
+.json-fullbleed{display:flex!important;flex-direction:column;justify-content:center;position:relative;overflow:hidden;min-height:min(78vh,700px)}
+.json-on-media .json-eyebrow{color:rgba(255,255,255,.88)!important}
+.json-on-media h2{color:#fff!important;text-shadow:0 2px 26px rgba(0,0,0,.4)}
+.json-on-media .json-body,.json-on-media .json-text{color:rgba(255,255,255,.9)!important}
+.json-on-media .json-extra{color:rgba(255,255,255,.82)!important}
+.json-on-media>.json-scrim~*{position:relative;z-index:1}
+@media(prefers-reduced-motion:reduce){.json-slideshow .json-slide{animation:none}}
