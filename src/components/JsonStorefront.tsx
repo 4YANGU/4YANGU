@@ -210,7 +210,7 @@ function motionSpec(node: AnyRecord, reduced: boolean) {
   return { initial: initial || (animate ? { opacity: 0 } : undefined), animate, transition };
 }
 
-function AnimatedBox({ node, path, children, className, breakpoints, as = 'div' }: { node: AnyRecord; path: string; children: React.ReactNode; className?: string; breakpoints: AnyRecord; as?: string }) {
+function AnimatedBox({ node, path, children, className, breakpoints, as = 'div', styleOverride }: { node: AnyRecord; path: string; children: React.ReactNode; className?: string; breakpoints: AnyRecord; as?: string; styleOverride?: CSSProperties }) {
   const reduced = Boolean(useReducedMotion());
   const ref = useRef<HTMLDivElement>(null);
   const spec = take(node, 'motion', 'animation', 'animations') || {};
@@ -222,7 +222,7 @@ function AnimatedBox({ node, path, children, className, breakpoints, as = 'div' 
   }, [spec, reduced]);
   const MotionTag = (motion as AnyRecord)[as] || motion.div;
   const css = responsiveCss(node, path, breakpoints);
-  return <><MotionTag ref={ref} className={`${classId(path)} ${className || ''}`} style={mergedStyle(node)} {...motionSpec(node, reduced)}>{children}</MotionTag>{css && <style>{css}</style>}</>;
+  return <><MotionTag ref={ref} className={`${classId(path)} ${className || ''}`} style={{ ...mergedStyle(node), ...styleOverride }} {...motionSpec(node, reduced)}>{children}</MotionTag>{css && <style>{css}</style>}</>;
 }
 
 function Slideshow({ node, path, breakpoints }: { node: AnyRecord; path: string; breakpoints: AnyRecord }) {
@@ -337,18 +337,40 @@ function GenericNode({ node: input, path, store, products, onOrder, onView, brea
     if (configKeys.has(key) || consumedKeys.includes(key)) return false;
     return typeof value === 'string' || typeof value === 'number';
   });
+  // Spec authors style parts directly: headline_style, body_style,
+  // button_style... Also accept style co-located on the content object itself
+  // (e.g. headline: { text: '...', style: {...} }).
+  const partStyle = (name: string, content: unknown): CSSProperties => {
+    const fromNode = toStyle(take(node, `${name}_style`, `${name}_styles`, `${name}Style`));
+    const fromContent = isObject(content) ? toStyle(take(content, 'style', 'styles')) : {};
+    return { ...fromNode, ...fromContent };
+  };
+  const styleTitle = partStyle('headline', take(node, 'headline') ?? take(node, 'heading') ?? node.title);
+  const styleEyebrow = partStyle('eyebrow', node.eyebrow);
+  const styleBody = partStyle('body', take(node, 'body') ?? take(node, 'description'));
+  const styleText = partStyle('text', node.text);
+  const styleCta = partStyle('button', cta) as CSSProperties;
+  const styleImage = partStyle('image', take(node, 'image', 'image_url'));
+  // Background imagery and scrims belong on the wrapper, not as an inline photo.
+  const wrapper = mergedStyle(node);
+  const bgImage = safeImage(take(node, 'background_image', 'background_photo', 'bg_image')) || (isObject(node.background) ? safeImage(take(node.background, 'url', 'src', 'image', 'public_https_asset')) : '');
+  if (bgImage && !wrapper.backgroundImage) { wrapper.backgroundImage = `url("${bgImage}")`; wrapper.backgroundSize = wrapper.backgroundSize || 'cover'; wrapper.backgroundPosition = wrapper.backgroundPosition || 'center'; }
+  const scrimValue = take(node, 'overlay_colour', 'overlay_color', 'scrim_color', 'scrim') || (isObject(node.overlay) ? take(node.overlay, 'colour', 'color') : undefined) || (typeof node.overlay === 'string' ? node.overlay : undefined);
+  const scrimOpacity = Number(take(node, 'overlay_opacity', 'scrim_opacity') ?? (isObject(node.overlay) ? node.overlay.opacity : undefined) ?? (scrimValue ? 0.45 : 0)) || 0;
+  if (bgImage || scrimValue) { wrapper.position = 'relative'; }
   const semantic = String(take(node, 'semantic_tag', 'element', 'tag') || (/hero/.test(identity) ? 'section' : 'div')).toLowerCase();
   const allowedTags = new Set(['section','article','aside','div','nav','main','header','footer']);
   const as = allowedTags.has(semantic) ? semantic : 'div';
   const access = isObject(node.accessibility) ? node.accessibility : isObject(node.aria) ? node.aria : {};
-  return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'}`} breakpoints={breakpoints} as={as}>
-    {Boolean(eyebrow) && <span className="json-eyebrow">{eyebrow}</span>}
-    {Boolean(title) && <h2 aria-label={access.label || node.aria_label}>{title}</h2>}
-    {Boolean(body) && <p className="json-body">{body}</p>}
-    {Boolean(text) && text !== body && <p className="json-text">{text}</p>}
-    {image && <img className="json-image" src={image} alt={alt} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
+  return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'}`} breakpoints={breakpoints} as={as} styleOverride={wrapper}>
+    {Boolean(scrimValue) && scrimOpacity > 0 && <div className="json-scrim" style={{ background: String(safeCssValue(scrimValue) || '#000'), opacity: Math.max(0, Math.min(1, scrimOpacity)) }} />}
+    {Boolean(eyebrow) && <span className="json-eyebrow" style={styleEyebrow}>{eyebrow}</span>}
+    {Boolean(title) && <h2 aria-label={access.label || node.aria_label} style={styleTitle}>{title}</h2>}
+    {Boolean(body) && <p className="json-body" style={styleBody}>{body}</p>}
+    {Boolean(text) && text !== body && <p className="json-text" style={styleText}>{text}</p>}
+    {image && <img className="json-image" src={image} alt={alt} style={styleImage} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
     {video && <video className="json-video" src={video} autoPlay muted loop playsInline />}
-    {cta && (typeof cta === 'string' ? <a className="json-button" href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={toStyle(cta.style)} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(take(cta, 'label', 'text', 'title') || 'Shop now')}</a>)}
+    {cta && (typeof cta === 'string' ? <a className="json-button" style={styleCta} href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={{ ...styleCta, ...toStyle(cta.style) }} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(resolveText(take(cta, 'label', 'text', 'title')) || 'Shop now')}</a>)}
     {extras.map(([key, value]) => <p key={key} className="json-extra" data-field={key}>{String(value)}</p>)}
     {nested.map(([key, value]) => <div key={key} style={['items','cards','columns','blocks'].includes(key) ? { display: 'contents' } : undefined} className={`json-nested json-nested-${key.replace(/[^a-z0-9]/gi, '-')}`}><GenericNode node={value} path={`${path}.${key}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} /></div>)}
   </AnimatedBox>;

@@ -201,3 +201,7 @@ img { max-width: 100%; }
 
 /* Video blocks from JSON specs */
 .json-video{width:100%;max-height:640px;object-fit:cover;border-radius:inherit;display:block}
+
+/* Spec-driven scrims + background hosts */
+.json-scrim{position:absolute;inset:0;pointer-events:none;border-radius:inherit}
+.node-has-media>*:not(.json-scrim){position:relative}
