@@ -461,6 +461,33 @@ function sectionKind(section: Obj) {
   return 'generic';
 }
 
+// A spec may carry real CSS text blocks (root or per section): AI authors pass
+// their exact outward styling straight through, with basic safety scrubbing.
+function sanitizeCssText(css: string): string {
+  if (!css || css.length > 80000) return '';
+  let out = String(css);
+  out = out.replace(/<\/?style[^>]*>/gi, '');
+  out = out.replace(/expression\s*\(/gi, 'void(');
+  out = out.replace(/javascript:/gi, 'blocked:');
+  out = out.replace(/@import[^;]+/gi, '');
+  return out;
+}
+
+function designCssBlocks(design: Obj, sections: Obj[]): string[] {
+  const blocks: string[] = [];
+  const root = first(design, 'css', 'custom_css', 'global_css', 'custom_styles', 'style_overrides', 'global_overrides');
+  if (typeof root === 'string' && root.trim()) blocks.push(root);
+  else if (isObj(root)) Object.values(root).forEach((value) => { if (typeof value === 'string') blocks.push(value); });
+  sections.forEach((section) => {
+    const css = first(section, 'css', 'custom_css', 'css_overrides');
+    if (typeof css === 'string' && css.trim()) blocks.push(`#${idSafe(section.id || 'section')}{\n${css}}`);
+  });
+  Object.values(design.global_ui || {}).forEach((part) => {
+    if (isObj(part) && typeof part.css === 'string') blocks.push(part.css);
+  });
+  return blocks.map(sanitizeCssText).filter(Boolean);
+}
+
 export default function StorefrontRenderer({ store, products, onOrder, onView }: RendererProps) {
   const design = useMemo(() => parseDesign(store.design_json), [store.design_json]);
   useDesignFonts(design);
@@ -479,7 +506,9 @@ export default function StorefrontRenderer({ store, products, onOrder, onView }:
   const selectProduct = (product: Product) => { setSelectedProduct(product); const url = new URL(window.location.href); url.searchParams.set('product', String(product.id)); window.history.pushState({}, '', url); window.scrollTo(0, 0); };
   const leaveProduct = (target = '#products') => { setSelectedProduct(null); const url = new URL(window.location.href); url.searchParams.delete('product'); window.history.replaceState({}, '', url); window.requestAnimationFrame(() => document.querySelector(target)?.scrollIntoView({ behavior: 'smooth' })); };
   const announcement = isObj(design.global_ui?.announcement_bar) ? design.global_ui.announcement_bar : isObj(design.announcement_bar) ? design.announcement_bar : {};
+  const specCss = useMemo(() => designCssBlocks(design, sections), [design, sections]);
   return <div className="sj2-storefront" style={themeVars(design)}>
+    {specCss.length > 0 && <style dangerouslySetInnerHTML={{ __html: specCss.join('\n') }} />}
     <ScrollProgress design={design} />
     {Object.keys(announcement).length > 0 && <Announcement config={announcement} />}
     <Header design={design} store={store} onSectionNavigate={selectedProduct ? leaveProduct : undefined} />
