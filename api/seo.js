@@ -199,7 +199,7 @@ async function handleStorefrontHtml(req, res) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
         title: 'Store unavailable | StoYangu',
-        description: 'This StoYangu store is not available right now. Discover other Kenyan stores on StoYangu.'
+        description: 'This StoYangu store is not available right now. Discover other Kenyan stores on StoYangu.',
         canonical, image: `https://${root}/stoyangu-logo.png`, extra: '', robots: 'noindex, follow',
       });
       if (!req.query?.fresh) pageCache.set(slug, { html, status: 404, builtAt: Date.now() });
