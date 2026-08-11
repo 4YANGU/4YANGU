@@ -67,43 +67,37 @@ async function renderSticker(domain: string): Promise<string> {
     ctx.fillText(text, x, y);
   };
 
-  stickerText('Cheki products, sizes na', W / 2, 124, fitSize('Cheki products, sizes na', 72), INK);
-  stickerText('delivery options zetu zote pale', W / 2, 254, fitSize('delivery options zetu zote pale', 72), INK);
+  // Four balanced lines, tighter rhythm — the address owns its own line.
+  stickerText('Cheki products, sizes na', W / 2, 148, fitSize('Cheki products, sizes na', 68), INK);
+  stickerText('delivery options zetu zote pale stoyangu at', W / 2, 283, fitSize('delivery options zetu zote pale stoyangu at', 68), INK);
 
-  // Link line: "stoyangu at" in ink, the store address in gold, emblem right after.
-  const prefix = 'stoyangu at ';
-  const lineY = 522;
+  // Line three: ONLY the store address in gold + the emblem. Nothing before it.
+  const lineY = 452;
   const emblemRatio = emblem.width / emblem.height;
-  let linkSize = 58;
-  const totalWidth = (size: number) => {
-    ctx.font = font(size);
-    return ctx.measureText(prefix).width + ctx.measureText(domain).width + 26 + size * 1.55 * emblemRatio;
-  };
-  while (totalWidth(linkSize) > W - 80 && linkSize > 30) linkSize -= 2;
+  let linkSize = 62;
   ctx.font = font(linkSize);
-  const prefixWidth = ctx.measureText(prefix).width;
-  const domainWidth = ctx.measureText(domain).width;
+  let domainWidth = ctx.measureText(domain).width;
+  while (40 + domainWidth + 26 + linkSize * 1.55 * emblemRatio + 40 > W && linkSize > 30) {
+    linkSize -= 2;
+    ctx.font = font(linkSize);
+    domainWidth = ctx.measureText(domain).width;
+  }
   ctx.textAlign = 'left';
   ctx.lineJoin = 'round';
   ctx.miterLimit = 2;
   ctx.strokeStyle = WHITE;
-  ctx.lineWidth = linkSize * 0.42;
-  ctx.strokeText(prefix, 40, lineY);
-  ctx.fillStyle = INK;
-  ctx.fillText(prefix, 40, lineY);
-  ctx.strokeStyle = WHITE;
   ctx.lineWidth = linkSize * 0.4;
-  ctx.strokeText(domain, 40 + prefixWidth, lineY);
+  ctx.strokeText(domain, 40, lineY);
   ctx.strokeStyle = INK;
   ctx.lineWidth = linkSize * 0.13;
-  ctx.strokeText(domain, 40 + prefixWidth, lineY);
+  ctx.strokeText(domain, 40, lineY);
   ctx.fillStyle = GOLD;
-  ctx.fillText(domain, 40 + prefixWidth, lineY);
+  ctx.fillText(domain, 40, lineY);
 
   // Emblem with its white die-cut halo, in the same spot, right after the address.
   const emblemH = linkSize * 1.55;
   const emblemW = emblemH * emblemRatio;
-  const emblemX = 40 + prefixWidth + domainWidth + 26;
+  const emblemX = 40 + domainWidth + 26;
   const emblemY = lineY - emblemH * 0.78;
   const silhouette = document.createElement('canvas');
   silhouette.width = Math.ceil(emblemW);
@@ -121,7 +115,7 @@ async function renderSticker(domain: string): Promise<string> {
   }
   ctx.drawImage(emblem, emblemX, emblemY, emblemW, emblemH);
 
-  stickerText('Link in Profile', W / 2, 662, fitSize('Link in Profile', 84), INK);
+  stickerText('Link in Profile', W / 2, 618, fitSize('Link in Profile', 80), INK);
 
   return canvas.toDataURL('image/png');
 }
