@@ -198,3 +198,6 @@ img { max-width: 100%; }
 /* TikTok handle on applications + optional-field hint */
 .application-tiktok{color:#101f30!important;font-weight:800;border-bottom:2px solid var(--green);width:max-content}
 .optional-hint{font-weight:500;color:#8a958e}
+
+/* Video blocks from JSON specs */
+.json-video{width:100%;max-height:640px;object-fit:cover;border-radius:inherit;display:block}

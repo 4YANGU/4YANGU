@@ -17,6 +17,12 @@ const safeUrl = (value: unknown) => {
   if (/^\/(?!\/)/.test(text) || /^https:\/\//i.test(text) || /^data:image\/(png|jpeg|webp);base64,/i.test(text)) return text;
   return '';
 };
+const safeVideo = (value: unknown): string => {
+  const text = String(resolveText(value) || (isObject(value) ? '' : '') || '').trim();
+  if (/^https?:\/\/[^\s<>"]+\.(mp4|webm|mov)(\?[^\s<>"]*)?$/i.test(text)) return text;
+  return '';
+};
+
 const safeHref = (value: unknown, fallback = '#') => {
   const text = String(value || '').trim();
   if (/^#[a-z0-9_-]+$/i.test(text) || /^\/(?!\/)/.test(text) || /^https:\/\//i.test(text) || /^(mailto|tel):[^\s]+$/i.test(text)) return text;
@@ -122,9 +128,19 @@ function normaliseDesign(raw: unknown): AnyRecord {
 }
 
 function getSections(design: AnyRecord): AnyRecord[] {
-  const direct = take(design, 'sections', 'page_sections', 'content_sections', 'pages');
-  const sections = asArray(direct).filter(isObject);
-  if (sections.length) return sections;
+  const direct = take(design, 'sections', 'page_sections', 'content_sections', 'pages', 'screens', 'routes');
+  let sections = asArray(direct).filter(isObject);
+  if (sections.length) {
+    // Specs sometimes group content under pages/routes — flatten one level.
+    const flattened: AnyRecord[] = [];
+    sections.forEach((entry) => {
+      const inner = asArray(take(entry, 'sections', 'blocks', 'content', 'zones', 'children')).filter(isObject);
+      const looksLikeSection = take(entry, 'type', 'component', 'kind', 'headline', 'heading', 'title') != null;
+      if (inner.length && !looksLikeSection) flattened.push(...inner);
+      else flattened.push(entry);
+    });
+    if (flattened.length) return flattened;
+  }
   const ignored = new Set(['theme','design_tokens','tokens','global_ui','globalUI','header','footer','navigation','breakpoints','metadata']);
   const inferred = Object.entries(design).filter(([key, value]) => !ignored.has(key) && isObject(value)).map(([id, value]) => ({ id, ...value }));
   return inferred.length ? inferred : [{ id: 'hero', type: 'hero' }, { id: 'products', type: 'products' }, { id: 'contact', type: 'contact' }];
@@ -148,7 +164,19 @@ function collectFontUrls(design: AnyRecord) {
 
 function themeVariables(design: AnyRecord): CSSProperties {
   const theme = take(design, 'theme', 'design_tokens', 'tokens') || {};
-  const colors = take(theme, 'colors', 'colours', 'palette') || take(design, 'colors', 'colours') || {};
+  let colors = take(theme, 'colors', 'colours', 'palette') || take(design, 'colors', 'colours') || {};
+  if (!isObject(colors) || !Object.keys(colors).length) {
+    // Many specs describe colours in prose ("jungle green (#142B20)").
+    // Rescue those hex values so the theme still takes effect.
+    const prose = JSON.stringify(theme);
+    const rescued: Record<string, string> = {};
+    const roleMap: Array<[RegExp, string]> = [[/\b(background|canvas|surface|bg)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'background'], [/\b(accent|primary|brand|highlight|cta|amber|orange|gold)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'primary'], [/\b(text|ink|foreground)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'text'], [/\b(heading|title)\b[^"#]{0,40}?(#[0-9a-fA-F]{6})/i, 'heading']];
+    roleMap.forEach(([pattern, slot]) => { const match = prose.match(pattern); if (match && !rescued[slot]) rescued[slot] = match[2]; });
+    const allHexes = Array.from(prose.matchAll(/#[0-9a-fA-F]{6}\b/g)).map((match) => match[0]);
+    if (!rescued.primary && allHexes.length) rescued.primary = allHexes[allHexes.length > 1 ? 1 : 0];
+    if (!rescued.background && allHexes.length > 2) rescued.background = allHexes[0];
+    colors = rescued;
+  }
   const out: AnyRecord = {};
   if (isObject(colors)) Object.entries(colors).forEach(([name, value]) => {
     const safe = safeCssValue(isObject(value) ? value.value : value);
@@ -290,7 +318,7 @@ function GenericNode({ node: input, path, store, products, onOrder, onView, brea
   if (!isObject(node)) return null;
   if (depth > 80) return <div className="json-depth-safe">{deepPrimitiveContent(node).map((value, index) => <p key={index}>{value}</p>)}</div>;
   const identity = words(take(node, 'type', 'component', 'kind', 'id', 'name') || '').toLowerCase();
-  if (identity === 'shop' || /(^|\s)(products?|catalog|collection|product grid|product collection)(\s|$)/.test(identity)) return <ProductCollection node={node} products={products} onOrder={onOrder} onView={onView} />;
+  if (identity === 'shop' || /(^|\s)(products?|catalog|collection|product grid|product collection|shop by categor(y|ies)|categor(y|ies))(\s|$)/.test(identity)) return <ProductCollection node={node} products={products} onOrder={onOrder} onView={onView} />;
   if (/slide|carousel/.test(identity) || Array.isArray(node.slides)) return <Slideshow node={node} path={path} breakpoints={breakpoints} />;
   const title = resolveText(take(node, 'headline', 'heading', 'title', 'name', 'main_headline', 'heading_text', 'headline_text', 'primary_text', 'hero_title'));
   const eyebrow = resolveText(take(node, 'eyebrow', 'kicker', 'overline', 'label', 'badge_text', 'announcement', 'pill'));
@@ -299,6 +327,7 @@ function GenericNode({ node: input, path, store, products, onOrder, onView, brea
   const image = safeImage(take(node, 'image_url', 'image', 'src', 'photo', 'background_image', 'image_asset', 'media', 'visual', 'art', 'banner'));
   const alt = String(resolveText(take(node, 'alt', 'image_alt', 'aria_label')) || title || '');
   const cta = take(node, 'cta', 'button', 'action', 'primary_action', 'cta_button', 'action_button', 'primary_button');
+  const video = safeVideo(take(node, 'video', 'background_video', 'video_url')) || (isObject(node.background) ? safeVideo(take(node.background, 'url', 'src', 'video') || take(node.background, 'sources', 'source')) : '');
   const consumedKeys = ['headline','heading','title','name','main_headline','heading_text','headline_text','primary_text','hero_title','eyebrow','kicker','overline','label','badge_text','announcement','pill','body','description','subtitle','subheading','copy','text','paragraph','tagline','supporting_text','sub_headline','lede','image_url','image','src','photo','background_image','image_asset','media','visual','art','banner','alt','image_alt','aria_label','cta','button','action','primary_action','cta_button','action_button','primary_button','semantic_tag','element','tag','role','zones','accessibility','aria'];
   const nested = Object.entries(node).filter(([key, value]) => {
     if (configKeys.has(key) || consumedKeys.includes(key)) return false;
@@ -318,6 +347,7 @@ function GenericNode({ node: input, path, store, products, onOrder, onView, brea
     {Boolean(body) && <p className="json-body">{body}</p>}
     {Boolean(text) && text !== body && <p className="json-text">{text}</p>}
     {image && <img className="json-image" src={image} alt={alt} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
+    {video && <video className="json-video" src={video} autoPlay muted loop playsInline />}
     {cta && (typeof cta === 'string' ? <a className="json-button" href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={toStyle(cta.style)} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(take(cta, 'label', 'text', 'title') || 'Shop now')}</a>)}
     {extras.map(([key, value]) => <p key={key} className="json-extra" data-field={key}>{String(value)}</p>)}
     {nested.map(([key, value]) => <div key={key} style={['items','cards','columns','blocks'].includes(key) ? { display: 'contents' } : undefined} className={`json-nested json-nested-${key.replace(/[^a-z0-9]/gi, '-')}`}><GenericNode node={value} path={`${path}.${key}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} /></div>)}
