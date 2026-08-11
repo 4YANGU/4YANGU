@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/seo?type=storefront-html&slug=:slug" },
     { "source": "/robots.txt", "destination": "/api/seo?type=robots" },
     { "source": "/sitemap.xml", "destination": "/api/seo?type=sitemap" },
     { "source": "/catalog.json", "destination": "/api/seo?type=catalog" },

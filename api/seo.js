@@ -195,6 +195,17 @@ async function handleStorefrontHtml(req, res) {
     const { store, products } = await loadStore(slug);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=300, stale-while-revalidate=1800');
+    // Skins run ONLY on the store's own subdomain — a separate browser origin from
+    // stoyangu.com, so uploaded markup can never touch dashboard/login sessions.
+    const host = String(req.headers.host || '').toLowerCase();
+    const isStoreSubdomain = host.startsWith(`${slug}.`) && !host.startsWith('www.');
+    if (store && store.is_active && isStoreSubdomain) {
+      const skinHtml = await fetchSkinHtml(store.id);
+      if (skinHtml) {
+        res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+        return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
+      }
+    }
     if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
@@ -223,14 +234,105 @@ async function handleStorefrontHtml(req, res) {
   }
 }
 
+
+// === Skin system: founders upload the AI-generated storefront as files ===
+const SKIN_BUCKET = 'stoyangu-media';
+const skinPath = (storeId, file) => `skins/${storeId}/${String(file).replace(/\\/g, '/').replace(/\.\./g, '').replace(/^\/+/, '')}`;
+const skinBaseUrl = (storeId) => `${String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/storage/v1/object/public/${SKIN_BUCKET}/skins/${storeId}/`;
+
+async function skinFounder(req) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return null;
+  const { data: { user } } = await supabase.auth.getUser(token);
+  if (!user) return null;
+  const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).eq('role', 'founder').single();
+  return data ? { ...data, user } : null;
+}
+
+async function fetchSkinHtml(storeId) {
+  const manifest = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'manifest.json'));
+  if (!manifest.data) return null;
+  const index = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'index.html'));
+  if (!index.data) return null;
+  return index.data.text();
+}
+
+async function handleSkinUpload(req, res) {
+  const profile = await skinFounder(req);
+  if (!profile) return res.status(403).json({ error: 'Founder access required.' });
+  const storeId = Number(req.body?.store_id);
+  if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+  const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).single();
+  if (!store) return res.status(404).json({ error: 'Store not found.' });
+  const action = String(req.body?.action || 'sign');
+  if (action === 'disable' || action === 'remove') {
+    await supabase.storage.from(SKIN_BUCKET).remove([skinPath(storeId, 'manifest.json'), skinPath(storeId, 'index.html')]);
+    return res.status(200).json({ ok: true, enabled: false });
+  }
+  if (action === 'status') {
+    const manifest = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'manifest.json'));
+    return res.status(200).json({ active: Boolean(manifest.data) });
+  }
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ error: 'No files listed.' });
+  if (files.length > 160) return res.status(400).json({ error: 'A skin can contain at most 160 files.' });
+  // Front-layer-only allowlist: markup, styles, scripts-as-text, media and fonts.
+  // Anything that smells like backend code/config/keys never reaches storage.
+  const BLOCKED_SKIN_EXTENSIONS = new Set(['php', 'py', 'rb', 'sh', 'bash', 'pl', 'sql', 'env', 'key', 'pem', 'p12', 'sqlite', 'db', 'lock', 'toml', 'yaml', 'yml', 'ini', 'cfg', 'conf', 'exe', 'dll', 'jar', 'class', 'go', 'rs', 'zip', 'gz']);
+  const BLOCKED_SKIN_NAMES = new Set(['package.json', '.env', 'dockerfile', 'compose.yml']);
+  const filteredFiles = files.filter((file) => {
+    const path = String(file.path || '').toLowerCase();
+    const name = path.split('/').pop() || '';
+    const ext = name.split('.').pop() || '';
+    if (BLOCKED_SKIN_NAMES.has(name) || name.startsWith('.env')) return false;
+    return !BLOCKED_SKIN_EXTENSIONS.has(ext);
+  });
+  if (!filteredFiles.length) return res.status(400).json({ error: 'Nothing usable in that skin — only front-end assets (html, css, js, images, fonts, media) are allowed.' });
+  const signed = [];
+  const manifestJson = JSON.stringify({ store_id: storeId, entry: req.body?.entry || 'index.html', files: filteredFiles.map((f) => String(f.path)), enabled_at: new Date().toISOString() });
+  const toSign = [...filteredFiles, { path: 'manifest.json', contentType: 'application/json' }];
+  for (const file of toSign) {
+    const path = skinPath(storeId, String(file.path || 'index.html'));
+    if (!path || path.endsWith('/')) { signed.push({ path, skip: true }); continue; }
+    const { data, error } = await supabase.storage.from(SKIN_BUCKET).createSignedUploadUrl(path);
+    if (error) return res.status(500).json({ error: `Could not sign ${path}: ${error.message}` });
+    signed.push({ path, signedUrl: data.signedUrl, manifest: manifestJson });
+  }
+  return res.status(200).json({ signed, skipped: files.length - filteredFiles.length });
+}
+
+
+function transformSkinHtml(html, storeId, slug) {
+  const base = skinBaseUrl(storeId);
+  let out = String(html);
+  out = out.replace(/(src|href)=(["'])(?!https?:|\/\/|data:|#|mailto:|tel:|blob:)([^"']]*)\2/g, (match, attr, quote, rel) => `${attr}=${quote}${base}${rel.replace(/^\.\//, '').replace(/^\//, '')}${quote}`);
+  // Safety scrub (parallel to the JSON engine's URL rules):
+  // - javascript:/data: attribute targets are blocked outright
+  // - form posts are only allowed to https targets (or relative)
+  // - target=_blank gets rel=noopener so external links can't drive the page
+  out = out.replace(/\b(href|src|action)=(['"])\s*(javascript:[^"']*|data:(?!image\/(png|jpeg|jpg|webp|gif|avif|svg\+xml)))[^"']*\2/gi, '$1=$2#blocked$2');
+  out = out.replace(/<form([^>]*)action=(['"])(?!https?:|#|\/)([^'"]+)\2/gi, '<form$1action=$2#$2');
+  out = out.replace(/<a([^>]*?)target=(['"])_(blank|new)\2(?![^>]*rel=)/gi, '<a$1target=$2_$3$2 rel="noopener noreferrer"');
+  // relative url(...) inside embedded <style> blocks also points at the skin's permanent dir
+  out = out.replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/gi, (whole, openTag, css, closeTag) => {
+    const rewritten = String(css).replace(/url\(\s*(["']?)(?!https?:|data:|#)([^)'"]+)\1\s*\)/gi, (match, quote, rel) => `url(${quote || ''}${base}${rel.replace(/^\.\//, '').replace(/^\//, '')}${quote || ''})`);
+    return `${openTag}${rewritten}${closeTag}`;
+  });
+  if (!/<\/head>/i.test(out) || !/<\/body>/i.test(out)) return out;
+  out = out.replace(/<\/head>/i, `<meta name="stoyangu-slug" content="${slug}"><meta name="stoyangu-store-id" content="${storeId}"></head>`);
+  out = out.replace(/<\/body>/i, `<script src="/skin-bridge.js" defer></script></body>`);
+  return out;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'GET' && !(req.method === 'POST' && req.query?.type === 'skin')) return res.status(405).json({ error: 'Method not allowed' });
 
   const type = req.query?.type;
+  if (type === 'skin') return handleSkinUpload(req, res);
   if (type === 'robots') return handleRobots(req, res);
   if (type === 'sitemap') return handleSitemap(req, res);
   if (type === 'catalog') return handleCatalog(req, res);

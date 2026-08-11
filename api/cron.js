@@ -8,7 +8,12 @@ const selectHighlights = (products) => {
   const needs = [...products].filter((product) => product.id !== winner?.id && Number(product.views_today) >= 1).sort((a, b) => (Number(b.views_today) - Number(b.orders_today) * 3) - (Number(a.views_today) - Number(a.orders_today) * 3))[0];
   return { winner, needs };
 };
+const isQuietDay = (store) => Number(store.visitor_today || 0) === 0 && Number(store.orders_today || 0) === 0;
 const makeBody = (store, products) => {
+  // Quiet day: no champion or needs-a-look claims — just an honest nudge.
+  if (isQuietDay(store)) {
+    return `Slight pause today — no visits or orders yet. Keep mentioning your store link in your videos and posts: every share brings the next customer closer. One good video can change the whole week.\n\nReminder: point your audience to your store link in TikTok, Instagram and WhatsApp so they always know where to shop.`;
+  }
   const { winner, needs } = selectHighlights(products);
   return `Today: ${store.visitor_today || 0} store visits and ${store.orders_today || 0} WhatsApp order clicks.\n\nToday's champion product: ${winner ? `${winner.name} (${winner.orders_today || 0} orders, ${winner.views_today || 0} views)` : 'No product activity yet.'}\n\nNeeds a look: ${needs ? `${needs.name}, ${needs.views_today || 0} views and ${needs.orders_today || 0} orders. Try checking the photo or price.` : 'Keep sharing your products to build more activity.'}\n\nReminder: Mention your store link in your videos so customers always know where to shop.`;
 };
@@ -36,7 +41,8 @@ async function runDaily(req, res) {
   if (rows.length) {
     const { data: created, error } = await supabase.from('notifications').insert(rows).select();
     if (error) throw error;
-    const highlightRows = (created || []).map((notification) => { const selected = selectHighlights((products || []).filter((product) => product.store_id === notification.store_id)); return { notification_id: notification.id, store_id: notification.store_id, batch_key: batchKey, winner_product_id: selected.winner?.id || null, needs_product_id: selected.needs?.id || null }; });
+    const storeById = new Map((stores || []).map((store) => [store.id, store]));
+    const highlightRows = (created || []).map((notification) => { const parent = storeById.get(notification.store_id); if (parent && isQuietDay(parent)) return null; const selected = selectHighlights((products || []).filter((product) => product.store_id === notification.store_id)); return { notification_id: notification.id, store_id: notification.store_id, batch_key: batchKey, winner_product_id: selected.winner?.id || null, needs_product_id: selected.needs?.id || null }; }).filter(Boolean);
     if (highlightRows.length) { const { error: highlightError } = await supabase.from('notification_highlights').insert(highlightRows); if (highlightError) throw highlightError; }
   }
   const combinedText = rows.map((item) => `=== STORE ${item.store_id}: ${item.store_name} ===\n${item.body}`).join('\n\n');
