@@ -33,7 +33,9 @@ export default async function handler(req, res) {
     if (productId) { const { data: product } = await supabase.from('products').select('id,store_id').eq('id', productId).eq('store_id', store.id).single(); if (!product) return res.status(400).json({ error: 'Product not found.' }); }
     const { data: duplicate } = await supabase.from('store_events').select('id').eq('store_id', store.id).eq('event_type', type).eq('session_id', sessionId).eq('product_id', productId || 0).limit(1);
     if (duplicate?.length && type !== 'order') return res.status(200).json({ ok: true, duplicate: true });
-    const today = new Date().toISOString().slice(0, 10);
+    // Count days by Kenya time so midnight-3am Nairobi activity is never folded
+    // into the wrong day by UTC dates.
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
     await supabase.from('store_events').insert({ store_id: store.id, product_id: productId || 0, event_type: type, session_id: sessionId });
     if (type === 'visit' || type === 'order') {
       const isToday = store.metrics_date === today;

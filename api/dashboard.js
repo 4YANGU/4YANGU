@@ -20,9 +20,13 @@ export default async function handler(req, res) {
         supabase.from('notifications').select('id,batch_key,title,body,edited_body,status,created_at').eq('store_id', storeId).order('created_at', { ascending: false }).limit(5),
       ]);
       if (error || !store) return res.status(404).json({ error: 'Store not found.' });
+      // Show today's counters as zero on a fresh Nairobi day even before the first
+      // event lands, so yesterday's numbers never masquerade as today's.
+      const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+      if (store.metrics_date !== nairobiToday) { store.visitor_today = 0; store.orders_today = 0; }
       const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
       if (mediaError) throw mediaError;
-      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) }; });
+      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) }; });
       const { data: highlights, error: highlightError } = notifications?.length ? await supabase.from('notification_highlights').select('*').in('notification_id', notifications.map((notification) => notification.id)) : { data: [], error: null };
       if (highlightError) throw highlightError;
       const ranked = [...liveProducts].sort((a, b) => Number(b.orders_today) - Number(a.orders_today) || Number(b.views_today) - Number(a.views_today));
@@ -38,6 +42,9 @@ export default async function handler(req, res) {
       supabase.from('applications').select('*').order('created_at', { ascending: false }),
       supabase.from('pwa_installations').select('store_id,installed,notifications_enabled,welcome_sent_at,last_seen_at'),
     ]);
+    // Fresh Nairobi day before the first event: show zero for today's counters.
+    const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+    for (const store of stores || []) { if (store.metrics_date !== nairobiToday) { store.visitor_today = 0; store.orders_today = 0; } }
     const now = Date.now();
     for (const store of stores || []) {
       const paid = store.billing_paid_until && new Date(store.billing_paid_until).getTime() > now;

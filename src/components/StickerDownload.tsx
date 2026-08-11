@@ -9,6 +9,7 @@ const H = 691;
 const SCALE = 2;
 const INK = '#030303';
 const GOLD = '#f5c00a';
+const WHITE = '#ffffff';
 
 function ensureMontserratLink() {
   if (document.querySelector('link[data-montserrat-sticker]')) return;
@@ -47,51 +48,63 @@ async function renderSticker(domain: string): Promise<string> {
   ctx.scale(SCALE, SCALE);
   ctx.clearRect(0, 0, W, H);
   const font = (size: number) => `900 ${size}px Montserrat, "Arial Black", sans-serif`;
-
+  const fitSize = (text: string, start: number, available = W - 80) => {
+    let size = start;
+    ctx.font = font(size);
+    while (ctx.measureText(text).width + size * 0.26 > available && size > 30) { size -= 2; ctx.font = font(size); }
+    return size;
+  };
   // Die-cut look: a clean white strip around every character, then the ink fill.
-  const stickerText = (text: string, x: number, y: number, size: number, fill: string, align: 'center' | 'left' = 'center') => {
-    ctx.textAlign = align;
+  const stickerText = (text: string, x: number, y: number, size: number, fill: string) => {
+    ctx.textAlign = 'center';
     ctx.font = font(size);
     ctx.lineJoin = 'round';
     ctx.miterLimit = 2;
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = WHITE;
     ctx.lineWidth = size * 0.18;
     ctx.strokeText(text, x, y);
     ctx.fillStyle = fill;
     ctx.fillText(text, x, y);
   };
 
-  stickerText('Cheki all our products,', W / 2, 122, 74, INK);
-  stickerText('sizes and', W / 2, 262, 74, INK);
-  stickerText('delivery options pale', W / 2, 402, 74, INK);
+  stickerText('Cheki products, sizes na', W / 2, 124, fitSize('Cheki products, sizes na', 72), INK);
+  stickerText('delivery options zetu zote pale', W / 2, 254, fitSize('delivery options zetu zote pale', 72), INK);
 
-  // Domain line: white strip, black outline, gold fill — emblem right after it.
-  ctx.textAlign = 'left';
-  let domainSize = 64;
-  ctx.font = font(domainSize);
-  let textWidth = ctx.measureText(domain).width + domainSize * 0.22;
+  // Link line: "stoyangu at" in ink, the store address in gold, emblem right after.
+  const prefix = 'stoyangu at ';
+  const lineY = 522;
   const emblemRatio = emblem.width / emblem.height;
-  while (textWidth > W - 40 - 24 - 40 - domainSize * 1.55 * emblemRatio && domainSize > 34) {
-    domainSize -= 2;
-    ctx.font = font(domainSize);
-    textWidth = ctx.measureText(domain).width + domainSize * 0.22;
-  }
-  const domainY = 512;
+  let linkSize = 58;
+  const totalWidth = (size: number) => {
+    ctx.font = font(size);
+    return ctx.measureText(prefix).width + ctx.measureText(domain).width + 26 + size * 1.55 * emblemRatio;
+  };
+  while (totalWidth(linkSize) > W - 80 && linkSize > 30) linkSize -= 2;
+  ctx.font = font(linkSize);
+  const prefixWidth = ctx.measureText(prefix).width;
+  const domainWidth = ctx.measureText(domain).width;
+  ctx.textAlign = 'left';
   ctx.lineJoin = 'round';
   ctx.miterLimit = 2;
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = domainSize * 0.34;
-  ctx.strokeText(domain, 40, domainY);
+  ctx.strokeStyle = WHITE;
+  ctx.lineWidth = linkSize * 0.42;
+  ctx.strokeText(prefix, 40, lineY);
+  ctx.fillStyle = INK;
+  ctx.fillText(prefix, 40, lineY);
+  ctx.strokeStyle = WHITE;
+  ctx.lineWidth = linkSize * 0.4;
+  ctx.strokeText(domain, 40 + prefixWidth, lineY);
   ctx.strokeStyle = INK;
-  ctx.lineWidth = domainSize * 0.14;
-  ctx.strokeText(domain, 40, domainY);
+  ctx.lineWidth = linkSize * 0.13;
+  ctx.strokeText(domain, 40 + prefixWidth, lineY);
   ctx.fillStyle = GOLD;
-  ctx.fillText(domain, 40, domainY);
-  const emblemH = domainSize * 1.55;
+  ctx.fillText(domain, 40 + prefixWidth, lineY);
+
+  // Emblem with its white die-cut halo, in the same spot, right after the address.
+  const emblemH = linkSize * 1.55;
   const emblemW = emblemH * emblemRatio;
-  const emblemX = 40 + ctx.measureText(domain).width + 24;
-  const emblemY = domainY - emblemH * 0.78;
-  // White die-cut halo behind the emblem (white silhouette offset in 8 directions).
+  const emblemX = 40 + prefixWidth + domainWidth + 26;
+  const emblemY = lineY - emblemH * 0.78;
   const silhouette = document.createElement('canvas');
   silhouette.width = Math.ceil(emblemW);
   silhouette.height = Math.ceil(emblemH);
@@ -99,16 +112,16 @@ async function renderSticker(domain: string): Promise<string> {
   if (sctx) {
     sctx.drawImage(emblem, 0, 0, emblemW, emblemH);
     sctx.globalCompositeOperation = 'source-in';
-    sctx.fillStyle = '#ffffff';
+    sctx.fillStyle = WHITE;
     sctx.fillRect(0, 0, emblemW, emblemH);
-    const pad = domainSize * 0.14;
+    const pad = linkSize * 0.14;
     for (const [dx, dy] of [[pad, 0], [-pad, 0], [0, pad], [0, -pad], [pad * 0.7, pad * 0.7], [-pad * 0.7, pad * 0.7], [pad * 0.7, -pad * 0.7], [-pad * 0.7, -pad * 0.7]] as Array<[number, number]>) {
       ctx.drawImage(silhouette, emblemX + dx, emblemY + dy);
     }
   }
   ctx.drawImage(emblem, emblemX, emblemY, emblemW, emblemH);
 
-  stickerText('Link in bio', W / 2, 660, 86, INK);
+  stickerText('Link in Profile', W / 2, 662, fitSize('Link in Profile', 84), INK);
 
   return canvas.toDataURL('image/png');
 }
