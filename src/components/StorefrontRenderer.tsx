@@ -273,20 +273,28 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
   const suppliedVisual = isObj(first(section, 'hero_visual', 'visual', 'media')) ? first(section, 'hero_visual', 'visual', 'media') : {};
   const visual = Object.keys(suppliedVisual).length ? suppliedVisual : safeUrl(first(section, 'image', 'image_url', 'photo')) ? { slides: [{ image: first(section, 'image', 'image_url', 'photo'), alt: section.alt || section.headline }] } : {};
   const hasVisual = array(first(visual, 'slides', 'images', 'items')).length > 0;
+  // Full-bleed heroes, but ONLY when the spec explicitly calls for that treatment
+  // (never hijack a working split hero like Pizzaro's).
+  const intentSignal = [String(first(section, 'presentation', 'treatment', 'hero_mode', 'display_mode') || ''), String(isObj(visual) ? visual.presentation || visual.treatment || '' : ''), String(design.theme?.mode || ''), String(design.theme?.name || ''), String(design.design_scope?.specification_type || '')].join(' ').toLowerCase();
+  const specImage = array(first(visual, 'slides', 'images', 'items'))[0];
+  const heroImg = safeUrl(isObj(specImage) ? first(specImage, 'image', 'src', 'url') : specImage) || safeUrl(first(section, 'background_image', 'image', 'image_url', 'backdrop', 'cover_image', 'photo'));
+  const wantsFullbleed = /full.?bleed|immersive|edge.to.edge|background/.test(intentSignal) && Boolean(heroImg);
+  const heroStyle = mergedStyle(design, section.layout, section.style);
+  if (wantsFullbleed && heroImg) { heroStyle.backgroundImage = `url("${heroImg}")`; heroStyle.backgroundSize = 'cover'; heroStyle.backgroundPosition = 'center'; }
   const lines = array(section.headline_lines);
   const actions = array(first(section, 'actions', 'buttons'));
   const badge = isObj(section.badge) ? section.badge : {};
   const promo = isObj(section.floating_promo) ? section.floating_promo : {};
-  return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual ? '' : 'no-visual'}`} style={mergedStyle(design, section.layout, section.style)}>
+  return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual && !wantsFullbleed ? '' : 'no-visual'} ${wantsFullbleed ? 'sj-hero--fullbleed' : ''}`} style={heroStyle}>{wantsFullbleed && <i className="sj-hero-veil" aria-hidden="true" />}
     {section.background_watermark?.text && <span className="sj-watermark" style={mergedStyle(design, section.background_watermark)}>{String(section.background_watermark.text)}</span>}
     <div className="sj-hero-copy">
       {Object.keys(badge).length > 0 && <Reveal design={design} node={badge} animation="hero_badge_reveal" className="sj-hero-badge" style={mergedStyle(design, badge)}><span style={{ background: safeCss(badge.icon_background) }}>{resolveLogo(badge, store) ? <img src={resolveLogo(badge, store)} alt="" /> : <Icon name={badge.icon} size={14} />}</span>{String(badge.text || '')}</Reveal>}
       <Reveal design={design} node={section} animation="hero_heading_reveal"><h1>{lines.length ? lines.map((line, index) => <span key={index} className={String(line.style || '').includes('accent') ? 'accent' : ''}>{String(line.text || line)}</span>) : String(section.headline || section.heading || design.store_name || store.name)}</h1></Reveal>
       {(section.tagline || section.body || section.intro) && <Reveal design={design} node={section} animation="hero_tagline_reveal"><p className="sj-hero-tagline">{String(first(section, 'tagline', 'body', 'intro'))}</p></Reveal>}
       {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = isObj(action) ? action : { label: action }; const buttons = design.global_ui?.buttons || {}; return <a key={index} className={`sj-action ${entry.style || 'primary'}`} style={mergedStyle(design, buttons.base, buttons[entry.style || 'primary'], entry)} href={safeHref(first(entry, 'target', 'href'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
-      {array(section.feature_text).length > 0 && <div className="sj-hero-features">{array(section.feature_text).map((item, index) => <span key={index}><Icon name={item.icon} size={15} />{String(item.text || '')}</span>)}</div>}
+      {array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp')).length > 0 && <div className="sj-hero-features">{array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp')).map((item, index) => <span key={index}><Icon name={isObj(item) ? item.icon : undefined} size={15} />{String(isObj(item) ? item.text || item.label || '' : item)}</span>)}</div>}
     </div>
-    {hasVisual && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
+    {hasVisual && !wantsFullbleed && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
       <Slideshow visual={visual} design={design} />
       {Object.keys(promo).length > 0 && <motion.div className="sj-floating-promo" style={mergedStyle(design, promo)} animate={reduced ? undefined : { y: [0, -8, 0] }} transition={{ duration: Number(design.animations?.floating_new_drop_note?.duration_seconds || 4), repeat: Infinity, ease: 'easeInOut' }}><span style={{ background: safeCss(promo.icon_background) }}>{resolveLogo(promo, store) ? <img src={resolveLogo(promo, store)} alt="" /> : <Sparkles />}</span><div><strong>{String(promo.title || '')}</strong><small>{String(promo.body || '')}</small></div></motion.div>}
     </Reveal>}
