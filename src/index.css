@@ -214,3 +214,10 @@ img { max-width: 100%; }
 .json-on-media .json-extra{color:rgba(255,255,255,.82)!important}
 .json-on-media>.json-scrim~*{position:relative;z-index:1}
 @media(prefers-reduced-motion:reduce){.json-slideshow .json-slide{animation:none}}
+
+/* JSON editor: spec understanding report */
+.spec-scan{margin:14px 28px 0;background:#eef6f0;border:1px solid #cfe6d6;border-radius:12px;padding:12px 14px;display:grid;gap:6px}
+.spec-scan strong{color:#2e6b44;font-size:.74rem}
+.spec-scan span{font-size:.7rem;color:#5d6d63;line-height:1.5}
+.spec-scan b.ok{color:#2e6b44}
+.spec-scan b.bad{color:#a74a43}
