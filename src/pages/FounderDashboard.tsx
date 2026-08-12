@@ -5,6 +5,7 @@ import BrandLogo from '../components/BrandLogo';
 import Modal from '../components/Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, storeDomain, storeLink, uploadImage } from '../lib/api';
+import { disableSkin, skinStatus, uploadSkinZip } from '../lib/skinUpload';
 import type { Application, DashboardData, Store } from '../types';
 
 const daysLeft = (store: Store) => {
@@ -53,7 +54,7 @@ function DashboardSkeleton() { return <div className="dashboard-skeleton"><div /
 
 function NewStoreModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ name: '', owner_password: '', whatsapp: '+254', categories: '', design_json: '{\n  "theme": {\n    "colours": { "primary": "#5A966E", "background": "#FFFDF7", "text": "#17261F" }\n  },\n  "sections": [\n    { "id": "hero", "type": "hero", "headline": "Karibu", "body": "Shop our newest products." },\n    { "id": "products", "type": "product_grid", "heading": "Our products" }\n  ]\n}' });
-  const [logo, setLogo] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const [logo, setLogo] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [skinFile, setSkinFile] = useState<File | null>(null); const [skinNote, setSkinNote] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const submit = async (event: FormEvent) => { event.preventDefault(); setError('');
@@ -61,9 +62,9 @@ function NewStoreModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     if (!/^\+?[0-9\s-]{10,18}$/.test(form.whatsapp)) return setError('Add a valid owner WhatsApp number, including the country code.');
     if (form.owner_password.length < 8) return setError('Temporary password must be at least 8 characters.');
     try { JSON.parse(form.design_json); } catch { return setError('The design JSON is not valid yet. Check commas and brackets.'); }
-    setBusy(true); try { let logo_url = ''; if (logo) logo_url = (await uploadImage(logo, 'logos')).url; await apiFetch('/api/stores', { method: 'POST', body: JSON.stringify({ ...form, logo_url, categories: form.categories.split(',').map((item) => item.trim()).filter(Boolean), design_json: JSON.parse(form.design_json) }) }); onSaved(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create store.'); } finally { setBusy(false); }
+    setBusy(true); try { let logo_url = ''; if (logo) logo_url = (await uploadImage(logo, 'logos')).url; const created = await apiFetch<{ id: number }>('/api/stores', { method: 'POST', body: JSON.stringify({ ...form, logo_url, categories: form.categories.split(',').map((item) => item.trim()).filter(Boolean), design_json: JSON.parse(form.design_json) }) }); if (skinFile) { setSkinNote('Store created — uploading skin…'); try { await uploadSkinZip(created.id, skinFile, setSkinNote); } catch (skinErr) { console.warn('Skin upload failed:', skinErr); setError(`Store created — but the skin upload failed: ${skinErr instanceof Error ? skinErr.message : 'try again from the store card'}`); } } onSaved(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not create store.'); } finally { setBusy(false); }
   };
-  return <Modal title="Create a new store" onClose={onClose} wide><form className="admin-form" onSubmit={submit}><div className="form-grid"><label>Store name<input value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Lily" /><small>Subdomain preview: {storeDomain(form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'store')}</small></label><label>Owner WhatsApp number<input type="tel" value={form.whatsapp} onChange={(event) => update('whatsapp', event.target.value)} placeholder="+254 7..." /><small>This is the owner's login name and order number.</small></label><label>Temporary password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={form.owner_password} onChange={(event) => update('owner_password', event.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label><label className="span-two">Product categories<input value={form.categories} onChange={(event) => update('categories', event.target.value)} placeholder="Fashion, Shoes, Accessories" /><small>Separate each category with a comma.</small></label><label className="upload-label span-two"><span>Store logo</span><input type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => setLogo(event.target.files?.[0] || null)} /><div><Box /> {logo ? logo.name : 'Choose from device or gallery'}</div></label><label className="span-two">Store design JSON<textarea className="code-input" rows={15} value={form.design_json} onChange={(event) => update('design_json', event.target.value)} spellCheck={false} /></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? 'Building store…' : 'Create store and owner login'} <Plus /></button></div></form></Modal>;
+  return <Modal title="Create a new store" onClose={onClose} wide><form className="admin-form" onSubmit={submit}><div className="form-grid"><label>Store name<input value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Lily" /><small>Subdomain preview: {storeDomain(form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'store')}</small></label><label>Owner WhatsApp number<input type="tel" value={form.whatsapp} onChange={(event) => update('whatsapp', event.target.value)} placeholder="+254 7..." /><small>This is the owner's login name and order number.</small></label><label>Temporary password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={form.owner_password} onChange={(event) => update('owner_password', event.target.value)} placeholder="At least 8 characters" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label><label className="span-two">Product categories<input value={form.categories} onChange={(event) => update('categories', event.target.value)} placeholder="Fashion, Shoes, Accessories" /><small>Separate each category with a comma.</small></label><label className="upload-label span-two"><span>Store logo</span><input type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => setLogo(event.target.files?.[0] || null)} /><div><Box /> {logo ? logo.name : 'Choose from device or gallery'}</div></label><label className="upload-label span-two"><span>Storefront skin zip (optional — AI-exported design)</span><input type="file" accept=".zip" onChange={(event) => setSkinFile(event.target.files?.[0] || null)} /><div><UploadCloud /> {skinFile ? skinFile.name : 'Choose a skin zip'}</div></label>{skinNote && <div className="form-success">{skinNote}</div>}<label className="span-two">Store design JSON<textarea className="code-input" rows={15} value={form.design_json} onChange={(event) => update('design_json', event.target.value)} spellCheck={false} /></label></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="button-primary" disabled={busy}>{busy ? 'Building store…' : 'Create store and owner login'} <Plus /></button></div></form></Modal>;
 }
 
 function EditStoreModal({ store, onClose, onSaved }: { store: Store; onClose: () => void; onSaved: () => void }) {
@@ -83,42 +84,14 @@ async function copySpecPrompt(setDone: (value: boolean) => void) {
 function SkinModal({ store, onClose }: { store: Store; onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [status, setStatus] = useState(''); const [active, setActive] = useState(false); const [error, setError] = useState('');
-  useEffect(() => { apiFetch<{ active?: boolean }>('/api/seo?type=skin', { method: 'POST', body: JSON.stringify({ action: 'status', store_id: store.id }) }).then((res) => setActive(Boolean(res.active))).catch(() => undefined); }, [store.id]);
-  const mimeOf = (path: string) => { const ext = path.split('.').pop()?.toLowerCase() || ''; const map: Record<string, string> = { html: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml', avif: 'image/avif', ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', mp4: 'video/mp4', webm: 'video/webm', txt: 'text/plain' }; return map[ext] || 'application/octet-stream'; };
+  useEffect(() => { skinStatus(store.id).then(setActive).catch(() => undefined); }, [store.id]);
   const upload = async () => {
     if (!file) return;
-    setBusy(true); setError(''); setStatus('Reading the zip…');
-    try {
-      const JSZip = (await import('jszip')).default;
-      const zip = await JSZip.loadAsync(file);
-      const entries = Object.entries(zip.files).filter((entry) => !entry[1].dir);
-      if (!entries.some((entry) => /(^|\/)index\.html$/i.test(entry[0]))) throw new Error('The zip must contain an index.html at its top level.');
-      const payloads: Array<{ path: string; blob: Blob; type: string }> = [];
-      for (const [rawPath, entry] of entries.slice(0, 160)) {
-        const path = rawPath.replace(/^\.\//, '').replace(/^\/+/, '');
-        if (!path || path.includes('..') || path.endsWith('/')) continue;
-        payloads.push({ path, blob: await entry.async('blob'), type: mimeOf(path) });
-      }
-      if (!payloads.length) throw new Error('No files found inside the zip.');
-      const result = await apiFetch<{ signed: Array<{ path: string; signedUrl?: string; skip?: boolean; manifest?: string }>; skipped?: number }>('/api/seo?type=skin', { method: 'POST', body: JSON.stringify({ store_id: store.id, files: payloads.map((payload) => ({ path: payload.path, contentType: payload.type })) }) });
-      setStatus(`Uploading ${payloads.length} files…`);
-      const manifest = result.signed.find((item) => item.path.endsWith('manifest.json'));
-      for (const item of result.signed) {
-        if (item.skip || !item.signedUrl) continue;
-        if (item.path.endsWith('manifest.json')) continue;
-        const payload = payloads.find((candidate) => candidate.path === item.path);
-        if (!payload) continue;
-        const res = await fetch(item.signedUrl, { method: 'PUT', headers: { 'Content-Type': payload.type, 'x-upsert': 'true' }, body: payload.blob });
-        if (!res.ok) throw new Error(`Upload failed for ${item.path}`);
-      }
-      if (manifest?.signedUrl && manifest.manifest) await fetch(manifest.signedUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: manifest.manifest });
-      setActive(true);
-      setStatus(`Skin is live.${result.skipped ? ` (${result.skipped} non-frontend backend file${result.skipped === 1 ? '' : 's'} automatically skipped — that's normal and safe.)` : ''}`);
-      setError('');
-    } catch (err) { setError(err instanceof Error ? err.message : 'Skin upload failed.'); }
-    finally { setBusy(false); }
+    setBusy(true); setError('');
+    try { const res = await uploadSkinZip(store.id, file, setStatus); setActive(true); setStatus(`Skin is live (${res.fileCount} files).`); } catch (err) { setError(err instanceof Error ? err.message : 'Skin upload failed.'); } finally { setBusy(false); }
   };
-  const disable = async () => { setBusy(true); try { await apiFetch('/api/seo?type=skin', { method: 'POST', body: JSON.stringify({ action: 'disable', store_id: store.id }) }); setActive(false); setStatus('Skin disabled — JSON design is live again.'); } catch (err) { setError(err instanceof Error ? err.message : 'Could not disable the skin.'); } finally { setBusy(false); } };
+
+  const disable = async () => { setBusy(true); try { await disableSkin(store.id); setActive(false); setStatus('Skin disabled — JSON design is live again.'); } catch (err) { setError(err instanceof Error ? err.message : 'Could not disable the skin.'); } finally { setBusy(false); } };
   return <Modal title={`Store skin: ${store.name}`} onClose={onClose} wide><div className="skin-modal-body">
     <p className="form-intro">Upload the storefront the AI built, exactly as exported (zip of index.html + assets). For safety, skins go live on the store's own subdomain (slug.stoyangu.com) — a completely separate origin from dashboards/logins — while the /s/ preview path always renders the JSON engine. Skins cannot touch owner accounts. For live internals, the AI output should contain: a product grid anchor (element with <code>data-product-grid</code>), order buttons (<code>data-wa-order</code>), and optionally <code>data-product="Exact product name"</code> on product cards, <code>data-store-name</code>, <code>data-wa-link</code> on the WhatsApp link.</p>
     <div className={active ? 'form-success' : 'form-error'}>{active ? 'A skin is currently LIVE for this store.' : 'No skin live — the JSON design renders this store.'}{status && <small style={{ display: 'block', marginTop: 4 }}>{status}</small>}</div>
