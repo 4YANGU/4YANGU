@@ -213,7 +213,12 @@ async function handleStorefrontHtml(req, res) {
     }
     const { data: products } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
     const liveProducts = (products || []).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
-    const template = String(store.storefront_template || '').trim();
+    // The storefront HTML lives at stores.design_json->>storefront_html. The
+    // design_json column already exists on every store, so no migration is
+    // needed for new installs. If a store has no saved template, the API
+    // returns the default starter template so the subdomain doesn't go blank.
+    const design = store && typeof store.design_json === 'object' && store.design_json ? store.design_json : {};
+    const template = String(design.storefront_html || '').trim();
     const { html: renderedHtml } = renderStorefrontTemplate(template, store, liveProducts);
     if (!req.query?.fresh) pageCache.set(slug, { html: renderedHtml, status: 200, builtAt: Date.now() });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');

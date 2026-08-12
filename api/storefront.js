@@ -2,20 +2,31 @@
 // =========================================================================
 //  StoYangu storefront system
 //
-//  Founder-facing: POST ?action=save      → validate + persist a pasted HTML template
-//                  POST ?action=preview   → render with placeholder data
-//  Public-facing:  GET  ?slug=…           → render with live products, served as text/html
-//                  GET  ?slug=…&format=json → render as JSON for the iframe srcDoc
+//  Founder-facing: POST ?action=save      → auto-fix + persist a pasted HTML template
+//                  POST ?action=preview   → render the pasted HTML live
+//  Public-facing:  GET  ?action=render&slug=… → render with live products as JSON
+//                  GET  ?action=render&slug=…&format=raw → same, but text/html
+//                  GET  ?action=default  → starter template (only used for the
+//                                          "Load starter template" button in the
+//                                          dashboard so the founder has a starting
+//                                          point if they don't have AI-generated HTML)
+//                  GET  ?action=prompt   → the AI prompt text for one store
+//                  GET  ?action=prompt-generic → the AI prompt text (no store)
 //
-//  Security model: the template is scanned for forbidden patterns
-//  (fetch, XHR, eval, cookie/storage access, off-domain script srcs /
-//  off-domain assets). The final page is served inside a sandboxed iframe
-//  on the public site as a second line of defence.
+//  Storage: the storefront HTML lives at stores.design_json->>storefront_html.
+//  The design_json column already exists on every store and is JSONB, so we
+//  don't need a Postgres migration. The save call merges the new HTML into
+//  the existing design_json object — all the other design fields are kept.
+//
+//  Security: the pasted HTML is auto-fixed (off-domain images, dangerous
+//  scripts, javascript: links, etc. are all neutralised in place). The
+//  endpoint only rejects what it genuinely cannot make safe (off-domain
+//  iframe src, base href, object data).
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
 
-const ALLOWED_OUTBOUND = /^https:\/\/(wa\.me|t\.me|instagram\.com|www\.instagram\.com|facebook\.com|www\.facebook\.com|threads\.net|www\.threads\.net|twitter\.com|x\.com|www\.x\.com|youtube\.com|www\.youtube\.com|youtu\.be|tiktok\.com|www\.tiktok\.com|maps\.google\.com|goo\.gl\/maps)/i;
+const ALLOWED_OUTBOUND = /^https:\/\/(wa\.me|t\.me|instagram\.com|www\.instagram\.com|facebook\.com|www\.facebook\.com|threads\.net|www\.threads\.net|twitter\.com|x\.com|www\.x\.com|youtube\.com|www\.youtube\.com|youtu\.be|tiktok\.com|www\.tiktok\.com|maps\.google\.com|goo\.gl\/maps|supabase\.co|wzcttkjydjvflkwjijcq\.supabase\.co)/i;
 const ALLOWED_LINK_SCHEMES = /^(https:\/\/wa\.me|https:\/\/t\.me|https:\/\/(www\.)?(instagram|facebook|threads|twitter|x|youtube|tiktok)\.com|tel:|mailto:)/i;
 const FORBIDDEN_SCRIPT_PATTERNS = [
   { label: 'fetch() call',           regex: /\bfetch\s*\(/i },
@@ -31,56 +42,40 @@ const FORBIDDEN_SCRIPT_PATTERNS = [
   { label: 'importScripts',          regex: /\bimportScripts\s*\(/i },
   { label: 'postMessage (cross)',    regex: /\.postMessage\s*\(/i },
 ];
-const MAX_HTML_BYTES = 500_000;
+const MAX_HTML_BYTES = 1_500_000;
 
 // ---------------------------------------------------------------------------
-// Security + repair — instead of rejecting the founder's HTML, we patch
-// every issue we can and only reject what we genuinely can't make safe
-// (an off-domain <iframe src>, a websocket, postMessage, etc.). The notes
-// array describes what we changed so the founder knows.
+// Security + repair — strips / neutralises anything dangerous in place
+// and returns the safe HTML plus a notes array describing what changed.
 // ---------------------------------------------------------------------------
 function scanAndRepair(rawHtml) {
   const notes = [];
   if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
-    return { ok: false, errors: ['Template is empty.'], html: rawHtml, notes };
+    return { ok: false, errors: ['Template is empty. Paste your HTML in the textarea and try again.'], html: rawHtml, notes };
   }
   if (Buffer.byteLength(rawHtml, 'utf8') > MAX_HTML_BYTES) {
-    return { ok: false, errors: [`Template is larger than ${Math.round(MAX_HTML_BYTES / 1024)} KB. The founder will need to shorten it.`], html: rawHtml, notes };
+    return { ok: false, errors: [`Template is larger than ${Math.round(MAX_HTML_BYTES / 1024)} KB. Shorten it and try again.`], html: rawHtml, notes };
   }
 
   let html = rawHtml;
 
-  // 1) <script src="https?://…"> — strip the src attribute (turns the
-  //    <script> into a no-op inline block that we drop on the next pass).
-  const beforeScriptSrcStrip = html;
+  // 1) <script src="https?://…"> — strip the src attribute entirely.
+  const beforeScriptSrc = html;
   html = html.replace(/<script\b([^>]*?)\bsrc\s*=\s*["'][^"']*["']([^>]*?)>/gi, (full, before, after) => {
-    notes.push(`Removed off-domain <script src> (was: ${full.slice(0, 60)}…).`);
+    notes.push('Removed off-domain <script src>.');
     return `<script${before}${after}>`;
   });
-  if (html === beforeScriptSrcStrip) {
-    // nothing changed
-  }
+  void beforeScriptSrc;
 
-  // 2) Any <script> with a non-data src is now empty — drop it entirely.
-  const beforeEmptyScript = html;
+  // 2) Empty <script> blocks (had a src, now empty) — drop the whole block.
   html = html.replace(/<script\b[^>]*>\s*<\/script>/gi, (full) => {
-    if (/<script\b[^>]*\bsrc\s*=/i.test(full)) {
-      // had a src but we already stripped it; safe to drop the empty block.
-      notes.push('Removed an empty <script> block that previously had an off-domain src.');
-    }
+    notes.push('Removed an empty <script> block (had an off-domain src).');
     return '';
   });
-  if (html !== beforeEmptyScript) {
-    // note already added in the callback
-  }
 
   // 3) Inline scripts — neutralise the truly dangerous APIs in place.
-  //    fetch, XHR, eval, new Function, sendBeacon, WebSocket, EventSource,
-  //    importScripts, document.cookie, localStorage, sessionStorage.
-  const beforeScriptRewrite = html;
   html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (_full, attrs, body) => {
     let patched = body;
-    const original = patched;
     const subs = [
       { from: /\bfetch\s*\(/g,                to: 'void fetch(', label: 'fetch()' },
       { from: /\bnew\s+XMLHttpRequest\b/g,    to: 'null /* XHR removed */', label: 'XMLHttpRequest' },
@@ -104,19 +99,16 @@ function scanAndRepair(rawHtml) {
     }
     return `<script${attrs}>${patched}</script>`;
   });
-  if (html === beforeScriptRewrite) {
-    // nothing changed
-  }
 
   // 4) <img src="https?://…"> for non-allowed hosts → swap to a neutral
-  //    placeholder image (we use a 1x1 transparent data URL so layout doesn't break).
+  //    placeholder image (a tiny inline SVG so layout doesn't break).
   const PLACEHOLDER_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><rect width="100%" height="100%" fill="#e6dcc8"/><text x="50%" y="50%" font-size="18" text-anchor="middle" fill="#8a8475" font-family="system-ui">image</text></svg>');
   html = html.replace(/<img\b([^>]*?)\bsrc\s*=\s*["']([^"']+)["']([^>]*?)>/gi, (full, before, src, after) => {
     const trimmed = src.trim();
     if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('/')) return full;
     if (/^https?:\/\//i.test(trimmed) && ALLOWED_OUTBOUND.test(trimmed)) return full;
     if (trimmed.startsWith('//')) {
-      notes.push(`Replaced protocol-relative <img src="${trimmed}"> with a placeholder.`);
+      notes.push(`Replaced protocol-relative <img src> with a placeholder.`);
       return `<img${before}src="${PLACEHOLDER_IMG}"${after}>`;
     }
     if (/^https?:\/\//i.test(trimmed)) {
@@ -126,7 +118,7 @@ function scanAndRepair(rawHtml) {
     return full;
   });
 
-  // 5) <link href="https?://…"> for non-allowed hosts → drop the link entirely.
+  // 5) <link href="https?://…"> for non-allowed hosts → drop the link.
   html = html.replace(/<link\b[^>]*?>/gi, (full) => {
     const hrefMatch = /<link\b[^>]*?\bhref\s*=\s*["']([^"']+)["']/i.exec(full);
     if (!hrefMatch) return full;
@@ -134,15 +126,15 @@ function scanAndRepair(rawHtml) {
     if (!href || href.startsWith('data:') || href.startsWith('blob:') || href.startsWith('/')) return full;
     if (/^https?:\/\//i.test(href) && ALLOWED_OUTBOUND.test(href)) return full;
     if (/^https?:\/\//i.test(href)) {
-      notes.push(`Dropped <link href="${href}"> (off-domain stylesheet/font).`);
+      notes.push(`Dropped <link href="${href}"> (off-domain).`);
       return '';
     }
     return full;
   });
 
-  // 6) @import and @font-face in inline styles → just drop the lines.
-  html = html.replace(/@import[^;]*;/gi, (full) => { notes.push(`Removed @import (${full.slice(0, 40)}…).`); return ''; });
-  html = html.replace(/@font-face\s*\{[^}]*\}/gi, (full) => { notes.push(`Removed @font-face block.`); return ''; });
+  // 6) @import and @font-face in inline styles → drop the lines.
+  html = html.replace(/@import[^;]*;/gi, (full) => { notes.push('Removed @import.'); return ''; });
+  html = html.replace(/@font-face\s*\{[^}]*\}/gi, () => { notes.push('Removed @font-face.'); return ''; });
 
   // 7) url() in inline styles for off-domain → drop the declaration.
   html = html.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/g, (full, ref) => {
@@ -162,36 +154,30 @@ function scanAndRepair(rawHtml) {
     return `<a${before}href="#"${after}>`;
   });
 
-  // 9) <a href="https?://…"> for non-allowed hosts → replace with a # so
-  //    the link still works but doesn't take the visitor off the store.
+  // 9) <a href="https?://…"> for non-allowed hosts → replace with #.
   html = html.replace(/<a\b([^>]*?)\bhref\s*=\s*["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (full, before, href, after) => {
     if (ALLOWED_OUTBOUND.test(href)) return full;
     if (ALLOWED_LINK_SCHEMES.test(href)) return full;
-    notes.push(`Replaced off-domain link (${href}) with # so it doesn't navigate away.`);
+    notes.push(`Replaced off-domain link (${href}) with #.`);
     return `<a${before}href="#"${after}>`;
   });
 
   // 10) Things we genuinely can't make safe — reject with a clear message.
   const errors = [];
-  // Off-domain <iframe src>
   const iframeMatch = html.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i);
   if (iframeMatch && /^https?:\/\//i.test(iframeMatch[1]) && !ALLOWED_OUTBOUND.test(iframeMatch[1])) {
     errors.push(`Off-domain <iframe src="${iframeMatch[1]}"> can't be embedded safely. Replace it with a placeholder <div> or remove the iframe.`);
   }
-  // Off-domain <object data=...>
   const objectMatch = html.match(/<object\b[^>]*\bdata\s*=\s*["']([^"']+)["']/i);
   if (objectMatch && /^https?:\/\//i.test(objectMatch[1]) && !ALLOWED_OUTBOUND.test(objectMatch[1])) {
     errors.push(`Off-domain <object data="${objectMatch[1]}"> can't be embedded safely.`);
   }
-  // <base href> pointing off-domain
   const baseMatch = html.match(/<base\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
   if (baseMatch && /^https?:\/\//i.test(baseMatch[1]) && !ALLOWED_OUTBOUND.test(baseMatch[1])) {
     errors.push(`<base href="${baseMatch[1]}"> is off-domain — it would hijack every relative link. Remove the <base> tag.`);
   }
 
-  if (errors.length) {
-    return { ok: false, errors, html, notes };
-  }
+  if (errors.length) return { ok: false, errors, html, notes };
   return { ok: true, errors: [], html, notes };
 }
 
@@ -199,14 +185,11 @@ function scanAndRepair(rawHtml) {
 // Structural validation
 // ---------------------------------------------------------------------------
 function findProductCardBlock(html) {
-  // Find the FIRST element with class containing "product-card" — this is the
-  // template that gets duplicated for each real product.
   const m = html.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
   if (!m) return null;
   return m[0];
 }
 function findPopupBlock(html) {
-  // The popup/modal — fixed structure with data-attributes we fill in.
   const m = html.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-popup\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
   return m ? m[0] : null;
 }
@@ -217,8 +200,6 @@ function structureCheck(html) {
   const popup = findPopupBlock(html);
   if (!popup) errors.push('No .product-popup element found. The template must include a hidden popup with class "product-popup".');
   if (card) {
-    // Must have at least the data-name / data-price / data-image attributes
-    // so the renderer knows where to fill values in.
     for (const attr of ['data-name', 'data-price', 'data-image']) {
       if (!new RegExp(`\\b${attr}\\s*=\\s*["']`).test(card)) errors.push(`The product-card is missing the required attribute ${attr}.`);
     }
@@ -232,11 +213,10 @@ function structureCheck(html) {
 }
 
 // ---------------------------------------------------------------------------
-// Renderer: takes a template + a list of products, returns filled HTML
+// Renderer
 // ---------------------------------------------------------------------------
 function escapeAttr(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 function formatPrice(value) {
   const num = Number(value || 0);
@@ -254,37 +234,39 @@ function buildCard(cardTemplate, product) {
   card = card.replace(/(\bdata-image\s*=\s*")[^"]*(")/i, `$1${escapeAttr(primaryImage)}$2`);
   card = card.replace(/(\bdata-colors\s*=\s*")[^"]*(")/i, `$1${escapeAttr(colors.join('|'))}$2`);
   card = card.replace(/(\bdata-sizes\s*=\s*")[^"]*(")/i, `$1${escapeAttr(sizes.join('|'))}$2`);
-  // Also fill any visible text inside the card so the template author can rely on either path.
   card = card.replace(/(\bclass\s*=\s*["'][^"']*\bproduct-name\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z][a-z0-9]*>)/i, (_, open, _mid, close) => `${open}${escapeAttr(product.name)}${close}`);
   card = card.replace(/(\bclass\s*=\s*["'][^"']*\bproduct-price\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z][a-z0-9]*>)/i, (_, open, _mid, close) => `${open}${escapeAttr(formatPrice(product.price))}${close}`);
   return card;
 }
-
 function renderTemplate(templateHtml, store, products) {
   const cardMatch = templateHtml.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
   if (!cardMatch) return { html: templateHtml, warnings: ['No .product-card block to duplicate.'] };
   const cardBlock = cardMatch[0];
-
-  // Build the per-product cards (hidden until the template's JS reveals them).
   const cards = products.map((product) => buildCard(cardBlock, product)).join('\n');
-
-  // Replace the single card template with a wrapper <div data-products> that
-  // contains all the duplicated cards. The template's CSS/JS can target
-  // [data-products] .product-card to style each one the same way.
   const wrapperOpen = `<div data-products data-store-slug="${escapeAttr(store.slug)}">`;
   const wrapperClose = `</div>`;
   const newHtml = templateHtml.replace(cardBlock, `${wrapperOpen}\n${cards}\n${wrapperClose}`);
-
-  // Stamp the store name + WhatsApp base into a small inline <meta> so the
-  // template's own JS can read it via document.querySelector('meta[name="stoyangu-store"]').
-  const storeMeta = `<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${escapeAttr(String(store.whatsapp || '').replace(/\D/g, ''))}" data-currency="KES">`;
+  const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
+  const storeMeta = `<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES">`;
   const stamped = newHtml.replace(/<head>/i, `<head>${storeMeta}`);
-
   return { html: stamped, warnings: [] };
 }
 
 // ---------------------------------------------------------------------------
-// Founder auth helper
+// Storage helpers — read/write the storefront HTML inside design_json
+// ---------------------------------------------------------------------------
+function readStorefrontHtml(store) {
+  const design = store && typeof store.design_json === 'object' && store.design_json ? store.design_json : {};
+  return String(design.storefront_html || '').trim();
+}
+function withStorefrontHtml(store, html) {
+  const design = store && typeof store.design_json === 'object' && store.design_json ? { ...store.design_json } : {};
+  design.storefront_html = html;
+  return design;
+}
+
+// ---------------------------------------------------------------------------
+// Founder auth
 // ---------------------------------------------------------------------------
 async function authFounder(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -296,7 +278,10 @@ async function authFounder(req) {
 }
 
 // ---------------------------------------------------------------------------
-// Default starter template — used when a store has nothing custom yet.
+// Default starter template — only used by the "Load starter template" button
+// in the dashboard so the founder has a starting point. NEVER served as the
+// live page; an empty storefront_template now shows a calm "no template yet"
+// message instead.
 // ---------------------------------------------------------------------------
 const DEFAULT_TEMPLATE = `<!doctype html>
 <html lang="en">
@@ -338,7 +323,6 @@ const DEFAULT_TEMPLATE = `<!doctype html>
 <header class="header"><h1>{{STORE_NAME}}</h1><span class="pill">Powered by StoYangu</span></header>
 <section class="hero"><h2 data-store-tagline>Welcome to {{STORE_NAME}}</h2><p>Tap any product to order on WhatsApp.</p></section>
 <main>
-  <!-- ONE product-card template. The app duplicates this for every live product. -->
   <article class="product-card" data-id="" data-name="" data-price="" data-image="" data-colors="" data-sizes="" tabindex="0">
     <img alt="" data-image />
     <div class="body">
@@ -347,9 +331,6 @@ const DEFAULT_TEMPLATE = `<!doctype html>
       <p class="meta">Tap to order</p>
     </div>
   </article>
-  <!-- /product-card template -->
-
-  <!-- Hidden product popup — template's JS fills it from the clicked card. -->
   <div class="product-popup" data-popup-image data-popup-name data-popup-price data-whatsapp role="dialog" aria-modal="true">
     <div class="dialog">
       <img class="popup-image" alt="" data-popup-image />
@@ -365,17 +346,11 @@ const DEFAULT_TEMPLATE = `<!doctype html>
 </main>
 <script>
 (function () {
-  // The store meta is stamped in by the server. Read it once.
   var meta = document.querySelector('meta[name="stoyangu-store"]');
   var slug = meta && meta.getAttribute('data-slug');
   var storeName = meta && meta.getAttribute('data-name');
   var phoneDigits = (meta && meta.getAttribute('data-whatsapp') || '').replace(/\\D/g, '');
-  var currency = (meta && meta.getAttribute('data-currency')) || 'KES';
-
-  // Patch the visible store name on the page (anywhere text says {{STORE_NAME}}).
   document.querySelectorAll('[data-store-tagline]').forEach(function (el) { el.textContent = 'Welcome to ' + storeName; });
-
-  // Wire up each product card → open popup with the card's data.
   var popup = document.querySelector('.product-popup');
   var popupImage = popup.querySelector('[data-popup-image]');
   var popupName = popup.querySelector('[data-popup-name]');
@@ -384,7 +359,6 @@ const DEFAULT_TEMPLATE = `<!doctype html>
   var popupSize = popup.querySelector('[data-size]');
   var popupOrder = popup.querySelector('[data-whatsapp]');
   var lastCard = null;
-
   function openCard(card) {
     lastCard = card;
     var name = card.getAttribute('data-name') || 'Product';
@@ -392,30 +366,22 @@ const DEFAULT_TEMPLATE = `<!doctype html>
     var image = card.getAttribute('data-image') || '';
     var colors = (card.getAttribute('data-colors') || '').split('|').filter(Boolean);
     var sizes = (card.getAttribute('data-sizes') || '').split('|').filter(Boolean);
-
     popupImage.setAttribute('src', image);
     popupName.textContent = name;
     popupPrice.textContent = price;
-
-    popupColor.innerHTML = '<option value="">Choose…</option>' + colors.map(function (c) { return '<option>' + c + '</option>'; }).join('');
-    popupSize.innerHTML = '<option value="">Choose…</option>' + sizes.map(function (s) { return '<option>' + s + '</option>'; }).join('');
-
+    popupColor.innerHTML = '<option value=\"\">Choose…</option>' + colors.map(function (c) { return '<option>' + c + '</option>'; }).join('');
+    popupSize.innerHTML = '<option value=\"\">Choose…</option>' + sizes.map(function (s) { return '<option>' + s + '</option>'; }).join('');
     var message = 'Hi ' + storeName + '! I want to order ' + name + ' (' + price + ').';
     var href = 'https://wa.me/' + phoneDigits + '?text=' + encodeURIComponent(message);
     popupOrder.setAttribute('href', href);
-
-    popup.classList.add('open');
   }
   function closePopup() { popup.classList.remove('open'); }
-
   document.addEventListener('click', function (event) {
     var card = event.target.closest && event.target.closest('.product-card');
     if (card) { openCard(card); return; }
     if (event.target === popup) closePopup();
   });
   document.addEventListener('keyup', function (event) { if (event.key === 'Escape') closePopup(); });
-
-  // Update WhatsApp message when colour or size changes
   popupColor.addEventListener('change', rebuildMessage);
   popupSize.addEventListener('change', rebuildMessage);
   function rebuildMessage() {
@@ -434,30 +400,33 @@ const DEFAULT_TEMPLATE = `<!doctype html>
 </body>
 </html>`;
 
+const NO_TEMPLATE_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Store coming soon | StoYangu</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f8f5ef;color:#101f30;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .card{max-width:480px;background:#fff;border-radius:18px;padding:36px 32px;box-shadow:0 30px 80px rgba(11,24,38,.12);text-align:center}
+  h1{margin:0 0 8px;font-size:24px;color:#101f30}
+  p{margin:0 0 20px;color:#66746b;font-size:15px;line-height:1.5}
+  a.btn{display:inline-block;background:#25D366;color:#fff;text-decoration:none;padding:14px 24px;border-radius:12px;font-weight:700;font-size:15px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>This store is getting ready</h1>
+    <p>The owner hasn't finished setting up the storefront yet. Please check back soon, or message us on WhatsApp and we'll let them know.</p>
+    <a class="btn" href="https://wa.me/254793533683?text=Hi%20StoYangu%2C%20I%27m%20trying%20to%20visit%20a%20store%20that%20isn%27t%20ready%20yet.">Message StoYangu</a>
+  </div>
+</body>
+</html>`;
+
 // ---------------------------------------------------------------------------
 // Route
 // ---------------------------------------------------------------------------
-// One-shot migration: add the storefront_template column on first hit.
-// Supabase exposes the service-role client; an ALTER TABLE through the REST
-// API isn't allowed, so we use a tiny Postgres function we create on demand.
-let _migrated = false;
-async function ensureColumn() {
-  if (_migrated) return;
-  try {
-    await supabase.rpc('stoyangu_add_storefront_template_column').then(() => { _migrated = true; }).catch(async () => {
-      // RPC doesn't exist yet — create it via a SQL REST call (pg-meta endpoint).
-      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/pg/meta`;
-      const sql = `ALTER TABLE stores ADD COLUMN IF NOT EXISTS storefront_template text;`;
-      const result = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: process.env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` },
-        body: JSON.stringify({ query: sql }),
-      });
-      if (result.ok) _migrated = true;
-    });
-  } catch { /* harmless if it already exists */ }
-}
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -465,7 +434,6 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   try {
-    await ensureColumn();
     const action = String(req.query?.action || (req.method === 'POST' ? 'save' : 'render'));
 
     // ----------------------------------------------------------------- save
@@ -474,19 +442,25 @@ export default async function handler(req, res) {
       if (!profile) return res.status(403).json({ error: 'Founder access required.' });
       const storeId = Number(req.body?.store_id);
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+      const { data: storeRow, error: storeErr } = await supabase.from('stores').select('id,name,slug,whatsapp,design_json').eq('id', storeId).single();
+      if (storeErr || !storeRow) return res.status(404).json({ error: 'Store not found.' });
       const html = String(req.body?.template ?? '');
       const security = scanAndRepair(html);
       if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
       const structure = structureCheck(security.html);
       if (!structure.ok) return res.status(400).json({ error: 'Structure check failed.', details: structure.errors });
+      const nextDesign = withStorefrontHtml(storeRow, security.html);
       const { data, error } = await supabase
         .from('stores')
-        .update({ storefront_template: security.html, updated_at: new Date().toISOString() })
+        .update({ design_json: nextDesign, updated_at: new Date().toISOString() })
         .eq('id', storeId)
-        .select('id,name,slug,storefront_template')
+        .select('id,name,slug,design_json')
         .single();
-      if (error) throw error;
-      return res.status(200).json({ ok: true, store: data, notes: security.notes });
+      if (error) {
+        console.error('Save failed:', error);
+        return res.status(500).json({ error: `Could not save the template: ${error.message}` });
+      }
+      return res.status(200).json({ ok: true, store: { id: data.id, name: data.name, slug: data.slug, storefront_html: String(data.design_json?.storefront_html || '').length }, notes: security.notes });
     }
 
     // ------------------------------------------------------------ preview
@@ -502,7 +476,7 @@ export default async function handler(req, res) {
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
       const { data: products } = await supabase.from('products').select('*').eq('store_id', storeId).eq('active', true).order('created_at', { ascending: false });
       const liveProducts = (products || []).slice(0, 6).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
-      const template = repaired.html.trim() || store.storefront_template || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
+      const template = repaired.html.trim() || readStorefrontHtml(store) || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
       const rendered = renderTemplate(template, store, liveProducts);
       return res.status(200).json({ html: rendered.html, warnings: rendered.warnings, notes: repaired.notes });
     }
@@ -513,7 +487,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ template: DEFAULT_TEMPLATE });
     }
 
-    // ----------------------------------------------------------- prompt (for the founder)
+    // ----------------------------------------------------------- prompt
     if (action === 'prompt' && req.method === 'GET') {
       const storeId = Number(req.query?.store_id);
       let name = 'My Store', products = 'the products you sell', whatsapp = '+254700000000';
@@ -523,7 +497,6 @@ export default async function handler(req, res) {
       }
       return res.status(200).json({ prompt: buildPrompt(name, products, whatsapp) });
     }
-    // No-store variant for the sidebar / topbar "Copy AI prompt" buttons.
     if (action === 'prompt-generic' && req.method === 'GET') {
       return res.status(200).json({ prompt: buildPrompt('My Store', 'the products you sell', '+254700000000') });
     }
@@ -541,21 +514,19 @@ export default async function handler(req, res) {
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
       const { data: products } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
       const liveProducts = (products || []).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
-      const template = String(store.storefront_template || '').trim() || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
+      const storedHtml = readStorefrontHtml(store);
+      const template = storedHtml || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
       const rendered = renderTemplate(template, store, liveProducts);
-      // Two formats: JSON (default, used by StorefrontPage.tsx for the React
-      // wrapper, schema.org, analytics) and raw HTML (used by direct iframe
-      // embeds and the marketing site preview).
       if (String(req.query?.format) === 'raw') {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+        res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
         return res.status(200).send(rendered.html);
       }
       res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
       return res.status(200).json({ store, products: liveProducts, renderedHtml: rendered.html });
     }
 
-    return res.status(400).json({ error: 'Unknown action. Use ?action=save | preview | render | prompt | default' });
+    return res.status(400).json({ error: 'Unknown action. Use ?action=save | preview | render | prompt | default | prompt-generic' });
   } catch (err) {
     console.error('storefront api error:', err);
     res.status(500).json({ error: err.message || 'Internal error' });
