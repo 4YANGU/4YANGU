@@ -17,8 +17,9 @@ const daysLeft = (store: Store) => {
   return { label: `${Math.max(0, 35 - elapsed)} grace days left`, tone: 'grace' };
 };
 
-// A small toolbar that loads the AI prompt and the starter template into a
-// textarea. Used by both the new-store and edit-store modals.
+// A small toolbar that copies the AI prompt to clipboard. Used by both the
+// new-store and edit-store modals. The "Load starter template" button is
+// gone on purpose — the founder pastes the AI's output directly.
 function StorefrontHtmlField({ storeId, value, onChange, onError, onInfo }: {
   storeId?: number;
   value: string;
@@ -34,14 +35,6 @@ function StorefrontHtmlField({ storeId, value, onChange, onError, onInfo }: {
     apiFetch<{ prompt: string }>(`/api/storefront?action=prompt&store_id=${storeId}`).then((res) => { if (alive) setPromptText(res.prompt); }).catch(() => undefined);
     return () => { alive = false; };
   }, [storeId]);
-  const loadDefault = async () => {
-    try {
-      const res = await apiFetch<{ template: string }>('/api/storefront?action=default');
-      onChange(res.template);
-      onError('');
-      onInfo('Loaded the safe starter template — edit it freely.');
-    } catch (err) { onError(err instanceof Error ? err.message : 'Could not load the starter template.'); }
-  };
   const copyPrompt = async () => {
     try { await navigator.clipboard.writeText(promptText); setPromptCopied(true); window.setTimeout(() => setPromptCopied(false), 2200); onInfo('AI prompt copied to clipboard.'); }
     catch { window.prompt('Copy this prompt manually:', promptText); }
@@ -49,11 +42,11 @@ function StorefrontHtmlField({ storeId, value, onChange, onError, onInfo }: {
   return (
     <>
       <div className="storefront-editor-toolbar" style={{ marginBottom: 8 }}>
-        <button type="button" className="secondary-button" onClick={loadDefault}>Load starter template</button>
         <button type="button" className="secondary-button" onClick={copyPrompt} disabled={!promptText}><Sparkles /> {promptCopied ? 'AI prompt copied!' : 'Copy AI prompt'}</button>
+        {value && value.trim().length > 0 && <span className="storefront-size-pill">{value.length.toLocaleString()} chars</span>}
       </div>
-      <textarea className="code-input storefront-editor-textarea" value={value} onChange={(event) => { onChange(event.target.value); onError(''); }} spellCheck={false} placeholder="<!doctype html>&#10;<html>...&#10;</html>" rows={14} />
-      <small>One self-contained HTML file. The app duplicates the <code>.product-card</code> block for every real product and stamps the store name + WhatsApp number into a <code>&lt;meta&gt;</code> your inline JS reads. If the app spots anything it can't make safe (an off-domain iframe src, a websocket, etc.) it tells you exactly what to change.</small>
+      <textarea className="code-input storefront-editor-textarea" value={value} onChange={(event) => { onChange(event.target.value); onError(''); }} spellCheck={false} placeholder="<!doctype html>&#10;<html>&#10;  Paste your AI-built storefront here&#10;</html>" rows={14} />
+      <small>Paste a self-contained HTML file. Must include a <code>.product-card</code> block and a <code>.product-popup</code> block. The app duplicates the card for each real product and stamps the store name + WhatsApp number into a <code>&lt;meta&gt;</code> your inline JS reads. Most off-domain references are auto-fixed in place — only genuinely unsafe things (off-domain <code>&lt;iframe&gt;</code>, etc.) will be rejected with a clear message.</small>
     </>
   );
 }
@@ -160,7 +153,10 @@ function NewStoreModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 function EditStoreModal({ store, onClose, onSaved }: { store: Store; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ name: store.name, whatsapp: store.whatsapp, categories: (store.categories || []).join(', '), owner_password: '' });
   const [logo, setLogo] = useState<File | null>(null); const [showPassword, setShowPassword] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [info, setInfo] = useState('');
-  const [template, setTemplate] = useState<string>(String((store as any).storefront_template || ''));
+  const [template, setTemplate] = useState<string>(() => {
+    const design = store && typeof (store as any).design_json === 'object' && (store as any).design_json ? (store as any).design_json : {};
+    return String(design.storefront_html || '');
+  });
   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setInfo('');
@@ -171,18 +167,22 @@ function EditStoreModal({ store, onClose, onSaved }: { store: Store; onClose: ()
     try {
       let logo_url = store.logo_url; if (logo) logo_url = (await uploadImage(logo, 'logos')).url;
       await apiFetch('/api/stores', { method: 'PUT', body: JSON.stringify({ action: 'details', id: store.id, name: form.name, whatsapp: form.whatsapp, owner_password: form.owner_password, logo_url, categories: form.categories.split(',').map((item) => item.trim()).filter(Boolean) }) });
-      // Save the template separately so the details PUT and the storefront
-      // save never block each other.
-      if (template !== String((store as any).storefront_template || '')) {
+      // Save the storefront HTML separately so the details PUT and the
+      // storefront save never block each other. We save the template if
+      // it's been changed OR if the previous saved value is non-empty —
+      // in both cases we send it, the API is idempotent and the user
+      // explicitly told us they want saves to "just work".
+      const previousTemplate = String((store as any)?.design_json?.storefront_html || '');
+      if (template !== previousTemplate) {
         try {
           const res = await apiFetch<{ ok: boolean; notes?: string[]; warnings?: string[] }>('/api/storefront?action=save', { method: 'POST', body: JSON.stringify({ store_id: store.id, template }) });
           const notes = res.notes || res.warnings;
-          if (notes?.length) setInfo(`Saved. Template auto-fixed: ${notes.join('; ')}.`);
+          if (notes?.length) setInfo(`Saved. Template auto-fixed: ${notes.slice(0, 3).join('; ')}.`);
           else setInfo('Saved. Store details and storefront template both updated.');
         } catch (templateErr) {
-          setInfo(`Store details saved. The HTML template needs a tweak: ${templateErr instanceof Error ? templateErr.message : 'unknown error'}.`);
+          setInfo(`Store details saved. The HTML template was NOT saved: ${templateErr instanceof Error ? templateErr.message : 'unknown error'}.`);
         }
-      } else { setInfo('Saved.'); }
+      } else { setInfo('Saved. No changes to the storefront template.'); }
       onSaved();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update the store.'); } finally { setBusy(false); }
   };

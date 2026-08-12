@@ -241,7 +241,13 @@ async function handleStorefrontHtml(req, res) {
 // This is the SINGLE source of truth for how a template becomes a page.
 const STARTER_TEMPLATE = `...`; // not used here — defaults come from api/storefront.js
 function renderStorefrontTemplate(templateHtml, store, products) {
-  if (!templateHtml) return { html: '', warnings: ['no template'] };
+  if (!templateHtml) {
+    // NO default template fallback. If there's no saved HTML, return a
+    // clear "no storefront yet" page so the founder can see exactly what
+    // to do.
+    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return { html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(store.name)} — no storefront yet</title><style>*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f8f5ef;color:#101f30;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}.card{max-width:480px;background:#fff;border-radius:18px;padding:36px 32px;box-shadow:0 30px 80px rgba(11,24,38,.12);text-align:center}h1{margin:0 0 8px;font-size:24px}p{margin:0 0 20px;color:#66746b;font-size:15px;line-height:1.5}</style></head><body><div class="card"><h1>${esc(store.name)} has no storefront yet</h1><p>The founder hasn't pasted an HTML template for this store. Open the Founder Dashboard, edit this store, and paste an HTML file in the "Storefront HTML template" field.</p></div></body></html>`, warnings: ['no template'] };
+  }
   const cardMatch = templateHtml.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
   if (!cardMatch) return { html: templateHtml, warnings: [] };
   const cardBlock = cardMatch[0];

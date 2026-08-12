@@ -515,8 +515,20 @@ export default async function handler(req, res) {
       const { data: products } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
       const liveProducts = (products || []).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
       const storedHtml = readStorefrontHtml(store);
-      const template = storedHtml || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
-      const rendered = renderTemplate(template, store, liveProducts);
+      // NO default template fallback. If the founder hasn't pasted an
+      // HTML template yet, we serve a clear "no template yet" page so
+      // they can see exactly what to do next.
+      if (!storedHtml) {
+        const empty = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeAttr(store.name)} — no storefront yet</title><style>*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f8f5ef;color:#101f30;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}.card{max-width:480px;background:#fff;border-radius:18px;padding:36px 32px;box-shadow:0 30px 80px rgba(11,24,38,.12);text-align:center}h1{margin:0 0 8px;font-size:24px}p{margin:0 0 20px;color:#66746b;font-size:15px;line-height:1.5}</style></head><body><div class="card"><h1>${escapeAttr(store.name)} has no storefront yet</h1><p>The founder hasn't pasted an HTML template for this store. Open the Founder Dashboard, edit this store, and paste an HTML file in the "Storefront HTML template" field.</p></div></body></html>`;
+        if (String(req.query?.format) === 'raw') {
+          res.setHeader('Content-Type', 'text/html; charset=utf-8');
+          res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
+          return res.status(200).send(empty);
+        }
+        res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
+        return res.status(200).json({ store, products: liveProducts, renderedHtml: empty });
+      }
+      const rendered = renderTemplate(storedHtml, store, liveProducts);
       if (String(req.query?.format) === 'raw') {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
