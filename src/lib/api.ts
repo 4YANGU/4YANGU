@@ -50,7 +50,7 @@ export async function uploadImage(file: File, scope: 'logos' | 'products') {
     reader.onload = () => resolve(String(reader.result).split(',')[1]);
     reader.readAsDataURL(prepared);
   });
-  return apiFetch<{ url: string }>('/api/upload', {
+  return apiFetch<{ url: string }>('/api/media?action=upload', {
     method: 'POST',
     body: JSON.stringify({ fileName: prepared.name, fileBase64: base64, contentType: prepared.type, scope }),
   });

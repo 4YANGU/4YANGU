@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(null);
       return;
     }
-    const response = await fetch('/api/profile', { headers: { Authorization: `Bearer ${current.access_token}` } });
+    const response = await fetch('/api/media?action=profile', { headers: { Authorization: `Bearer ${current.access_token}` } });
     if (!response.ok) {
       setProfile(null);
       return;
