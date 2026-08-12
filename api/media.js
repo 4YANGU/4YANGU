@@ -10,7 +10,7 @@
 //  so anything cached on the client keeps working.
 // =========================================================================
 
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
 const MAX_BASE64 = 8_400_000;

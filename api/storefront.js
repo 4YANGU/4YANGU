@@ -13,7 +13,7 @@
 //  on the public site as a second line of defence.
 // =========================================================================
 
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 
 const ALLOWED_OUTBOUND = /^https:\/\/(wa\.me|t\.me|instagram\.com|www\.instagram\.com|facebook\.com|www\.facebook\.com|threads\.net|www\.threads\.net|twitter\.com|x\.com|www\.x\.com|youtube\.com|www\.youtube\.com|youtu\.be|tiktok\.com|www\.tiktok\.com|maps\.google\.com|goo\.gl\/maps)/i;
 const ALLOWED_LINK_SCHEMES = /^(https:\/\/wa\.me|https:\/\/t\.me|https:\/\/(www\.)?(instagram|facebook|threads|twitter|x|youtube|tiktok)\.com|tel:|mailto:)/i;
