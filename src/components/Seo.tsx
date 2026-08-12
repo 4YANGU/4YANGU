@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import React from 'react';
 
 type SeoProps = {
   title: string;
@@ -18,7 +17,7 @@ function setMeta(selector: string, attribute: 'name' | 'property', key: string, 
   element.content = content;
 }
 
-export default function Seo({ title, description, canonical, image = '/stoyangu-logo.png', type = 'website', schema, icon, children }: SeoProps & { children?: React.ReactNode }) {
+export default function Seo({ title, description, canonical, image = '/stoyangu-logo.png', type = 'website', schema, icon }: SeoProps) {
   useEffect(() => {
     document.title = title;
     setMeta('meta[name="description"]', 'name', 'description', description);
@@ -46,5 +45,5 @@ export default function Seo({ title, description, canonical, image = '/stoyangu-
       iconLinks.forEach((element, index) => { element.href = originalIcons[index]; });
     };
   }, [title, description, canonical, image, type, schema, icon]);
-  return <>{children}</>;
+  return null;
 }

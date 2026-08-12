@@ -1,14 +1,11 @@
 {
   "rewrites": [
-    { "source": "/p/:id", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/seo?type=storefront-html&productId=:id" },
     { "source": "/:path*", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/seo?type=storefront-html" },
     { "source": "/robots.txt", "destination": "/api/seo?type=robots" },
     { "source": "/sitemap.xml", "destination": "/api/seo?type=sitemap" },
     { "source": "/catalog.json", "destination": "/api/seo?type=catalog" },
     { "source": "/llms-full.txt", "destination": "/api/seo?type=llms-full" },
     { "source": "/s/:slug", "destination": "/api/seo?type=storefront-html&slug=:slug" },
-    { "source": "/api/profile", "destination": "/api/media?action=profile" },
-    { "source": "/api/upload", "destination": "/api/media?action=upload" },
     { "source": "/login", "destination": "/index.html" },
     { "source": "/founder", "destination": "/index.html" },
     { "source": "/owner", "destination": "/index.html" },

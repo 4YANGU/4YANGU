@@ -1,7 +1,4 @@
 import supabase from '../lib/db-client.js';
-// Note: the previous skin-engine import is gone. The skin/zip feature has
-// been replaced by a single self-contained HTML template per store. See
-// api/storefront.js for the new flow (save / preview / render).
 
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
@@ -141,6 +138,14 @@ function injectIntoShell(shell, { title, description, canonical, image, favicon,
   return html.replace('</head>', `${tags.join('\n    ')}\n    ${extra || ''}\n  </head>`);
 }
 
+async function loadStore(slug) {
+  const { data: store, error } = await supabase.from('stores').select('*').eq('slug', slug).single();
+  if (error || !store) return { store: null, products: [] };
+  const { data: products } = await supabase.from('products').select('id,name,price,category,image_url,views_total').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false }).limit(50);
+  const { data: media } = products?.length ? await supabase.from('product_images').select('product_id,url').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [] };
+  const liveProducts = (products || []).map((product) => ({ ...product, images: (media || []).filter((image) => image.product_id === product.id).map((image) => image.url) }));
+  return { store, products: liveProducts };
+}
 
 function buildStorePage({ store, products, canonical, root }) {
   const name = String(store.name || 'Store').trim();
@@ -182,10 +187,6 @@ async function handleStorefrontHtml(req, res) {
     if (first && !['stoyangu', 'www', 'api', 'app', 'localhost'].includes(first)) slug = first;
   }
   const root = rootDomain(req);
-  // All rendering for the public store page now lives in api/storefront.js.
-  // We just proxy through to it (or, when the api is the same project, the
-  // direct DB call below). The endpoint is ?action=render&format=raw for a
-  // raw HTML payload ready to be served.
   try {
     const shell = await loadShell(req);
     if (!slug || RESERVED_SLUGS.has(slug)) {
@@ -198,10 +199,21 @@ async function handleStorefrontHtml(req, res) {
       res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=1800');
       return res.status(cached.status).send(cached.html);
     }
-    // Re-implement the store fetch + render here directly so we can keep
-    // cache headers and the 404 shell behaviour without an extra hop.
-    const { data: store } = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', slug).single();
-    if (!store) {
+    const { store, products } = await loadStore(slug);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=300, stale-while-revalidate=1800');
+    // Skins run ONLY on the store's own subdomain — a separate browser origin from
+    // stoyangu.com, so uploaded markup can never touch dashboard/login sessions.
+    const host = String(req.headers.host || '').toLowerCase();
+    const isStoreSubdomain = host.startsWith(`${slug}.`) && !host.startsWith('www.');
+    if (store && store.is_active && isStoreSubdomain) {
+      const skinHtml = await fetchSkinHtml(store.id);
+      if (skinHtml) {
+        res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+        return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
+      }
+    }
+    if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
         title: 'Store unavailable | StoYangu',
@@ -211,19 +223,12 @@ async function handleStorefrontHtml(req, res) {
       if (!req.query?.fresh) pageCache.set(slug, { html, status: 404, builtAt: Date.now() });
       return res.status(404).send(html);
     }
-    const { data: products } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
-    const liveProducts = (products || []).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
-    // The storefront HTML lives at stores.design_json->>storefront_html. The
-    // design_json column already exists on every store, so no migration is
-    // needed for new installs. If a store has no saved template, the API
-    // returns the default starter template so the subdomain doesn't go blank.
-    const design = store && typeof store.design_json === 'object' && store.design_json ? store.design_json : {};
-    const template = String(design.storefront_html || '').trim();
-    const { html: renderedHtml } = renderStorefrontTemplate(template, store, liveProducts);
-    if (!req.query?.fresh) pageCache.set(slug, { html: renderedHtml, status: 200, builtAt: Date.now() });
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-    return res.status(200).send(renderedHtml);
+    const canonical = `https://${root}/s/${slug}`;
+    const page = buildStorePage({ store, products, canonical, root });
+    if (store.logo_url) page.favicon = store.logo_url;
+    const html = injectIntoShell(shell, page);
+    if (!req.query?.fresh) pageCache.set(slug, { html, status: 200, builtAt: Date.now() });
+    return res.status(200).send(html);
   } catch (err) {
     console.error('Storefront HTML error:', err);
     try {
@@ -236,53 +241,105 @@ async function handleStorefrontHtml(req, res) {
   }
 }
 
-// Inline copy of the renderTemplate logic from api/storefront.js so the
-// subdomain path can keep using its own cache without an extra HTTP hop.
-// This is the SINGLE source of truth for how a template becomes a page.
-const STARTER_TEMPLATE = `...`; // not used here — defaults come from api/storefront.js
-function renderStorefrontTemplate(templateHtml, store, products) {
-  if (!templateHtml) {
-    // NO default template fallback. If there's no saved HTML, return a
-    // clear "no storefront yet" page so the founder can see exactly what
-    // to do.
-    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return { html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(store.name)} — no storefront yet</title><style>*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f8f5ef;color:#101f30;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}.card{max-width:480px;background:#fff;border-radius:18px;padding:36px 32px;box-shadow:0 30px 80px rgba(11,24,38,.12);text-align:center}h1{margin:0 0 8px;font-size:24px}p{margin:0 0 20px;color:#66746b;font-size:15px;line-height:1.5}</style></head><body><div class="card"><h1>${esc(store.name)} has no storefront yet</h1><p>The founder hasn't pasted an HTML template for this store. Open the Founder Dashboard, edit this store, and paste an HTML file in the "Storefront HTML template" field.</p></div></body></html>`, warnings: ['no template'] };
+
+// === Skin system: founders upload the AI-generated storefront as files ===
+const SKIN_BUCKET = 'stoyangu-media';
+const skinPath = (storeId, file) => `skins/${storeId}/${String(file).replace(/\\/g, '/').replace(/\.\./g, '').replace(/^\/+/, '')}`;
+const skinBaseUrl = (storeId) => `${String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/storage/v1/object/public/${SKIN_BUCKET}/skins/${storeId}/`;
+
+async function skinFounder(req) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return null;
+  const { data: { user } } = await supabase.auth.getUser(token);
+  if (!user) return null;
+  const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).eq('role', 'founder').single();
+  return data ? { ...data, user } : null;
+}
+
+async function fetchSkinHtml(storeId) {
+  const manifest = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'manifest.json'));
+  if (!manifest.data) return null;
+  const index = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'index.html'));
+  if (!index.data) return null;
+  return index.data.text();
+}
+
+async function handleSkinUpload(req, res) {
+  const profile = await skinFounder(req);
+  if (!profile) return res.status(403).json({ error: 'Founder access required.' });
+  const storeId = Number(req.body?.store_id);
+  if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+  const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).single();
+  if (!store) return res.status(404).json({ error: 'Store not found.' });
+  const action = String(req.body?.action || 'sign');
+  if (action === 'disable' || action === 'remove') {
+    await supabase.storage.from(SKIN_BUCKET).remove([skinPath(storeId, 'manifest.json'), skinPath(storeId, 'index.html')]);
+    return res.status(200).json({ ok: true, enabled: false });
   }
-  const cardMatch = templateHtml.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
-  if (!cardMatch) return { html: templateHtml, warnings: [] };
-  const cardBlock = cardMatch[0];
-  const cards = products.map((product) => {
-    let card = cardBlock;
-    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const price = `KES ${Number(product.price || 0).toLocaleString('en-KE')}`;
-    card = card.replace(/(\bdata-id\s*=\s*")[^"]*(")/i, `$1${esc(product.id)}$2`);
-    card = card.replace(/(\bdata-name\s*=\s*")[^"]*(")/i, `$1${esc(product.name)}$2`);
-    card = card.replace(/(\bdata-price\s*=\s*")[^"]*(")/i, `$1${esc(price)}$2`);
-    card = card.replace(/(\bdata-image\s*=\s*")[^"]*(")/i, `$1${esc(product.image_url || '')}$2`);
-    return card;
-  }).join('\n');
-  const wrapperOpen = `<div data-products data-store-slug="${store.slug}">`;
-  const wrapperClose = `</div>`;
-  const newHtml = templateHtml.replace(cardBlock, `${wrapperOpen}\n${cards}\n${wrapperClose}`);
-  const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
-  const storeMeta = `<meta name="stoyangu-store" data-slug="${store.slug}" data-name="${esc(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES">`;
-  return { html: newHtml.replace(/<head>/i, `<head>${storeMeta}`), warnings: [] };
+  if (action === 'status') {
+    const manifest = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'manifest.json'));
+    return res.status(200).json({ active: Boolean(manifest.data) });
+  }
+  const files = Array.isArray(req.body?.files) ? req.body.files : [];
+  if (!files.length) return res.status(400).json({ error: 'No files listed.' });
+  if (files.length > 160) return res.status(400).json({ error: 'A skin can contain at most 160 files.' });
+  // Front-layer-only allowlist: markup, styles, scripts-as-text, media and fonts.
+  // Anything that smells like backend code/config/keys never reaches storage.
+  const BLOCKED_SKIN_EXTENSIONS = new Set(['php', 'py', 'rb', 'sh', 'bash', 'pl', 'sql', 'env', 'key', 'pem', 'p12', 'sqlite', 'db', 'lock', 'toml', 'yaml', 'yml', 'ini', 'cfg', 'conf', 'exe', 'dll', 'jar', 'class', 'go', 'rs', 'zip', 'gz']);
+  const BLOCKED_SKIN_NAMES = new Set(['package.json', '.env', 'dockerfile', 'compose.yml']);
+  const filteredFiles = files.filter((file) => {
+    const path = String(file.path || '').toLowerCase();
+    const name = path.split('/').pop() || '';
+    const ext = name.split('.').pop() || '';
+    if (BLOCKED_SKIN_NAMES.has(name) || name.startsWith('.env')) return false;
+    return !BLOCKED_SKIN_EXTENSIONS.has(ext);
+  });
+  if (!filteredFiles.length) return res.status(400).json({ error: 'Nothing usable in that skin — only front-end assets (html, css, js, images, fonts, media) are allowed.' });
+  const signed = [];
+  const manifestJson = JSON.stringify({ store_id: storeId, entry: req.body?.entry || 'index.html', files: filteredFiles.map((f) => String(f.path)), enabled_at: new Date().toISOString() });
+  const toSign = [...filteredFiles, { path: 'manifest.json', contentType: 'application/json' }];
+  for (const file of toSign) {
+    const path = skinPath(storeId, String(file.path || 'index.html'));
+    if (!path || path.endsWith('/')) { signed.push({ path, skip: true }); continue; }
+    const { data, error } = await supabase.storage.from(SKIN_BUCKET).createSignedUploadUrl(path);
+    if (error) return res.status(500).json({ error: `Could not sign ${path}: ${error.message}` });
+    signed.push({ path, signedUrl: data.signedUrl, manifest: manifestJson });
+  }
+  return res.status(200).json({ signed, skipped: files.length - filteredFiles.length });
 }
 
 
-// The previous skin system (zip/folder uploads, STOYANGU_BUCKET storage, the
-// two-prompt AI workflow) has been removed. The new approach lives in
-// api/storefront.js: each store has ONE self-contained HTML template that the
-// founder pastes in. See FounderDashboard.tsx → StorefrontEditor for the UI.
+function transformSkinHtml(html, storeId, slug) {
+  const base = skinBaseUrl(storeId);
+  let out = String(html);
+  out = out.replace(/(src|href)=(["'])(?!https?:|\/\/|data:|#|mailto:|tel:|blob:)([^"']]*)\2/g, (match, attr, quote, rel) => `${attr}=${quote}${base}${rel.replace(/^\.\//, '').replace(/^\//, '')}${quote}`);
+  // Safety scrub (parallel to the JSON engine's URL rules):
+  // - javascript:/data: attribute targets are blocked outright
+  // - form posts are only allowed to https targets (or relative)
+  // - target=_blank gets rel=noopener so external links can't drive the page
+  out = out.replace(/\b(href|src|action)=(['"])\s*(javascript:[^"']*|data:(?!image\/(png|jpeg|jpg|webp|gif|avif|svg\+xml)))[^"']*\2/gi, '$1=$2#blocked$2');
+  out = out.replace(/<form([^>]*)action=(['"])(?!https?:|#|\/)([^'"]+)\2/gi, '<form$1action=$2#$2');
+  out = out.replace(/<a([^>]*?)target=(['"])_(blank|new)\2(?![^>]*rel=)/gi, '<a$1target=$2_$3$2 rel="noopener noreferrer"');
+  // relative url(...) inside embedded <style> blocks also points at the skin's permanent dir
+  out = out.replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/gi, (whole, openTag, css, closeTag) => {
+    const rewritten = String(css).replace(/url\(\s*(["']?)(?!https?:|data:|#)([^)'"]+)\1\s*\)/gi, (match, quote, rel) => `url(${quote || ''}${base}${rel.replace(/^\.\//, '').replace(/^\//, '')}${quote || ''})`);
+    return `${openTag}${rewritten}${closeTag}`;
+  });
+  if (!/<\/head>/i.test(out) || !/<\/body>/i.test(out)) return out;
+  out = out.replace(/<\/head>/i, `<meta name="stoyangu-slug" content="${slug}"><meta name="stoyangu-store-id" content="${storeId}"></head>`);
+  out = out.replace(/<\/body>/i, `<script src="/skin-bridge.js" defer></script></body>`);
+  return out;
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'GET' && !(req.method === 'POST' && req.query?.type === 'skin')) return res.status(405).json({ error: 'Method not allowed' });
 
   const type = req.query?.type;
+  if (type === 'skin') return handleSkinUpload(req, res);
   if (type === 'robots') return handleRobots(req, res);
   if (type === 'sitemap') return handleSitemap(req, res);
   if (type === 'catalog') return handleCatalog(req, res);

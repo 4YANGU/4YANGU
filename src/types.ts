@@ -18,7 +18,6 @@ export type Store = {
   logo_url: string;
   categories: string[];
   design_json: Record<string, unknown>;
-  storefront_template?: string;
   is_active: boolean;
   billing_started_at: string | null;
   billing_paid_until: string | null;
