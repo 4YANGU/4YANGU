@@ -9,6 +9,30 @@ const BINARY_MIMES: Record<string, string> = {
 };
 const mimeOf = (ext: string) => BINARY_MIMES[ext] || 'application/octet-stream';
 
+// A zip entry may have no extension at all (Windows hides them and the AI
+// often exports storefront.html as just "storefront"). We fill it back in
+// from the contract names so the upload never silently drops them.
+const CONTRACT_EXT: Record<string, string> = {
+  'storefront': '.html', 'product-template': '.html', 'product': '.html',
+  'index': '.html', 'home': '.html', 'page': '.html',
+  'script': '.js', 'main': '.js', 'app': '.js',
+  'styles': '.css', 'style': '.css',
+};
+function inferredExt(filename: string): string | null {
+  const base = filename.split('/').pop() || '';
+  if (base.includes('.')) return null; // already has one
+  return CONTRACT_EXT[base.toLowerCase()] || null;
+}
+function contentExt(text: string): string | null {
+  const head = text.slice(0, 256).trimStart().toLowerCase();
+  if (head.startsWith('<!doctype') || head.startsWith('<html')) return '.html';
+  if (/^[\s\S]*<\/?[a-z][^>]*>/i.test(head) && !/function|const |var |let /.test(head)) return '.html';
+  if (/^\s*[.#@a-zA-Z\s,:{}\-_>+~\[\]\(\)\"'\/\*]+{\s*[\s\S]*}/.test(head)) return '.css';
+  if (/^(import |export |const |let |var |function |class |\/\/)/.test(head)) return '.js';
+  if (head.startsWith('{') || head.startsWith('[')) return '.json';
+  return null;
+}
+
 export type SkinUploadResult = { files: number; warnings: string[] };
 
 export async function skinStatus(storeId: number): Promise<boolean> {
@@ -50,14 +74,57 @@ export async function uploadSkinZip(storeId: number, file: File, onStatus?: (mes
     if (entry.dir) continue;
     const path = cleanPath(rawPath);
     if (!path || path.includes('..') || path.endsWith('/')) continue;
-    const ext = path.split('.').pop()?.toLowerCase() || '';
-    if (!(BINARY_NEUTRAL.includes(ext) || TEXT_EXTS.has(ext))) continue; // silently skipped at the gate
+    let ext = path.split('.').pop()?.toLowerCase() || '';
+    if (!BINARY_NEUTRAL.includes(ext) && !TEXT_EXTS.has(ext)) {
+      // Try to infer from the contract name so files like "storefront"
+      // and "script" (no extension) still make it through the gate.
+      const inferred = inferredExt(path);
+      if (!inferred) continue;
+      ext = inferred.slice(1);
+      path = path + inferred;
+    }
     collected.push({ path, entry });
   }
   const files = stripSingleWrapper(collected);
-  if (!files.length) throw new Error('No usable front-end files found in that zip.');
-  if (!files.some((item) => /(^|\/)storefront\.html$/i.test(item.path)) || !files.some((item) => /(^|\/)product-template\.html$/i.test(item.path))) {
-    throw new Error('The skin needs storefront.html AND product-template.html at the top of the folder.');
+  // Forgive common naming: a zip with just index.html and product.html is a valid skin.
+  // Auto-rename the first .html to storefront.html and the second to product-template.html.
+  // After gate, every file has an extension; the same regexes work for both
+  // the "storefront.html" case and the renamer-injected "storefront" cases.
+  const htmlItems = files.filter((item) => /\.html?$/i.test(item.path));
+  const hasStorefront = htmlItems.some((item) => /(^|\/)storefront(\.html?)?$/i.test(item.path));
+  const hasTemplate = htmlItems.some((item) => /(^|\/)product-template(\.html?)?$/i.test(item.path));
+  let repaired = files;
+  if (!hasStorefront || !hasTemplate) {
+    const renamed: typeof files = [];
+    let tookStorefront = hasStorefront;
+    let tookTemplate = hasTemplate;
+    for (const item of htmlItems) {
+      if (!tookStorefront) { renamed.push({ ...item, path: item.path.replace(/[^/]+$/, 'storefront.html') }); tookStorefront = true; continue; }
+      if (!tookTemplate)  { renamed.push({ ...item, path: item.path.replace(/[^/]+$/, 'product-template.html') }); tookTemplate = true; continue; }
+      // Force the right extension on .css / .js even when they had none
+      if (/\.css?$/i.test(item.path) || inferredExt(item.path) === '.css') renamed.push({ ...item, path: item.path.replace(/[^/]+$/, 'styles.css') });
+      else if (/\.js?$/i.test(item.path) || inferredExt(item.path) === '.js') renamed.push({ ...item, path: item.path.replace(/[^/]+$/, 'script.js') });
+      renamed.push(item);
+    }
+    if (!tookTemplate) {
+      // No second .html — look for any other file that smells like a single
+      // product (common Chrome exports name these "beston-kicks.html" too,
+      // or "product", "item", "single", "detail", "view" without a CSS/JS/asset extension).
+      // Must be a different source file from the one we just took as storefront
+      // (otherwise the user uploaded only one .html and we should error clearly).
+      const htmlItemsTaken = htmlItems.length;
+      const templateGuess = files.find((item, index) =>
+        /\.(html?|svg|md|txt)$/i.test(item.path) &&
+        !/^(styles?\.|style\.|script\.|main\.|index\.|app\.|storefront\.)/i.test(item.path.split('/').pop() || '') &&
+        index >= htmlItemsTaken // strictly a different file from the one we already renamed
+      );
+      if (templateGuess) renamed.push({ ...templateGuess, path: templateGuess.path.replace(/[^/]+$/, 'product-template.html') });
+    }
+    const nonHtml = files.filter((item) => !/\.html?$/i.test(item.path));
+    repaired = [...renamed, ...nonHtml];
+  }
+  if (!repaired.some((item) => /(^|\/)storefront\.html?$/i.test(item.path)) || !repaired.some((item) => /(^|\/)product-template\.html?$/i.test(item.path))) {
+    throw new Error('The skin needs at least two .html files (the storefront and one product template). Add another .html and try again.');
   }
 
   onStatus?.('Checking the skin…');
@@ -65,7 +132,7 @@ export async function uploadSkinZip(storeId: number, file: File, onStatus?: (mes
   const binariesMeta: Array<{ path: string; contentType: string }> = [];
   const binaryBlobs = new Map<string, Blob>();
 
-  for (const fileEntry of files) {
+  for (const fileEntry of repaired) {
     const ext = fileEntry.path.split('.').pop()?.toLowerCase() || '';
     if (TEXT_EXTS.has(ext)) texts.push({ path: fileEntry.path, content: await fileEntry.entry.async('string') });
     else {
