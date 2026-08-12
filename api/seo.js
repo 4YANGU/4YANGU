@@ -1,4 +1,5 @@
 import supabase from '../lib/db-client.js';
+import { validateSkin, buildProductsMarkup, stampStorefront, stampProductPage, stripScripts, reinOnExternal, skinPath, skinBaseUrl, productCardTemplate, waTemplate, buildCategoryChips, money } from '../lib/skin-engine.js';
 
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
@@ -187,6 +188,7 @@ async function handleStorefrontHtml(req, res) {
     if (first && !['stoyangu', 'www', 'api', 'app', 'localhost'].includes(first)) slug = first;
   }
   const root = rootDomain(req);
+  const supabaseHost = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').hostname; } catch { return null; } })();
   try {
     const shell = await loadShell(req);
     if (!slug || RESERVED_SLUGS.has(slug)) {
@@ -207,10 +209,19 @@ async function handleStorefrontHtml(req, res) {
     const host = String(req.headers.host || '').toLowerCase();
     const isStoreSubdomain = host.startsWith(`${slug}.`) && !host.startsWith('www.');
     if (store && store.is_active && isStoreSubdomain) {
-      const skinHtml = await fetchSkinHtml(store.id);
-      if (skinHtml) {
-        res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-        return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
+      const skin = await readSkin(store.id);
+      if (skin) {
+        const productId = Number(req.query?.productId || 0);
+        const targetProduct = productId ? products.find((item) => item.id === productId) : null;
+        const basePath = '/';
+        let stamped = targetProduct
+          ? stampProductPage(skin.template, store, targetProduct, products, basePath)
+          : stampStorefront(skin.storefront, store, products, basePath);
+        stamped = reinOnExternal(stripScripts(stamped), supabaseHost);
+        const bridgeMeta = `<meta name="stoyangu-slug" content="${slug}"><script type="application/json" id="sty-store">${JSON.stringify({ name: store.name, slug, whatsapp: store.whatsapp, products: (products || []).map((p) => ({ id: p.id, name: p.name, price: Number(p.price) })) }).replace(/</g, '\\u003c')}</script>`;
+        stamped = stamped.replace(/<\/head>/i, `${bridgeMeta}</head>`).replace(/<\/body>/i, `<script src="/skin-bridge.js" defer></script></body>`);
+        res.setHeader('Cache-Control', targetProduct ? 'public, s-maxage=45, stale-while-revalidate=300' : 'public, s-maxage=45, stale-while-revalidate=300');
+        return res.status(200).send(stamped);
       }
     }
     if (!store || !store.is_active) {
@@ -242,10 +253,9 @@ async function handleStorefrontHtml(req, res) {
 }
 
 
-// === Skin system: founders upload the AI-generated storefront as files ===
+// === Skin system: AI-generated storefront files are validated, server-stamped
+// with live store data, and served on the store's own subdomain. ===
 const SKIN_BUCKET = 'stoyangu-media';
-const skinPath = (storeId, file) => `skins/${storeId}/${String(file).replace(/\\/g, '/').replace(/\.\./g, '').replace(/^\/+/, '')}`;
-const skinBaseUrl = (storeId) => `${String(process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '')}/storage/v1/object/public/${SKIN_BUCKET}/skins/${storeId}/`;
 
 async function skinFounder(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -256,12 +266,13 @@ async function skinFounder(req) {
   return data ? { ...data, user } : null;
 }
 
-async function fetchSkinHtml(storeId) {
-  const manifest = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'manifest.json'));
-  if (!manifest.data) return null;
-  const index = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'index.html'));
-  if (!index.data) return null;
-  return index.data.text();
+async function readSkin(storeId) {
+  const [front, template] = await Promise.all([
+    supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'storefront.html')),
+    supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'product-template.html')),
+  ]);
+  if (!front.data || !template.data) return null;
+  return { storefront: await front.data.text(), template: await template.data.text() };
 }
 
 async function handleSkinUpload(req, res) {
@@ -269,66 +280,41 @@ async function handleSkinUpload(req, res) {
   if (!profile) return res.status(403).json({ error: 'Founder access required.' });
   const storeId = Number(req.body?.store_id);
   if (!storeId) return res.status(400).json({ error: 'Store is required.' });
-  const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).single();
+  const { data: store } = await supabase.from('stores').select('id,slug').eq('id', storeId).single();
   if (!store) return res.status(404).json({ error: 'Store not found.' });
-  const action = String(req.body?.action || 'sign');
+  const action = String(req.body?.action || 'upload');
   if (action === 'disable' || action === 'remove') {
-    await supabase.storage.from(SKIN_BUCKET).remove([skinPath(storeId, 'manifest.json'), skinPath(storeId, 'index.html')]);
+    const paths = ['storefront.html', 'product-template.html', 'styles.css', 'script.js'].map((name) => skinPath(storeId, name));
+    await supabase.storage.from(SKIN_BUCKET).remove(paths);
     return res.status(200).json({ ok: true, enabled: false });
   }
   if (action === 'status') {
-    const manifest = await supabase.storage.from(SKIN_BUCKET).download(skinPath(storeId, 'manifest.json'));
-    return res.status(200).json({ active: Boolean(manifest.data) });
+    const skin = await readSkin(storeId);
+    return res.status(200).json({ active: Boolean(skin) });
   }
-  const files = Array.isArray(req.body?.files) ? req.body.files : [];
-  if (!files.length) return res.status(400).json({ error: 'No files listed.' });
-  if (files.length > 160) return res.status(400).json({ error: 'A skin can contain at most 160 files.' });
-  // Front-layer-only allowlist: markup, styles, scripts-as-text, media and fonts.
-  // Anything that smells like backend code/config/keys never reaches storage.
-  const BLOCKED_SKIN_EXTENSIONS = new Set(['php', 'py', 'rb', 'sh', 'bash', 'pl', 'sql', 'env', 'key', 'pem', 'p12', 'sqlite', 'db', 'lock', 'toml', 'yaml', 'yml', 'ini', 'cfg', 'conf', 'exe', 'dll', 'jar', 'class', 'go', 'rs', 'zip', 'gz']);
-  const BLOCKED_SKIN_NAMES = new Set(['package.json', '.env', 'dockerfile', 'compose.yml']);
-  const filteredFiles = files.filter((file) => {
-    const path = String(file.path || '').toLowerCase();
-    const name = path.split('/').pop() || '';
-    const ext = name.split('.').pop() || '';
-    if (BLOCKED_SKIN_NAMES.has(name) || name.startsWith('.env')) return false;
-    return !BLOCKED_SKIN_EXTENSIONS.has(ext);
-  });
-  if (!filteredFiles.length) return res.status(400).json({ error: 'Nothing usable in that skin — only front-end assets (html, css, js, images, fonts, media) are allowed.' });
+  // upload: texts travel through the API (validated); binaries go via signed URLs.
+  const texts = Array.isArray(req.body?.texts) ? req.body.texts : [];
+  const binaries = Array.isArray(req.body?.binaries) ? req.body.binaries : [];
+  if (!texts.length && !binaries.length) return res.status(400).json({ error: 'No files listed.' });
+  const supabaseHost = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').hostname; } catch { return null; } })();
+  const verdict = validateSkin(texts.map((item) => ({ path: String(item.path || ''), content: String(item.content || '') })), supabaseHost);
+  if (!verdict.ok) return res.status(400).json({ error: 'Skin failed validation. Fix these and upload again:', details: verdict.errors, warnings: verdict.warnings });
+  // All text assets write directly from this trusted server path.
+  const mime = (path) => ({ html: 'text/html', css: 'text/css', js: 'text/javascript', json: 'application/json', webmanifest: 'application/manifest+json', txt: 'text/plain', md: 'text/markdown', map: 'application/json' }[String(path).split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream');
+  for (const item of verdict.ok ? verdict.texts || texts : []) {
+    const relPath = skinPath(storeId, String(item.path));
+    const up = await supabase.storage.from(SKIN_BUCKET).upload(relPath, String(item.content || ''), { contentType: mime(relPath), upsert: true });
+    if (up.error) return res.status(500).json({ error: `Could not store ${item.path}: ${up.error.message}` });
+  }
   const signed = [];
-  const manifestJson = JSON.stringify({ store_id: storeId, entry: req.body?.entry || 'index.html', files: filteredFiles.map((f) => String(f.path)), enabled_at: new Date().toISOString() });
-  const toSign = [...filteredFiles, { path: 'manifest.json', contentType: 'application/json' }];
-  for (const file of toSign) {
-    const path = skinPath(storeId, String(file.path || 'index.html'));
-    if (!path || path.endsWith('/')) { signed.push({ path, skip: true }); continue; }
-    const { data, error } = await supabase.storage.from(SKIN_BUCKET).createSignedUploadUrl(path);
-    if (error) return res.status(500).json({ error: `Could not sign ${path}: ${error.message}` });
-    signed.push({ path, signedUrl: data.signedUrl, manifest: manifestJson });
+  for (const binary of binaries.slice(0, 160)) {
+    const relPath = skinPath(storeId, String(binary.path || ''));
+    if (!relPath || relPath.endsWith('/')) continue;
+    const { data, error } = await supabase.storage.from(SKIN_BUCKET).createSignedUploadUrl(relPath);
+    if (error) return res.status(500).json({ error: `Could not sign ${relPath}: ${error.message}` });
+    signed.push({ path: relPath, signedUrl: data.signedUrl });
   }
-  return res.status(200).json({ signed, skipped: files.length - filteredFiles.length });
-}
-
-
-function transformSkinHtml(html, storeId, slug) {
-  const base = skinBaseUrl(storeId);
-  let out = String(html);
-  out = out.replace(/(src|href)=(["'])(?!https?:|\/\/|data:|#|mailto:|tel:|blob:)([^"']]*)\2/g, (match, attr, quote, rel) => `${attr}=${quote}${base}${rel.replace(/^\.\//, '').replace(/^\//, '')}${quote}`);
-  // Safety scrub (parallel to the JSON engine's URL rules):
-  // - javascript:/data: attribute targets are blocked outright
-  // - form posts are only allowed to https targets (or relative)
-  // - target=_blank gets rel=noopener so external links can't drive the page
-  out = out.replace(/\b(href|src|action)=(['"])\s*(javascript:[^"']*|data:(?!image\/(png|jpeg|jpg|webp|gif|avif|svg\+xml)))[^"']*\2/gi, '$1=$2#blocked$2');
-  out = out.replace(/<form([^>]*)action=(['"])(?!https?:|#|\/)([^'"]+)\2/gi, '<form$1action=$2#$2');
-  out = out.replace(/<a([^>]*?)target=(['"])_(blank|new)\2(?![^>]*rel=)/gi, '<a$1target=$2_$3$2 rel="noopener noreferrer"');
-  // relative url(...) inside embedded <style> blocks also points at the skin's permanent dir
-  out = out.replace(/(<style[^>]*>)([\s\S]*?)(<\/style>)/gi, (whole, openTag, css, closeTag) => {
-    const rewritten = String(css).replace(/url\(\s*(["']?)(?!https?:|data:|#)([^)'"]+)\1\s*\)/gi, (match, quote, rel) => `url(${quote || ''}${base}${rel.replace(/^\.\//, '').replace(/^\//, '')}${quote || ''})`);
-    return `${openTag}${rewritten}${closeTag}`;
-  });
-  if (!/<\/head>/i.test(out) || !/<\/body>/i.test(out)) return out;
-  out = out.replace(/<\/head>/i, `<meta name="stoyangu-slug" content="${slug}"><meta name="stoyangu-store-id" content="${storeId}"></head>`);
-  out = out.replace(/<\/body>/i, `<script src="/skin-bridge.js" defer></script></body>`);
-  return out;
+  return res.status(200).json({ signed, warnings: verdict.warnings, storefrontPath: verdict.storefrontPath, templatePath: verdict.templatePath });
 }
 
 export default async function handler(req, res) {

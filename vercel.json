@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/p/:id", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/seo?type=storefront-html&productId=:id" },
     { "source": "/:path*", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/seo?type=storefront-html" },
     { "source": "/robots.txt", "destination": "/api/seo?type=robots" },
     { "source": "/sitemap.xml", "destination": "/api/seo?type=sitemap" },
