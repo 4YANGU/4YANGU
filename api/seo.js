@@ -178,7 +178,14 @@ function buildStorePage({ store, products, canonical, root }) {
 }
 
 async function handleStorefrontHtml(req, res) {
-  const slug = slugify(req.query?.slug || '');
+  // Subdomain requests arrive with no slug query — derive it from the host label
+  // (Vercel forbids host params in rewrite destinations).
+  const hostHeader = String(req.headers.host || '').toLowerCase();
+  let slug = slugify(req.query?.slug || '');
+  if (!slug && hostHeader.includes('.')) {
+    const first = slugify(hostHeader.split('.')[0]);
+    if (first && !['stoyangu', 'www', 'api', 'app', 'localhost'].includes(first)) slug = first;
+  }
   const root = rootDomain(req);
   try {
     const shell = await loadShell(req);
