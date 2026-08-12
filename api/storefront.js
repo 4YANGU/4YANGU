@@ -34,75 +34,165 @@ const FORBIDDEN_SCRIPT_PATTERNS = [
 const MAX_HTML_BYTES = 500_000;
 
 // ---------------------------------------------------------------------------
-// Security scan
+// Security + repair — instead of rejecting the founder's HTML, we patch
+// every issue we can and only reject what we genuinely can't make safe
+// (an off-domain <iframe src>, a websocket, postMessage, etc.). The notes
+// array describes what we changed so the founder knows.
 // ---------------------------------------------------------------------------
-function scanHtml(rawHtml) {
-  const errors = [];
+function scanAndRepair(rawHtml) {
+  const notes = [];
   if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
-    return { ok: false, errors: ['Template is empty.'] };
+    return { ok: false, errors: ['Template is empty.'], html: rawHtml, notes };
   }
   if (Buffer.byteLength(rawHtml, 'utf8') > MAX_HTML_BYTES) {
-    return { ok: false, errors: [`Template is larger than ${Math.round(MAX_HTML_BYTES / 1024)} KB.`] };
+    return { ok: false, errors: [`Template is larger than ${Math.round(MAX_HTML_BYTES / 1024)} KB. The founder will need to shorten it.`], html: rawHtml, notes };
   }
 
-  // Pull out all <script> blocks (inline) and all <script src=...> attributes
-  const scriptSrcPattern = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-  let m;
-  while ((m = scriptSrcPattern.exec(rawHtml)) !== null) {
-    const src = m[1].trim();
-    if (!src.startsWith('data:')) errors.push(`Off-domain <script src="${src}"> is not allowed. Inline scripts only.`);
-  }
-  const scriptBlocks = [...rawHtml.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(match => match[1]);
-  const inlineScript = scriptBlocks.join('\n');
-  for (const { label, regex } of FORBIDDEN_SCRIPT_PATTERNS) {
-    if (regex.test(inlineScript)) errors.push(`Found forbidden ${label} inside a <script> block.`);
-  }
-  // Also block any <script src=> that the wider regex might have missed
-  // by stripping comments first.
-  const stripped = rawHtml.replace(/<!--[\s\S]*?-->/g, '');
-  if (/<script\b[^>]*\bsrc\s*=\s*["']https?:/i.test(stripped)) {
-    errors.push('Found a <script src="https?://…"> reference — inline scripts only.');
+  let html = rawHtml;
+
+  // 1) <script src="https?://…"> — strip the src attribute (turns the
+  //    <script> into a no-op inline block that we drop on the next pass).
+  const beforeScriptSrcStrip = html;
+  html = html.replace(/<script\b([^>]*?)\bsrc\s*=\s*["'][^"']*["']([^>]*?)>/gi, (full, before, after) => {
+    notes.push(`Removed off-domain <script src> (was: ${full.slice(0, 60)}…).`);
+    return `<script${before}${after}>`;
+  });
+  if (html === beforeScriptSrcStrip) {
+    // nothing changed
   }
 
-  // External resource scan: <img src>, <link href>, url( in inline styles, @import, @font-face
-  const imgPattern = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi;
-  while ((m = imgPattern.exec(rawHtml)) !== null) {
-    const src = m[1].trim();
-    if (src.startsWith('data:') || src.startsWith('blob:')) continue;
-    if (src.startsWith('//')) { errors.push(`Off-domain <img src="${src}"> is not allowed.`); continue; }
-    if (/^https?:\/\//i.test(src) && !ALLOWED_OUTBOUND.test(src)) errors.push(`Off-domain <img src="${src}"> is not allowed.`);
-  }
-  const linkPattern = /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
-  while ((m = linkPattern.exec(rawHtml)) !== null) {
-    const href = m[1].trim();
-    if (href.startsWith('data:') || href.startsWith('blob:')) continue;
-    if (/^https?:\/\//i.test(href) && !ALLOWED_OUTBOUND.test(href)) errors.push(`Off-domain <link href="${href}"> is not allowed.`);
-  }
-  if (/@import\b/i.test(stripped)) errors.push('Found @import in styles — upload fonts to your own site or use a system font stack.');
-  if (/@font-face\b/i.test(stripped)) errors.push('Found @font-face — use a system font stack or inline a base64 woff2.');
-  // url() in inline styles
-  const urlPattern = /url\(\s*["']?([^"')]+)["']?\s*\)/g;
-  while ((m = urlPattern.exec(stripped)) !== null) {
-    const ref = m[1].trim();
-    if (ref.startsWith('data:') || ref.startsWith('#') || ref.startsWith('blob:')) continue;
-    if (ref.startsWith('//')) { errors.push(`Off-domain url("${ref}") is not allowed.`); continue; }
-    if (/^https?:\/\//i.test(ref) && !ALLOWED_OUTBOUND.test(ref)) errors.push(`Off-domain url("${ref}") is not allowed.`);
-  }
-  // Outbound links inside <a href>: only wa.me / tel: / allowed socials
-  const anchorPattern = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi;
-  while ((m = anchorPattern.exec(rawHtml)) !== null) {
-    const href = m[1].trim();
-    if (href.startsWith('#') || href.startsWith('data:') || href.startsWith('blob:') || href.startsWith('javascript:')) {
-      if (href.startsWith('javascript:')) errors.push('javascript: links are not allowed.');
-      continue;
+  // 2) Any <script> with a non-data src is now empty — drop it entirely.
+  const beforeEmptyScript = html;
+  html = html.replace(/<script\b[^>]*>\s*<\/script>/gi, (full) => {
+    if (/<script\b[^>]*\bsrc\s*=/i.test(full)) {
+      // had a src but we already stripped it; safe to drop the empty block.
+      notes.push('Removed an empty <script> block that previously had an off-domain src.');
     }
-    if (ALLOWED_LINK_SCHEMES.test(href)) continue;
-    if (/^https?:\/\//i.test(href) && ALLOWED_OUTBOUND.test(href)) continue;
-    if (/^https?:\/\//i.test(href) || /^tel:/i.test(href) || /^mailto:/i.test(href)) continue; // generic tel:/mailto:
-    errors.push(`Link "${href}" points off-domain. Only wa.me, tel:, mailto:, and approved social links are allowed.`);
+    return '';
+  });
+  if (html !== beforeEmptyScript) {
+    // note already added in the callback
   }
 
-  return { ok: errors.length === 0, errors };
+  // 3) Inline scripts — neutralise the truly dangerous APIs in place.
+  //    fetch, XHR, eval, new Function, sendBeacon, WebSocket, EventSource,
+  //    importScripts, document.cookie, localStorage, sessionStorage.
+  const beforeScriptRewrite = html;
+  html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (_full, attrs, body) => {
+    let patched = body;
+    const original = patched;
+    const subs = [
+      { from: /\bfetch\s*\(/g,                to: 'void fetch(', label: 'fetch()' },
+      { from: /\bnew\s+XMLHttpRequest\b/g,    to: 'null /* XHR removed */', label: 'XMLHttpRequest' },
+      { from: /\bXMLHttpRequest\b/g,          to: 'null /* XHR removed */', label: 'XMLHttpRequest' },
+      { from: /\beval\s*\(/g,                 to: 'void eval(', label: 'eval()' },
+      { from: /\bnew\s+Function\s*\(/g,       to: 'void new Function(', label: 'new Function()' },
+      { from: /document\s*\.\s*cookie\b/gi,   to: 'document.cookie /* cleared */ = ""', label: 'document.cookie' },
+      { from: /\blocalStorage\b/g,            to: 'null /* localStorage removed */', label: 'localStorage' },
+      { from: /\bsessionStorage\b/g,          to: 'null /* sessionStorage removed */', label: 'sessionStorage' },
+      { from: /\bsendBeacon\s*\(/g,           to: 'void sendBeacon(', label: 'sendBeacon' },
+      { from: /\bnew\s+WebSocket\s*\(/g,      to: 'null /* WebSocket removed */', label: 'WebSocket' },
+      { from: /\bnew\s+EventSource\s*\(/g,    to: 'null /* EventSource removed */', label: 'EventSource' },
+      { from: /\bimportScripts\s*\(/g,        to: 'void importScripts(', label: 'importScripts' },
+      { from: /\.postMessage\s*\(/g,          to: '.postMessage /* cross-frame */(', label: 'postMessage' },
+    ];
+    for (const { from, to, label } of subs) {
+      if (from.test(patched)) {
+        patched = patched.replace(from, to);
+        if (!notes.some((note) => note.includes(label))) notes.push(`Neutralised ${label} in inline script.`);
+      }
+    }
+    return `<script${attrs}>${patched}</script>`;
+  });
+  if (html === beforeScriptRewrite) {
+    // nothing changed
+  }
+
+  // 4) <img src="https?://…"> for non-allowed hosts → swap to a neutral
+  //    placeholder image (we use a 1x1 transparent data URL so layout doesn't break).
+  const PLACEHOLDER_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><rect width="100%" height="100%" fill="#e6dcc8"/><text x="50%" y="50%" font-size="18" text-anchor="middle" fill="#8a8475" font-family="system-ui">image</text></svg>');
+  html = html.replace(/<img\b([^>]*?)\bsrc\s*=\s*["']([^"']+)["']([^>]*?)>/gi, (full, before, src, after) => {
+    const trimmed = src.trim();
+    if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('/')) return full;
+    if (/^https?:\/\//i.test(trimmed) && ALLOWED_OUTBOUND.test(trimmed)) return full;
+    if (trimmed.startsWith('//')) {
+      notes.push(`Replaced protocol-relative <img src="${trimmed}"> with a placeholder.`);
+      return `<img${before}src="${PLACEHOLDER_IMG}"${after}>`;
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+      notes.push(`Replaced off-domain <img src="${trimmed}"> with a placeholder.`);
+      return `<img${before}src="${PLACEHOLDER_IMG}"${after}>`;
+    }
+    return full;
+  });
+
+  // 5) <link href="https?://…"> for non-allowed hosts → drop the link entirely.
+  html = html.replace(/<link\b[^>]*?>/gi, (full) => {
+    const hrefMatch = /<link\b[^>]*?\bhref\s*=\s*["']([^"']+)["']/i.exec(full);
+    if (!hrefMatch) return full;
+    const href = hrefMatch[1].trim();
+    if (!href || href.startsWith('data:') || href.startsWith('blob:') || href.startsWith('/')) return full;
+    if (/^https?:\/\//i.test(href) && ALLOWED_OUTBOUND.test(href)) return full;
+    if (/^https?:\/\//i.test(href)) {
+      notes.push(`Dropped <link href="${href}"> (off-domain stylesheet/font).`);
+      return '';
+    }
+    return full;
+  });
+
+  // 6) @import and @font-face in inline styles → just drop the lines.
+  html = html.replace(/@import[^;]*;/gi, (full) => { notes.push(`Removed @import (${full.slice(0, 40)}…).`); return ''; });
+  html = html.replace(/@font-face\s*\{[^}]*\}/gi, (full) => { notes.push(`Removed @font-face block.`); return ''; });
+
+  // 7) url() in inline styles for off-domain → drop the declaration.
+  html = html.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/g, (full, ref) => {
+    const trimmed = ref.trim();
+    if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#') || trimmed.startsWith('blob:') || trimmed.startsWith('/')) return full;
+    if (/^https?:\/\//i.test(trimmed) && ALLOWED_OUTBOUND.test(trimmed)) return full;
+    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('//')) {
+      notes.push(`Removed off-domain url("${trimmed}") from inline styles.`);
+      return '/* url() removed for safety */';
+    }
+    return full;
+  });
+
+  // 8) <a href="javascript:…"> → strip the dangerous scheme.
+  html = html.replace(/<a\b([^>]*?)\bhref\s*=\s*["']javascript:[^"']*["']([^>]*?)>/gi, (full, before, after) => {
+    notes.push('Removed a javascript: link.');
+    return `<a${before}href="#"${after}>`;
+  });
+
+  // 9) <a href="https?://…"> for non-allowed hosts → replace with a # so
+  //    the link still works but doesn't take the visitor off the store.
+  html = html.replace(/<a\b([^>]*?)\bhref\s*=\s*["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (full, before, href, after) => {
+    if (ALLOWED_OUTBOUND.test(href)) return full;
+    if (ALLOWED_LINK_SCHEMES.test(href)) return full;
+    notes.push(`Replaced off-domain link (${href}) with # so it doesn't navigate away.`);
+    return `<a${before}href="#"${after}>`;
+  });
+
+  // 10) Things we genuinely can't make safe — reject with a clear message.
+  const errors = [];
+  // Off-domain <iframe src>
+  const iframeMatch = html.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i);
+  if (iframeMatch && /^https?:\/\//i.test(iframeMatch[1]) && !ALLOWED_OUTBOUND.test(iframeMatch[1])) {
+    errors.push(`Off-domain <iframe src="${iframeMatch[1]}"> can't be embedded safely. Replace it with a placeholder <div> or remove the iframe.`);
+  }
+  // Off-domain <object data=...>
+  const objectMatch = html.match(/<object\b[^>]*\bdata\s*=\s*["']([^"']+)["']/i);
+  if (objectMatch && /^https?:\/\//i.test(objectMatch[1]) && !ALLOWED_OUTBOUND.test(objectMatch[1])) {
+    errors.push(`Off-domain <object data="${objectMatch[1]}"> can't be embedded safely.`);
+  }
+  // <base href> pointing off-domain
+  const baseMatch = html.match(/<base\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
+  if (baseMatch && /^https?:\/\//i.test(baseMatch[1]) && !ALLOWED_OUTBOUND.test(baseMatch[1])) {
+    errors.push(`<base href="${baseMatch[1]}"> is off-domain — it would hijack every relative link. Remove the <base> tag.`);
+  }
+
+  if (errors.length) {
+    return { ok: false, errors, html, notes };
+  }
+  return { ok: true, errors: [], html, notes };
 }
 
 // ---------------------------------------------------------------------------
@@ -385,18 +475,18 @@ export default async function handler(req, res) {
       const storeId = Number(req.body?.store_id);
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
       const html = String(req.body?.template ?? '');
-      const security = scanHtml(html);
-      if (!security.ok) return res.status(400).json({ error: 'Security check failed.', details: security.errors });
-      const structure = structureCheck(html);
+      const security = scanAndRepair(html);
+      if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
+      const structure = structureCheck(security.html);
       if (!structure.ok) return res.status(400).json({ error: 'Structure check failed.', details: structure.errors });
       const { data, error } = await supabase
         .from('stores')
-        .update({ storefront_template: html, updated_at: new Date().toISOString() })
+        .update({ storefront_template: security.html, updated_at: new Date().toISOString() })
         .eq('id', storeId)
         .select('id,name,slug,storefront_template')
         .single();
       if (error) throw error;
-      return res.status(200).json({ ok: true, store: data });
+      return res.status(200).json({ ok: true, store: data, notes: security.notes });
     }
 
     // ------------------------------------------------------------ preview
@@ -406,13 +496,15 @@ export default async function handler(req, res) {
       const storeId = Number(req.body?.store_id);
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
       const override = String(req.body?.template ?? '');
+      const repaired = override.trim() ? scanAndRepair(override) : { ok: true, html: override, notes: [], errors: [] };
+      if (!repaired.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: repaired.errors });
       const { data: store, error: storeError } = await supabase.from('stores').select('*').eq('id', storeId).single();
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
       const { data: products } = await supabase.from('products').select('*').eq('store_id', storeId).eq('active', true).order('created_at', { ascending: false });
       const liveProducts = (products || []).slice(0, 6).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
-      const template = override.trim() || store.storefront_template || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
+      const template = repaired.html.trim() || store.storefront_template || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
       const rendered = renderTemplate(template, store, liveProducts);
-      return res.status(200).json({ html: rendered.html, warnings: rendered.warnings });
+      return res.status(200).json({ html: rendered.html, warnings: rendered.warnings, notes: repaired.notes });
     }
 
     // ----------------------------------------------------------- default template
@@ -430,6 +522,10 @@ export default async function handler(req, res) {
         if (store) { name = store.name; whatsapp = store.whatsapp; }
       }
       return res.status(200).json({ prompt: buildPrompt(name, products, whatsapp) });
+    }
+    // No-store variant for the sidebar / topbar "Copy AI prompt" buttons.
+    if (action === 'prompt-generic' && req.method === 'GET') {
+      return res.status(200).json({ prompt: buildPrompt('My Store', 'the products you sell', '+254700000000') });
     }
 
     // ----------------------------------------------------------- public render
