@@ -80,10 +80,11 @@ export async function uploadSkinZip(storeId: number, file: File, onStatus?: (mes
       // and "script" (no extension) still make it through the gate.
       const inferred = inferredExt(path);
       if (!inferred) continue;
-      ext = inferred.slice(1);
-      path = path + inferred;
+      const fixedPath = path + inferred;
+      collected.push({ path: fixedPath, entry });
+    } else {
+      collected.push({ path, entry });
     }
-    collected.push({ path, entry });
   }
   const files = stripSingleWrapper(collected);
   // Forgive common naming: a zip with just index.html and product.html is a valid skin.
