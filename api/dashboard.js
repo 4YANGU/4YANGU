@@ -5,6 +5,9 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method === 'POST' && req.query?.action === 'bootstrap-founder') {
+    return bootstrapFounder(req, res);
+  }
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   try {
     const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -60,5 +63,44 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('Dashboard API error:', err);
     return res.status(500).json({ error: 'Could not load the dashboard.' });
+  }
+}
+
+// First-time founder bootstrap. The very first person to call this on a
+// fresh install promotes themselves to founder. After any founder exists the
+// endpoint closes itself.
+async function bootstrapFounder(req, res) {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Sign in first.' });
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !user) return res.status(401).json({ error: 'Invalid session.' });
+
+    // Check if a founder already exists.
+    const { data: existing, error: existingError } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('role', 'founder')
+      .limit(1);
+    if (!existingError && existing && existing.length > 0) {
+      return res.status(403).json({ error: 'A founder already exists. Bootstrap is closed.' });
+    }
+
+    // Upsert this user as the founder.
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({
+        user_id: user.id,
+        role: 'founder',
+        email: user.email || null,
+        full_name: String(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Founder'),
+        phone: user.phone || null,
+        store_id: null,
+      }, { onConflict: 'user_id' });
+    if (error) return res.status(500).json({ error: `Could not create founder profile: ${error.message}` });
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('Bootstrap error:', err);
+    return res.status(500).json({ error: err.message || 'Internal error' });
   }
 }

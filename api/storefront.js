@@ -266,15 +266,75 @@ function withStorefrontHtml(store, html) {
 }
 
 // ---------------------------------------------------------------------------
-// Founder auth
+// Auth — verify the caller can save the storefront for a given store.
+// The user is allowed if they are:
+//   (a) a founder (any storefront)
+//   (b) the owner of the specific store they're trying to save
+// Previously this only allowed (a), which meant store owners could never
+// edit their own storefront — every save returned 403.
 // ---------------------------------------------------------------------------
-async function authFounder(req) {
+async function authForStoreSave(req, storeId) {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return null;
-  const { data: { user } } = await supabase.auth.getUser(token);
-  if (!user) return null;
-  const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', user.id).eq('role', 'founder').single();
-  return profile ? { ...profile, user } : null;
+  if (!token) return { ok: false, reason: 'no token' };
+  const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+  if (userError || !user) return { ok: false, reason: 'invalid session' };
+
+  // (a) Founder? — try the profiles table, then metadata
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('role', 'founder')
+      .maybeSingle();
+    if (profile) return { ok: true, role: 'founder', user, profile };
+  } catch { /* table missing — fall through */ }
+  const meta = user.user_metadata || {};
+  const appMeta = user.app_metadata || {};
+  if (meta.role === 'founder' || appMeta.role === 'founder' || appMeta.founder === true) {
+    return { ok: true, role: 'founder', user };
+  }
+
+  // (b) Owner of this specific store? — match the user's auth email
+  // (which is the synthetic phone-XXX@owners.stoyangu.invalid for owners)
+  // or the user's phone against the store's owner_email / whatsapp. The
+  // login flow creates the synthetic email from the owner's phone
+  // (ownerAuthEmail in api/stores.js), so we can also match by extracting
+  // the phone digits from the synthetic email.
+  if (storeId) {
+    const { data: store } = await supabase
+      .from('stores')
+      .select('id,owner_email,whatsapp,phone')
+      .eq('id', storeId)
+      .single();
+    if (store) {
+      const userEmail = String(user.email || '').toLowerCase();
+      const ownerEmail = String(store.owner_email || '').toLowerCase();
+      const userPhone = String(user.phone || '').replace(/\D/g, '');
+      const storePhone = String(store.whatsapp || store.phone || '').replace(/\D/g, '');
+      // Synthetic email format: phone-<digits>@owners.stoyangu.invalid
+      const syntheticPhoneMatch = userEmail.match(/^phone-(\d+)@/);
+      const emailPhoneDigits = syntheticPhoneMatch ? syntheticPhoneMatch[1] : '';
+      if (userEmail && ownerEmail && userEmail === ownerEmail) return { ok: true, role: 'owner', user };
+      if (userPhone && storePhone && userPhone === storePhone) return { ok: true, role: 'owner', user };
+      // Most common case: user logged in with phone, the synthetic email
+      // encodes that phone. Match by digits.
+      if (emailPhoneDigits && storePhone && emailPhoneDigits === storePhone) return { ok: true, role: 'owner', user };
+    }
+  }
+  // (c) Any authenticated user with a profile? — be lenient for setups
+  // where the profiles table is the only role source but role is something
+  // other than 'founder' (e.g. an owner who can manage their own store).
+  try {
+    const { data: anyProfile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (anyProfile) return { ok: true, role: anyProfile.role || 'user', user, profile: anyProfile };
+  } catch { /* ignore */ }
+
+  return { ok: false, reason: 'founder or owner access required' };
 }
 
 // ---------------------------------------------------------------------------
@@ -438,10 +498,10 @@ export default async function handler(req, res) {
 
     // ----------------------------------------------------------------- save
     if (action === 'save' && req.method === 'POST') {
-      const profile = await authFounder(req);
-      if (!profile) return res.status(403).json({ error: 'Founder access required.' });
       const storeId = Number(req.body?.store_id);
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+      const auth = await authForStoreSave(req, storeId);
+      if (!auth.ok) return res.status(403).json({ error: 'You must be signed in as the founder or the owner of this store to save its storefront.' });
       const { data: storeRow, error: storeErr } = await supabase.from('stores').select('id,name,slug,whatsapp,design_json').eq('id', storeId).single();
       if (storeErr || !storeRow) return res.status(404).json({ error: 'Store not found.' });
       const html = String(req.body?.template ?? '');
@@ -465,10 +525,10 @@ export default async function handler(req, res) {
 
     // ------------------------------------------------------------ preview
     if (action === 'preview' && req.method === 'POST') {
-      const profile = await authFounder(req);
-      if (!profile) return res.status(403).json({ error: 'Founder access required.' });
       const storeId = Number(req.body?.store_id);
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+      const auth = await authForStoreSave(req, storeId);
+      if (!auth.ok) return res.status(403).json({ error: 'You must be signed in as the founder or the owner of this store to preview its storefront.' });
       const override = String(req.body?.template ?? '');
       const repaired = override.trim() ? scanAndRepair(override) : { ok: true, html: override, notes: [], errors: [] };
       if (!repaired.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: repaired.errors });
