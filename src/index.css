@@ -225,3 +225,8 @@ img { max-width: 100%; }
 /* AI spec prompt kit button */
 .prompt-copy-button{margin-left:auto;border:1px solid #b8ccb9;background:#fff;color:var(--green);border-radius:10px;padding:.5rem .75rem;font-size:.68rem;font-weight:800;display:flex;align-items:center;gap:.4rem;white-space:nowrap}
 .prompt-copy-button svg{width:14px}
+
+/* Skin-first new store form */
+.skin-first{background:linear-gradient(115deg,#eef7f0,#fff)!important;border-color:#9ec1a9!important}
+.json-optional summary{font-size:.66rem;font-weight:700;color:#8a958e;cursor:pointer}
+.json-optional[open] summary{margin-bottom:6px}
