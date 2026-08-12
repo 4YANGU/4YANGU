@@ -30,4 +30,6 @@ export const AI_SKIN_PACKAGE_PROMPT = [
   "",
   "NEVER include: <script> tags in the HTML files, <form> tags, iframes, external fonts outside the allowlist, or any API/token/database references.",
   "The host handles WhatsApp ordering, analytics and product data completely.",
+  "",
+  "RESULT DELIVERY: if your environment can output files, also give me a one-tap DOWNLOAD link for the zip of exactly that folder. That download link/button lives on YOUR page - never inside the skin itself. The zip I download is exactly what I upload into StoYangu.",
 ].join('\n');

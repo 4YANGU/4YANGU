@@ -1,5 +1,5 @@
 import supabase from '../lib/db-client.js';
-import { validateSkin, buildProductsMarkup, stampStorefront, stampProductPage, stripScripts, reinOnExternal, skinPath, skinBaseUrl, productCardTemplate, waTemplate, buildCategoryChips, money } from '../lib/skin-engine.js';
+import { validateSkin, autoRepairSkin, stampStorefront, stampProductPage, stripScripts, reinOnExternal, skinPath, buildCategoryChips, productCardTemplate, waTemplate, money } from '../lib/skin-engine.js';
 
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
@@ -255,7 +255,7 @@ async function handleStorefrontHtml(req, res) {
 
 // === Skin system: AI-generated storefront files are validated, server-stamped
 // with live store data, and served on the store's own subdomain. ===
-const SKIN_BUCKET = 'stoyangu-media';
+const SKIN_BUCKET = 'stoyangu-skins';
 
 async function skinFounder(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -273,6 +273,13 @@ async function readSkin(storeId) {
   ]);
   if (!front.data || !template.data) return null;
   return { storefront: await front.data.text(), template: await template.data.text() };
+}
+
+async function ensureSkinBucket() {
+  const probe = await supabase.storage.from(SKIN_BUCKET).list('', { limit: 1 });
+  if (probe.error) {
+    await supabase.storage.createBucket(SKIN_BUCKET, { public: true }).catch(() => undefined);
+  }
 }
 
 async function handleSkinUpload(req, res) {
@@ -297,11 +304,15 @@ async function handleSkinUpload(req, res) {
   const binaries = Array.isArray(req.body?.binaries) ? req.body.binaries : [];
   if (!texts.length && !binaries.length) return res.status(400).json({ error: 'No files listed.' });
   const supabaseHost = (() => { try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').hostname; } catch { return null; } })();
-  const verdict = validateSkin(texts.map((item) => ({ path: String(item.path || ''), content: String(item.content || '') })), supabaseHost);
-  if (!verdict.ok) return res.status(400).json({ error: 'Skin failed validation. Fix these and upload again:', details: verdict.errors, warnings: verdict.warnings });
-  // All text assets write directly from this trusted server path.
-  const mime = (path) => ({ html: 'text/html', css: 'text/css', js: 'text/javascript', json: 'application/json', webmanifest: 'application/manifest+json', txt: 'text/plain', md: 'text/markdown', map: 'application/json' }[String(path).split('.').pop()?.toLowerCase() || ''] || 'application/octet-stream');
-  for (const item of verdict.ok ? verdict.texts || texts : []) {
+  // REPAIR first, then validate — only the truly unfixable rejects.
+  let repaired;
+  try { repaired = autoRepairSkin(texts.map((item) => ({ path: String(item.path || ''), content: String(item.content || '') }))); }
+  catch { return res.status(400).json({ error: 'No usable skin files found — the zip needs at least a storefront.html.' }); }
+  const verdict = validateSkin(repaired.texts, supabaseHost);
+  if (!verdict.ok) return res.status(400).json({ error: 'Skin failed validation:', details: verdict.errors, warnings: verdict.warnings });
+  await ensureSkinBucket();
+  const mime = (path) => ({ html: 'text/html', css: 'text/css', js: 'text/javascript', json: 'application/json', webmanifest: 'application/manifest+json', txt: 'text/plain', md: 'text/markdown', map: 'application/json', svg: 'image/svg+xml' }[String(path).split('.').pop()?.toLowerCase() || ''] || 'text/plain');
+  for (const item of repaired.texts) {
     const relPath = skinPath(storeId, String(item.path));
     const up = await supabase.storage.from(SKIN_BUCKET).upload(relPath, String(item.content || ''), { contentType: mime(relPath), upsert: true });
     if (up.error) return res.status(500).json({ error: `Could not store ${item.path}: ${up.error.message}` });
@@ -314,7 +325,7 @@ async function handleSkinUpload(req, res) {
     if (error) return res.status(500).json({ error: `Could not sign ${relPath}: ${error.message}` });
     signed.push({ path: relPath, signedUrl: data.signedUrl });
   }
-  return res.status(200).json({ signed, warnings: verdict.warnings, storefrontPath: verdict.storefrontPath, templatePath: verdict.templatePath });
+  return res.status(200).json({ signed, warnings: verdict.warnings, fixed: repaired.fixed, storefrontPath: verdict.storefrontPath, templatePath: verdict.templatePath });
 }
 
 export default async function handler(req, res) {
