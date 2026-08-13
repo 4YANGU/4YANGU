@@ -116,16 +116,14 @@
       + '.product-price{margin:0;font-weight:800;font-size:14px}'
       + '.sty-view,[data-view-product]{margin-top:auto;background:#111;color:#fff;border:0;border-radius:10px;padding:11px 12px;font-weight:800;font-size:12px;cursor:pointer;width:100%}'
       + '.sty-empty{grid-column:1/-1;padding:28px;text-align:center;opacity:.7}'
-      + '.product-popup{position:fixed;inset:0;background:rgba(10,10,10,.8);display:none;align-items:center;justify-content:center;padding:18px;z-index:90}'
+      + '.product-popup{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center}'
       + '.product-popup.open{display:flex!important}'
-      + '.product-popup .dialog{background:#111;color:#f5f5f0;max-width:520px;width:100%;max-height:88vh;overflow:auto;border-radius:22px;position:relative}'
-      + '.product-popup .popup-image{width:100%;aspect-ratio:1;object-fit:cover;background:#1a1a1a;display:block}'
-      + '.product-popup .content{padding:20px 22px 24px;display:grid;gap:10px}'
-      + '.sty-close{position:fixed;top:18px;right:18px;z-index:95;border:0;background:#fff;color:#111;width:42px;height:42px;border-radius:50%;font-size:22px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.35);line-height:42px;padding:0}'
+      + '.sty-close{position:fixed;top:16px;right:16px;z-index:96}'
       + '.sty-thumbs{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px 0}'
       + '.sty-thumbs button{width:56px;height:56px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:none}'
-      + '.sty-thumbs button.active{border-color:#25D366}'
+      + '.sty-thumbs button.active{border-color:currentColor}'
       + '.sty-thumbs img{width:100%;height:100%;object-fit:cover;display:block}'
+      + '.sty-brand-logo{height:36px;width:auto;object-fit:contain;display:block}'
       + '.filter-chip,.sty-filter{cursor:pointer}'
       + 'header.sty-sticky-nav,#navbar.sty-sticky-nav,.sty-sticky-nav{position:sticky!important;top:0!important;z-index:60!important}'
       + '#menuBtn,.mobile-menu,#mobileMenu,.sj-menu-trigger{display:none!important}'
@@ -141,6 +139,7 @@
   function ensurePopup() {
     ensureCss();
     popup = document.querySelector('.product-popup');
+    var designed = Boolean(popup);
     if (!popup) {
       popup = document.createElement('div');
       popup.className = 'product-popup';
@@ -162,8 +161,9 @@
     if (!popup.querySelector('[data-fulfilment]')) {
       var orderBtn = popup.querySelector('[data-whatsapp], a.order');
       var extra = document.createElement('div');
-      extra.innerHTML = '<label class="sty-field">How would you like to receive it?<select data-fulfilment><option>Delivery</option><option>In-store pickup</option></select></label>'
-        + '<label class="sty-field">Delivery or order note<textarea data-note maxlength="300" placeholder="Estate, building, landmark or collection time"></textarea></label>';
+      extra.className = designed ? '' : 'sty-field-wrap';
+      extra.innerHTML = '<label>How would you like to receive it?<select data-fulfilment><option>Delivery</option><option>In-store pickup</option></select></label>'
+        + '<label>Delivery or order note<textarea data-note maxlength="300" placeholder="Estate, building, landmark or collection time"></textarea></label>';
       if (orderBtn && orderBtn.parentNode) orderBtn.parentNode.insertBefore(extra, orderBtn);
       else popup.appendChild(extra);
     }
@@ -201,6 +201,57 @@
     return cats;
   }
 
+  function paintLogo() {
+    var logo = store && store.logo_url;
+    if (!logo) return;
+    var placed = false;
+    document.querySelectorAll('img[data-store-logo], header img, #navbar img, .logo img, .store-logo, .sty-brand-logo').forEach(function (img) {
+      if (img.tagName === 'IMG') {
+        img.src = logo;
+        img.alt = storeName();
+        img.classList.add('sty-brand-logo');
+        placed = true;
+      }
+    });
+    var brand = document.querySelector('.sty-brand, [data-store-nav] > a, header a, #navbar a');
+    if (brand && logo) {
+      var existing = brand.querySelector('img');
+      if (existing) {
+        existing.src = logo;
+        existing.alt = storeName();
+      } else if (!placed) {
+        var img = document.createElement('img');
+        img.src = logo;
+        img.alt = storeName();
+        img.className = 'sty-brand-logo';
+        brand.insertBefore(img, brand.firstChild);
+      }
+    }
+  }
+
+  function ensureSection(id, candidates) {
+    if (document.getElementById(id)) return document.getElementById(id);
+    for (var i = 0; i < candidates.length; i++) {
+      var node = document.querySelector(candidates[i]);
+      if (node) {
+        if (!node.id) node.id = id;
+        else if (node.id !== id) {
+          var wrap = document.createElement('div');
+          wrap.id = id;
+          if (node.parentNode) {
+            node.parentNode.insertBefore(wrap, node);
+            wrap.appendChild(node);
+          }
+        }
+        return document.getElementById(id);
+      }
+    }
+    var created = document.createElement('section');
+    created.id = id;
+    document.body.appendChild(created);
+    return created;
+  }
+
   function paintNav() {
     var header = document.querySelector('header, #navbar, [data-store-nav]');
     if (!header) {
@@ -227,18 +278,10 @@
     nav.innerHTML = '<a href="#home" data-nav="home">Home</a>'
       + '<a href="#products" data-nav="products">Products</a>'
       + '<a href="#contact" data-nav="contact">Contact</a>';
-    if (!document.getElementById('home')) {
-      var home = document.querySelector('#top, section, main') || document.body.firstElementChild;
-      if (home && !home.id) home.id = 'home';
-    }
-    if (!document.getElementById('products')) {
-      var shop = document.querySelector('#productGrid, #shop, [data-product-grid]');
-      if (shop && !document.getElementById('products')) shop.id = shop.id || 'products';
-    }
-    if (!document.getElementById('contact')) {
-      var visit = document.querySelector('#visit, footer');
-      if (visit && !visit.id) visit.id = 'contact';
-    }
+    ensureSection('home', ['#home', '#top', 'section', 'main']);
+    ensureSection('products', ['#products', '#productGrid', '#shop', '[data-product-grid]', '[data-sty-live]']);
+    ensureSection('contact', ['#contact', '#visit', 'footer']);
+    paintLogo();
   }
 
   function paintFilters() {
@@ -309,6 +352,10 @@
     ensureCss();
     var existing = document.querySelector('.product-card');
     if (existing && !cardTemplate) cardTemplate = existing.cloneNode(true);
+    document.querySelectorAll('.product-card').forEach(function (node) {
+      if (!node.closest('[data-sty-live="1"]')) node.remove();
+    });
+    document.querySelectorAll('#featuredGrid .product-card, [data-sample-product]').forEach(function (node) { node.remove(); });
     var host = document.querySelector('[data-sty-live="1"]') || findMount();
     if (!host) {
       host = document.createElement('section');
@@ -423,6 +470,20 @@
       }
       if (popup && popupOpen && t === popup) {
         closePopup();
+        return;
+      }
+      var navLink = t.closest('a[data-nav], nav.sty-nav a, [data-app-nav] a');
+      if (navLink) {
+        var href = navLink.getAttribute('href') || '';
+        var id = href.charAt(0) === '#' ? href.slice(1) : navLink.getAttribute('data-nav');
+        var target = id && document.getElementById(id);
+        if (target) {
+          event.preventDefault();
+          event.stopPropagation();
+          closePopup();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          try { history.replaceState(null, '', '#' + id); } catch (err) {}
+        }
         return;
       }
       var chip = t.closest('[data-filter], .filter-chip, .sty-filter');

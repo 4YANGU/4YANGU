@@ -97,6 +97,22 @@ function liveCardHtml(product) {
   </article>`;
 }
 
+function stripSampleCards(html) {
+  return String(html || '').replace(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi, '');
+}
+
+function applyStoreLogo(html, store) {
+  const logo = String(store?.logo_url || '').trim();
+  if (!logo) return html;
+  let out = html;
+  out = out.replace(/(<img\b[^>]*\b(?:data-store-logo|class=["'][^"']*\b(?:logo|store-logo|brand-logo)\b[^"']*["'])[^>]*\bsrc\s*=\s*["'])[^"']*(["'])/gi, `$1${logo}$2`);
+  out = out.replace(/(<img\b[^>]*\bsrc\s*=\s*["'])[^"']*(["'][^>]*\b(?:data-store-logo|alt=["'][^"']*logo))/gi, `$1${logo}$2`);
+  if (!/data-store-logo/.test(out) && /<header[\s\S]{0,1200}?<img\b[^>]*src=/i.test(out)) {
+    out = out.replace(/(<header[\s\S]{0,1200}?<img\b[^>]*\bsrc\s*=\s*["'])[^"']*(["'])/i, `$1${logo}$2`);
+  }
+  return out;
+}
+
 function injectLiveProducts(html, store, products) {
   const list = Array.isArray(products) ? products : [];
   const catalog = escapeAttr(JSON.stringify(list.map((product) => ({
@@ -109,23 +125,25 @@ function injectLiveProducts(html, store, products) {
     image_url: product.image_url || '',
     images: Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean),
   }))));
-  const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}">${catalog}</template>`;
-  let out = /id=["']stoyangu-catalog["']/.test(html) ? html : (/<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${payload}</body>`) : html + payload);
+  let out = applyStoreLogo(stripSampleCards(html), store);
+  if (!/id=["']stoyangu-catalog["']/.test(out)) {
+    const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}" data-logo="${escapeAttr(store.logo_url || '')}">${catalog}</template>`;
+    out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `${payload}</body>`) : out + payload;
+  }
 
   const cards = list.map(liveCardHtml).join('\n');
   const grid = `<div class="sty-grid" data-sty-live="1" data-product-grid="1">${cards || '<p class="sty-empty">New products are coming soon.</p>'}</div>`;
 
   if (/id=["']productGrid["']/.test(out)) {
-    out = out.replace(/(<[^>]*id=["']productGrid["'][^>]*>)[\s\S]*?(<\/div>)/i, `$1${grid}$2`);
+    out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*id=["']productGrid["'][^>]*)>[\s\S]*?<\/\1>/i, `<$1$2>${grid}</$1>`);
   } else if (/data-product-grid/.test(out) && !/data-sty-live/.test(out)) {
     out = out.replace(/(<[^>]*data-product-grid[^>]*>)/i, `$1${grid}`);
   } else if (/id=["']products["']/.test(out)) {
-    const withoutScripts = out.replace(/<script\b[\s\S]*?<\/script>/gi, '');
-    const cardMatch = withoutScripts.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
-    if (cardMatch && out.includes(cardMatch[0])) out = out.replace(cardMatch[0], grid);
-    else out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${grid}`);
+    out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${grid}`);
   } else if (/id=["']shop["']/.test(out)) {
     out = out.replace(/(<[^>]*id=["']shop["'][^>]*>)/i, `$1${grid}`);
+  } else {
+    out = /<\/main>/i.test(out) ? out.replace(/<\/main>/i, `${grid}</main>`) : out + grid;
   }
   return out;
 }
@@ -541,6 +559,8 @@ MANDATORY MARKUP (keep these class names and data-attributes exactly):
    Those three words must be visible on phones and computers. No click-to-open drawer.
    Make the header sticky (stays at the top while the customer scrolls).
    Style header, the store name and nav links to match the shop.
+   For the logo use: <img data-store-logo alt="" />
+   StoYangu replaces that with the store logo already saved in Manage Store. Never invent a logo file.
 
 2. CATEGORY BUTTONS — the APP builds these too. You only style them.
    <div id="filters"></div>
