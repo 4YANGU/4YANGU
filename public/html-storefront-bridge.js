@@ -37,7 +37,7 @@
     var num = Number(digits);
     return isFinite(num) ? num : 0;
   }
-  function money(v) { return 'KES ' + rawPrice(v).toLocaleString('en-KE'); }
+  function money(v) { return 'KSh ' + rawPrice(v).toLocaleString('en-KE'); }
   function phoneDigits() { return String((store && store.whatsapp) || (meta && meta.getAttribute('data-whatsapp')) || '').replace(/\D/g, ''); }
   function storeName() { return (store && store.name) || (meta && meta.getAttribute('data-name')) || 'this store'; }
   function photosOf(p) {
@@ -82,13 +82,22 @@
     });
   }
 
+  function chosenOption(kind) {
+    if (!popup) return '';
+    var on = popup.querySelector('[data-sty-option="' + kind + '"].active, [data-sty-option="' + kind + '"][aria-pressed="true"]');
+    if (on) return on.getAttribute('data-value') || on.textContent.trim();
+    var select = popup.querySelector(kind === 'color' ? '[data-color], select[name*="color"], select[name*="colour"]' : kind === 'size' ? '[data-size], select[name*="size"]' : '[data-fulfilment], select[name*="fulfil"], select[name*="deliver"]');
+    return select ? String(select.value || '').trim() : '';
+  }
+
   function extrasFromPopup() {
     if (!popup) return {};
+    var note = popup.querySelector('[data-note], textarea');
     return {
-      color: (popup.querySelector('[data-color]') || {}).value || '',
-      size: (popup.querySelector('[data-size]') || {}).value || '',
-      fulfilment: (popup.querySelector('[data-fulfilment]') || {}).value || 'Delivery',
-      note: (popup.querySelector('[data-note]') || {}).value || '',
+      color: chosenOption('color'),
+      size: chosenOption('size'),
+      fulfilment: chosenOption('fulfilment') || 'Delivery',
+      note: note ? note.value : '',
     };
   }
 
@@ -105,6 +114,59 @@
     el.innerHTML = '<option value="">' + (placeholder || 'Choose…') + '</option>' + opts.map(function (item) {
       return '<option value="' + esc(item) + '">' + esc(item) + '</option>';
     }).join('');
+  }
+
+  function findChoiceHost(kind) {
+    var attr = kind === 'color'
+      ? '[data-color-options], [data-colors], [data-colour-options]'
+      : kind === 'size'
+        ? '[data-size-options], [data-sizes]'
+        : '[data-fulfilment-options], [data-fulfilment]';
+    var direct = popup.querySelector(attr);
+    if (direct && direct.tagName !== 'SELECT' && direct.tagName !== 'OPTION') {
+      return direct.tagName === 'BUTTON' ? direct.parentElement : direct;
+    }
+    var words = kind === 'color' ? /^(colour|color)$/i : kind === 'size' ? /^size/i : /how should we get it|fulfil|pickup|pick up|delivery/i;
+    var nodes = popup.querySelectorAll('p, span, label, legend, h4, h5, div, small');
+    for (var i = 0; i < nodes.length; i++) {
+      var text = String(nodes[i].textContent || '').replace(/\s+/g, ' ').trim();
+      if (!words.test(text) || text.length > 40) continue;
+      var parent = nodes[i].parentElement;
+      if (parent && parent.querySelector('button, [role="button"]')) return parent;
+      var next = nodes[i].nextElementSibling;
+      if (next && next.querySelector && next.querySelector('button, [role="button"]')) return next;
+    }
+    return null;
+  }
+
+  function paintChoices(kind, items) {
+    var host = findChoiceHost(kind);
+    var opts = (items || []).filter(Boolean);
+    if (!host) {
+      if (kind === 'fulfilment') return;
+      var select = popup.querySelector(kind === 'color' ? '[data-color], select[name*="color"]' : '[data-size], select[name*="size"]');
+      fillSelect(select, opts, kind === 'color' ? 'Choose colour' : 'Choose size');
+      return;
+    }
+    var sample = host.querySelector('button, [role="button"], .size-pill, .sty-pill');
+    var cls = sample ? String(sample.className || '').replace(/\bactive\b/g, '').replace(/\s+/g, ' ').trim() : 'sty-pill';
+    host.querySelectorAll('button, [role="button"], .size-pill').forEach(function (btn) {
+      if (!/choose one|choose/i.test(String(btn.textContent || '').trim())) btn.remove();
+    });
+    if (!opts.length) return;
+    opts.forEach(function (item) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = cls;
+      btn.setAttribute('data-sty-option', kind);
+      btn.setAttribute('data-value', item);
+      btn.textContent = item;
+      host.appendChild(btn);
+    });
+    if (kind === 'fulfilment' && opts.length && !chosenOption('fulfilment')) {
+      var first = host.querySelector('[data-sty-option="fulfilment"]');
+      if (first) first.classList.add('active');
+    }
   }
 
   function ensureCss() {
@@ -135,7 +197,6 @@
   function ensurePopup() {
     ensureCss();
     popup = findDesignedPopup();
-    var designed = Boolean(popup);
     if (!popup) {
       popup = document.createElement('div');
       popup.className = 'product-popup';
@@ -145,46 +206,36 @@
         + '<div class="sty-thumbs" data-thumbs></div>'
         + '<div class="content">'
         + '<h3 data-popup-name>Product</h3>'
-        + '<p class="popup-price" data-popup-price>KES 0</p>'
-        + '<label class="sty-field">Colour <select data-color></select></label>'
-        + '<label class="sty-field">Size <select data-size></select></label>'
-        + '<label class="sty-field">How would you like to receive it? <select data-fulfilment><option>Delivery</option><option>In-store pickup</option></select></label>'
-        + '<label class="sty-field">Delivery or order note <textarea data-note maxlength="300" placeholder="Estate, building, landmark or collection time"></textarea></label>'
+        + '<p class="popup-price" data-popup-price></p>'
+        + '<div data-color-options></div>'
+        + '<div data-size-options></div>'
+        + '<div data-fulfilment-options></div>'
+        + '<textarea data-note maxlength="300" placeholder="Any colour preference, delivery area, or question?"></textarea>'
         + '<a class="order" data-whatsapp href="#" target="_blank" rel="noopener noreferrer">Order via WhatsApp</a>'
         + '</div></div>';
       document.body.appendChild(popup);
     }
     popup.classList.add('product-popup');
     popup.setAttribute('data-product-popup', '1');
-    if (!popup.querySelector('[data-fulfilment]')) {
-      var orderBtn = popup.querySelector('[data-whatsapp], a.order');
-      var extra = document.createElement('div');
-      extra.className = designed ? '' : 'sty-field-wrap';
-      extra.innerHTML = '<label>How would you like to receive it?<select data-fulfilment><option>Delivery</option><option>In-store pickup</option></select></label>'
-        + '<label>Delivery or order note<textarea data-note maxlength="300" placeholder="Estate, building, landmark or collection time"></textarea></label>';
-      if (orderBtn && orderBtn.parentNode) orderBtn.parentNode.insertBefore(extra, orderBtn);
-      else popup.appendChild(extra);
-    }
-    var closes = popup.querySelectorAll('#closeModal, [data-close-popup], .sty-close, [aria-label="Close"], [aria-label="close"]');
-    if (!closes.length) {
-      var made = document.createElement('button');
-      made.type = 'button';
-      made.className = 'sty-close';
-      made.setAttribute('data-close-popup', '1');
-      made.setAttribute('aria-label', 'Close');
-      made.textContent = '×';
-      document.body.appendChild(made);
-      closes = [made];
-    }
-    var keeper = closes[0];
-    keeper.setAttribute('data-close-popup', '1');
-    keeper.classList.add('sty-close');
-    if (keeper.parentNode !== document.body) document.body.appendChild(keeper);
-    Array.prototype.forEach.call(closes, function (btn, index) {
-      if (index === 0) return;
-      btn.classList.add('sty-close--duplicate');
-      btn.style.setProperty('display', 'none', 'important');
+    popup.querySelectorAll('.sty-field-wrap, [data-sty-extra-fulfil]').forEach(function (node) { node.remove(); });
+    var extras = [];
+    popup.querySelectorAll('label, p, div').forEach(function (node) {
+      var text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (/^How would you like to receive it\??/i.test(text) || /^Delivery or order note/i.test(text)) extras.push(node);
     });
+    extras.forEach(function (node) {
+      if (node.querySelector && (node.querySelector('[data-fulfilment]') || node.querySelector('[data-note]'))) node.remove();
+    });
+    var designedClose = popup.querySelector('#closeModal');
+    popup.querySelectorAll('.sty-close, [data-close-popup]').forEach(function (btn) {
+      if (designedClose && btn !== designedClose) {
+        btn.classList.add('sty-close--duplicate');
+        btn.style.setProperty('display', 'none', 'important');
+      } else {
+        btn.setAttribute('data-close-popup', '1');
+      }
+    });
+    if (designedClose) designedClose.setAttribute('data-close-popup', '1');
     if (!popupOpen) {
       popup.classList.remove('open');
       popup.style.setProperty('display', 'none', 'important');
@@ -479,54 +530,42 @@
   function fillPopupContent(product) {
     var photos = photosOf(product);
     activeImage = photos[0] || '';
-    var mount = popup.querySelector('#modalContent, .dialog, .modal-panel, .content') || popup;
-    if (!firstMatch(popup, ['[data-popup-name]', 'h1', 'h2', 'h3', '.product-name'])) {
-      var block = document.createElement('div');
-      block.setAttribute('data-sty-filled', '1');
-      block.innerHTML = '<img data-popup-image alt=""><div data-thumbs></div><h3 data-popup-name></h3><p data-popup-price class="popup-price"></p>'
-        + '<label>Colour <select data-color></select></label><label>Size <select data-size></select></label>'
-        + '<label>How would you like to receive it? <select data-fulfilment><option>Delivery</option><option>In-store pickup</option></select></label>'
-        + '<label>Delivery or order note <textarea data-note maxlength="300"></textarea></label>'
-        + '<a class="order" data-whatsapp href="#" target="_blank" rel="noopener noreferrer">Order via WhatsApp</a>';
-      mount.appendChild(block);
+    var img = firstMatch(popup, ['[data-popup-image]', '.popup-image', '.dialog img', '.modal-panel img', '#modalContent img', 'img']);
+    if (img && img.closest && img.closest('[data-thumbs], .sty-thumbs, header')) img = firstMatch(popup, ['[data-popup-image]', '.popup-image']);
+    if (img) {
+      img.src = activeImage;
+      img.alt = product.name;
     }
-    var img = firstMatch(popup, ['[data-popup-image]', '.popup-image', '.dialog img', '.modal-panel img', 'img']);
-    if (img && img.closest && img.closest('[data-thumbs], .sty-thumbs')) {
-      img = firstMatch(popup, ['[data-popup-image]', '.popup-image']);
-    }
-    if (!img) {
-      img = document.createElement('img');
-      img.setAttribute('data-popup-image', '');
-      mount.insertBefore(img, mount.firstChild);
-    }
-    img.src = activeImage;
-    img.alt = product.name;
-    popup.querySelectorAll('img:not([data-thumb] img):not(.sty-thumbs img)').forEach(function (node) {
-      if (!node.closest('[data-thumbs], .sty-thumbs, header, .sty-brand')) {
-        if (node === img || node.classList.contains('popup-image') || node.hasAttribute('data-popup-image')) {
-          node.src = activeImage;
-          node.alt = product.name;
-        }
+    popup.querySelectorAll('img').forEach(function (node) {
+      if (node.closest('[data-thumbs], .sty-thumbs, header, .sty-brand, nav')) return;
+      if (node === img || node.classList.contains('popup-image') || node.hasAttribute('data-popup-image')) {
+        node.src = activeImage;
+        node.alt = product.name;
       }
     });
     setAllText(popup, ['[data-popup-name]', '#modalContent h2', '#modalContent h3', '.dialog h2', '.dialog h3', '.modal-panel h2', '.modal-panel h3'], product.name);
-    setText(popup, ['[data-popup-name]', '#modalContent h2', '#modalContent h3', '.dialog h2', '.dialog h3', '.modal-panel h2', '.modal-panel h3', 'h2', 'h3'], product.name);
     var shownPrice = money(product.price != null ? product.price : product.unit_price);
-    setAllText(popup, ['[data-popup-price]', '.popup-price', '.product-price', '[data-price]', '.sj-modal-price'], shownPrice);
-    popup.querySelectorAll('p, span, strong, b, h4').forEach(function (node) {
-      var text = String(node.textContent || '').trim();
-      if (/^KES\s*0$|^Ksh\s*0$|^0$|^KES\s*0\.00$/i.test(text) || /data-popup-price|popup-price|product-price/.test(node.className || '') || node.hasAttribute('data-popup-price')) {
-        node.textContent = shownPrice;
+    setAllText(popup, ['[data-popup-price]', '.popup-price', '.product-price', '.sj-modal-price'], shownPrice);
+    popup.querySelectorAll('p, span, strong, b, h4, div').forEach(function (node) {
+      if (node.children && node.children.length > 2) return;
+      var text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (/^(KES|KSh|Ksh|ksh)\s*0(\.00)?$/.test(text) || node.hasAttribute('data-popup-price') || /\bpopup-price\b|\bproduct-price\b|\bprice\b/i.test(node.className || '')) {
+        if (node.children.length === 0 || /0/.test(text)) node.textContent = shownPrice;
       }
     });
-    var cat = firstMatch(popup, ['[data-popup-category]', '.product-category', '.sty-cat']);
-    if (cat) cat.textContent = product.category || '';
-    fillSelect(firstMatch(popup, ['[data-color]', 'select[name*="color"]', 'select[name*="colour"]']), product.colors || [], 'Choose colour');
-    fillSelect(firstMatch(popup, ['[data-size]', 'select[name*="size"]']), product.sizes || [], 'Choose size');
+    paintChoices('color', product.colors || []);
+    paintChoices('size', product.sizes || []);
+    var fulfilHost = findChoiceHost('fulfilment');
+    if (fulfilHost) {
+      var existing = [];
+      fulfilHost.querySelectorAll('button, [role="button"]').forEach(function (btn) {
+        var label = String(btn.textContent || '').replace(/\s+/g, ' ').trim();
+        if (label && !/choose/i.test(label)) existing.push(label);
+      });
+      if (existing.length) paintChoices('fulfilment', existing);
+    }
     var noteEl = firstMatch(popup, ['[data-note]', 'textarea']);
     if (noteEl) noteEl.value = '';
-    var fulfil = firstMatch(popup, ['[data-fulfilment]']);
-    if (fulfil) fulfil.value = 'Delivery';
     renderThumbs(product);
     rebuildOrder();
   }
@@ -591,6 +630,18 @@
     document.addEventListener('click', function (event) {
       var t = event.target;
       if (!t || !t.closest) return;
+      var choice = t.closest('[data-sty-option]');
+      if (choice && popup && popup.contains(choice)) {
+        var kind = choice.getAttribute('data-sty-option');
+        popup.querySelectorAll('[data-sty-option="' + kind + '"]').forEach(function (btn) {
+          btn.classList.toggle('active', btn === choice);
+          btn.setAttribute('aria-pressed', btn === choice ? 'true' : 'false');
+        });
+        rebuildOrder();
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       var thumb = t.closest('[data-thumb]');
       if (thumb && popup && popup.contains(thumb)) {
         activeImage = thumb.getAttribute('data-thumb');

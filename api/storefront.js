@@ -65,7 +65,7 @@ function escapeAttr(value) {
 }
 function formatPrice(value) {
   const num = Number(value || 0);
-  return `KES ${num.toLocaleString('en-KE')}`;
+  return `KSh ${num.toLocaleString('en-KE')}`;
 }
 function buildCard(cardTemplate, product) {
   const images = Array.isArray(product.images) && product.images.length ? product.images : (product.image_url ? [product.image_url] : []);
