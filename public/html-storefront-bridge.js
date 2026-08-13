@@ -426,26 +426,77 @@
     }).join('');
   }
 
+  function firstMatch(root, selectors) {
+    for (var i = 0; i < selectors.length; i++) {
+      var node = root.querySelector(selectors[i]);
+      if (node) return node;
+    }
+    return null;
+  }
+
+  function setText(root, selectors, value) {
+    var node = firstMatch(root, selectors);
+    if (node) {
+      node.textContent = value;
+      return node;
+    }
+    return null;
+  }
+
+  function fillPopupContent(product) {
+    var photos = photosOf(product);
+    activeImage = photos[0] || '';
+    var mount = popup.querySelector('#modalContent, .dialog, .modal-panel, .content') || popup;
+    if (!firstMatch(popup, ['[data-popup-name]', 'h1', 'h2', 'h3', '.product-name'])) {
+      var block = document.createElement('div');
+      block.setAttribute('data-sty-filled', '1');
+      block.innerHTML = '<img data-popup-image alt=""><div data-thumbs></div><h3 data-popup-name></h3><p data-popup-price class="popup-price"></p>'
+        + '<label>Colour <select data-color></select></label><label>Size <select data-size></select></label>'
+        + '<label>How would you like to receive it? <select data-fulfilment><option>Delivery</option><option>In-store pickup</option></select></label>'
+        + '<label>Delivery or order note <textarea data-note maxlength="300"></textarea></label>'
+        + '<a class="order" data-whatsapp href="#" target="_blank" rel="noopener noreferrer">Order via WhatsApp</a>';
+      mount.appendChild(block);
+    }
+    var img = firstMatch(popup, ['[data-popup-image]', '.popup-image', '.dialog img', '.modal-panel img', 'img']);
+    if (img && img.closest && img.closest('[data-thumbs], .sty-thumbs')) {
+      img = firstMatch(popup, ['[data-popup-image]', '.popup-image']);
+    }
+    if (!img) {
+      img = document.createElement('img');
+      img.setAttribute('data-popup-image', '');
+      mount.insertBefore(img, mount.firstChild);
+    }
+    img.src = activeImage;
+    img.alt = product.name;
+    popup.querySelectorAll('img:not([data-thumb] img):not(.sty-thumbs img)').forEach(function (node) {
+      if (!node.closest('[data-thumbs], .sty-thumbs, header, .sty-brand')) {
+        if (node === img || node.classList.contains('popup-image') || node.hasAttribute('data-popup-image')) {
+          node.src = activeImage;
+          node.alt = product.name;
+        }
+      }
+    });
+    setText(popup, ['[data-popup-name]', '#modalContent h2', '#modalContent h3', '.dialog h2', '.dialog h3', '.modal-panel h2', '.modal-panel h3', 'h2', 'h3', '.product-name'], product.name);
+    setText(popup, ['[data-popup-price]', '.popup-price', '.product-price', '.price', 'strong'], money(product.price));
+    var cat = firstMatch(popup, ['[data-popup-category]', '.product-category', '.sty-cat']);
+    if (cat) cat.textContent = product.category || '';
+    fillSelect(firstMatch(popup, ['[data-color]', 'select[name*="color"]', 'select[name*="colour"]']), product.colors || [], 'Choose colour');
+    fillSelect(firstMatch(popup, ['[data-size]', 'select[name*="size"]']), product.sizes || [], 'Choose size');
+    var noteEl = firstMatch(popup, ['[data-note]', 'textarea']);
+    if (noteEl) noteEl.value = '';
+    var fulfil = firstMatch(popup, ['[data-fulfilment]']);
+    if (fulfil) fulfil.value = 'Delivery';
+    renderThumbs(product);
+    rebuildOrder();
+  }
+
   function openProduct(product) {
     if (!product) return;
     lastProduct = product;
     activeImage = photoOf(product);
     track('product_view', product.id);
     ensurePopup();
-    var img = popup.querySelector('[data-popup-image], .popup-image');
-    var nameEl = popup.querySelector('[data-popup-name]');
-    var priceEl = popup.querySelector('[data-popup-price]');
-    var noteEl = popup.querySelector('[data-note]');
-    if (img) { img.src = activeImage; img.alt = product.name; }
-    if (nameEl) nameEl.textContent = product.name;
-    if (priceEl) priceEl.textContent = money(product.price);
-    fillSelect(popup.querySelector('[data-color]'), product.colors || [], 'Choose colour');
-    fillSelect(popup.querySelector('[data-size]'), product.sizes || [], 'Choose size');
-    if (noteEl) noteEl.value = '';
-    var fulfil = popup.querySelector('[data-fulfilment]');
-    if (fulfil) fulfil.value = 'Delivery';
-    renderThumbs(product);
-    rebuildOrder();
+    fillPopupContent(product);
     popupOpen = true;
     popup.classList.add('open');
     popup.removeAttribute('hidden');
@@ -454,10 +505,11 @@
     popup.style.setProperty('visibility', 'visible', 'important');
     popup.style.setProperty('pointer-events', 'auto', 'important');
     popup.style.setProperty('z-index', '90', 'important');
-    var panel = popup.querySelector('.dialog, .modal-panel, .content');
+    var panel = popup.querySelector('.dialog, .modal-panel, .content, #modalContent');
     if (panel) {
       panel.style.setProperty('opacity', '1', 'important');
       panel.style.setProperty('transform', 'none', 'important');
+      panel.style.setProperty('display', 'block', 'important');
     }
     document.body.style.overflow = 'hidden';
   }
