@@ -83,29 +83,30 @@ function buildCard(cardTemplate, product) {
   card = card.replace(/(\bclass\s*=\s*["'][^"']*\bproduct-price\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z][a-z0-9]*>)/i, (_, open, _mid, close) => `${open}${escapeAttr(formatPrice(product.price))}${close}`);
   return card;
 }
-function liveCardHtml(product) {
-  const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean);
-  const primary = images[0] || '';
-  return `<article class="product-card" data-id="${escapeAttr(product.id)}" data-name="${escapeAttr(product.name)}" data-category="${escapeAttr(product.category || '')}" data-price="${escapeAttr(formatPrice(product.price))}" data-image="${escapeAttr(primary)}" data-colors="${escapeAttr((product.colors || []).join('|'))}" data-sizes="${escapeAttr((product.sizes || []).join('|'))}">
-    <img class="sty-photo" src="${escapeAttr(primary)}" alt="${escapeAttr(product.name)}" />
-    <div class="sty-body">
-      <span class="product-category sty-cat">${escapeAttr(product.category || '')}</span>
-      <p class="product-name">${escapeAttr(product.name)}</p>
-      <p class="product-price">${escapeAttr(formatPrice(product.price))}</p>
-      <button type="button" class="sty-view" data-view-product="1">View product</button>
-    </div>
-  </article>`;
+function extractCardTemplate(html) {
+  const match = String(html || '').match(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/i);
+  return match ? match[0] : '';
 }
 
-function stripSampleCards(html) {
-  let out = String(html || '');
-  out = out.replace(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi, '');
-  out = out.replace(/<div\b[^>]*id=["']featuredGrid["'][^>]*>[\s\S]*?<\/div>/i, '<div id="featuredGrid" hidden></div>');
-  out = out.replace(/<div\b[^>]*id=["']productGrid["'][^>]*>[\s\S]*?<\/div>/i, (full) => {
-    if (/data-sty-live/.test(full)) return full;
-    return full.replace(/>[\s\S]*$/i, '></div>');
-  });
-  return out;
+function fillDesignedCard(template, product) {
+  const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean);
+  const primary = images[0] || '';
+  let card = template || `<article class="product-card"><img alt=""><span class="product-category"></span><p class="product-name"></p><p class="product-price"></p><button type="button" data-view-product>View product</button></article>`;
+  card = card.replace(/\bdata-id="[^"]*"/i, `data-id="${escapeAttr(product.id)}"`);
+  if (!/\bdata-id=/.test(card)) card = card.replace(/<article\b/i, `<article data-id="${escapeAttr(product.id)}"`);
+  card = card.replace(/\bdata-name="[^"]*"/i, `data-name="${escapeAttr(product.name)}"`);
+  card = card.replace(/\bdata-price="[^"]*"/i, `data-price="${escapeAttr(formatPrice(product.price))}"`);
+  card = card.replace(/\bdata-image="[^"]*"/i, `data-image="${escapeAttr(primary)}"`);
+  card = card.replace(/\bdata-category="[^"]*"/i, `data-category="${escapeAttr(product.category || '')}"`);
+  card = card.replace(/\bdata-colors="[^"]*"/i, `data-colors="${escapeAttr((product.colors || []).join('|'))}"`);
+  card = card.replace(/\bdata-sizes="[^"]*"/i, `data-sizes="${escapeAttr((product.sizes || []).join('|'))}"`);
+  card = card.replace(/(<img\b[^>]*\bsrc=")[^"]*(")/i, `$1${escapeAttr(primary)}$2`);
+  if (/<img\b/i.test(card) && !/<img\b[^>]*\bsrc=/i.test(card)) card = card.replace(/<img\b/i, `<img src="${escapeAttr(primary)}"`);
+  card = card.replace(/(<img\b[^>]*\balt=")[^"]*(")/i, `$1${escapeAttr(product.name)}$2`);
+  card = card.replace(/(class="[^"]*product-name[^"]*"[^>]*>)[\s\S]*?(<\/)/i, `$1${escapeAttr(product.name)}$2`);
+  card = card.replace(/(class="[^"]*product-price[^"]*"[^>]*>)[\s\S]*?(<\/)/i, `$1${escapeAttr(formatPrice(product.price))}$2`);
+  card = card.replace(/(class="[^"]*product-category[^"]*"[^>]*>)[\s\S]*?(<\/)/i, `$1${escapeAttr(product.category || '')}$2`);
+  return card;
 }
 
 function applyStoreLogo(html, store) {
@@ -122,6 +123,7 @@ function applyStoreLogo(html, store) {
 
 function injectLiveProducts(html, store, products) {
   const list = Array.isArray(products) ? products : [];
+  const cardTemplate = extractCardTemplate(html);
   const catalog = escapeAttr(JSON.stringify(list.map((product) => ({
     id: product.id,
     name: product.name,
@@ -132,25 +134,25 @@ function injectLiveProducts(html, store, products) {
     image_url: product.image_url || '',
     images: Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean),
   }))));
-  let out = applyStoreLogo(stripSampleCards(html), store);
-  if (!/id=["']stoyangu-catalog["']/.test(out)) {
-    const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}" data-logo="${escapeAttr(store.logo_url || '')}">${catalog}</template>`;
-    out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `${payload}</body>`) : out + payload;
-  }
-
-  const cards = list.map(liveCardHtml).join('\n');
-  const grid = `<div class="sty-grid" data-sty-live="1" data-product-grid="1">${cards || '<p class="sty-empty">New products are coming soon.</p>'}</div>`;
-
+  let out = applyStoreLogo(html, store);
+  out = out.replace(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi, '');
+  out = out.replace(/<div\b[^>]*id=["']featuredGrid["'][^>]*>[\s\S]*?<\/div>/i, '<div id="featuredGrid" hidden></div>');
+  const cards = list.map((product) => fillDesignedCard(cardTemplate, product)).join('\n');
+  const filled = cards || '<p class="sty-empty">New products are coming soon.</p>';
   if (/id=["']productGrid["']/.test(out)) {
-    out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*id=["']productGrid["'][^>]*)>[\s\S]*?<\/\1>/i, `<$1$2>${grid}</$1>`);
-  } else if (/data-product-grid/.test(out) && !/data-sty-live/.test(out)) {
-    out = out.replace(/(<[^>]*data-product-grid[^>]*>)/i, `$1${grid}`);
+    out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*id=["']productGrid["'][^>]*)>[\s\S]*?<\/\1>/i, `<$1$2 data-sty-live="1">${filled}</$1>`);
+  } else if (/data-product-grid/.test(out)) {
+    out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*data-product-grid[^>]*)>[\s\S]*?<\/\1>/i, `<$1$2 data-sty-live="1">${filled}</$1>`);
   } else if (/id=["']products["']/.test(out)) {
-    out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${grid}`);
+    out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${filled}`);
   } else if (/id=["']shop["']/.test(out)) {
-    out = out.replace(/(<[^>]*id=["']shop["'][^>]*>)/i, `$1${grid}`);
+    out = out.replace(/(<[^>]*id=["']shop["'][^>]*>)/i, `$1${filled}`);
   } else {
-    out = /<\/main>/i.test(out) ? out.replace(/<\/main>/i, `${grid}</main>`) : out + grid;
+    out = /<\/main>/i.test(out) ? out.replace(/<\/main>/i, `<div id="productGrid" data-product-grid data-sty-live="1">${filled}</div></main>`) : `${out}<div id="productGrid" data-product-grid data-sty-live="1">${filled}</div>`;
+  }
+  if (!/id=["']stoyangu-catalog["']/.test(out)) {
+    const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}" data-logo="${escapeAttr(store.logo_url || '')}">${catalog}</template>${cardTemplate ? `<template id="stoyangu-card-template">${cardTemplate}</template>` : ''}`;
+    out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `${payload}</body>`) : out + payload;
   }
   return out;
 }
@@ -575,22 +577,21 @@ MANDATORY MARKUP (keep these class names and data-attributes exactly):
    When the seller adds or renames a category, the buttons update by themselves.
    Style #filters and .sty-filter / .sty-filter.active (pill buttons in a row).
 
-3. PRODUCT GRID
-   <div id="productGrid" data-product-grid></div>
-   Also include ONE sample card the app clones for every live product:
-   <article class="product-card" data-id="" data-name="" data-price="" data-image="" data-category="">
-     <img alt="" />
-     <span class="product-category"></span>
-     <p class="product-name">Product</p>
-     <p class="product-price">KES 0</p>
-     <button type="button" class="view-product" data-view-product>View product</button>
-   </article>
-   Style the card as a neat equal-height tile: portrait photo (4:5) on top, name, price, full-width "View product" at the bottom. 2 columns on phones, 3–4 on desktop. Never dump a giant full-width photo as the only thing in the popup.
+3. PRODUCT GRID — YOU design the grid and the card. The app only fills live data.
+   <div id="productGrid" data-product-grid>
+     <article class="product-card" data-id="" data-name="" data-price="" data-image="" data-category="">
+       <img alt="" />
+       <span class="product-category"></span>
+       <p class="product-name">Product</p>
+       <p class="product-price">KES 0</p>
+       <button type="button" class="view-product" data-view-product>View product</button>
+     </article>
+   </div>
+   Style #productGrid and .product-card however you want this shop to look.
+   The sample card is a template only — the app clones it for every real product and hides the sample.
 
-4. PRODUCT POPUP — design this as carefully as the rest of the shop
-   It must look like it belongs to this store (same background, type, buttons, radius).
-   Start HIDDEN (do not add class "open"). Never show it on first paint.
-   Layout as TWO columns on desktop (photo left, details right). Keep the photo modest — never a full-screen image. Colour and size should look like pills or tidy selects.
+4. PRODUCT POPUP — YOU design the whole popup. The app only fills the live product.
+   It must look like the rest of this shop. Start HIDDEN (no class "open").
    <div class="product-popup">
      <button type="button" class="sty-close" data-close-popup aria-label="Close">×</button>
      <div class="dialog">
