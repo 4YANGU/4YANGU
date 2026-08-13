@@ -23,7 +23,16 @@ export default async function handler(req, res) {
       // Show today's counters as zero on a fresh Nairobi day even before the first
       // event lands, so yesterday's numbers never masquerade as today's.
       const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
-      if (store.metrics_date !== nairobiToday) { store.visitor_today = 0; store.orders_today = 0; }
+      const dayStart = `${nairobiToday}T00:00:00+03:00`;
+      const { data: todayEvents } = await supabase.from('store_events').select('event_type').eq('store_id', storeId).gte('created_at', dayStart);
+      const countedVisits = (todayEvents || []).filter((row) => row.event_type === 'visit').length;
+      const countedOrders = (todayEvents || []).filter((row) => row.event_type === 'order').length;
+      if (store.metrics_date !== nairobiToday || Number(store.visitor_today || 0) !== countedVisits || Number(store.orders_today || 0) !== countedOrders) {
+        store.visitor_today = countedVisits;
+        store.orders_today = countedOrders;
+        store.metrics_date = nairobiToday;
+        await supabase.from('stores').update({ visitor_today: countedVisits, orders_today: countedOrders, metrics_date: nairobiToday }).eq('id', store.id);
+      }
       const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
       if (mediaError) throw mediaError;
       const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) }; });
@@ -45,7 +54,24 @@ export default async function handler(req, res) {
     ]);
     // Fresh Nairobi day before the first event: show zero for today's counters.
     const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
-    for (const store of stores || []) { if (store.metrics_date !== nairobiToday) { store.visitor_today = 0; store.orders_today = 0; } }
+    const dayStart = `${nairobiToday}T00:00:00+03:00`;
+    const { data: todayEvents } = await supabase.from('store_events').select('store_id,event_type').gte('created_at', dayStart);
+    const visitMap = {};
+    const orderMap = {};
+    (todayEvents || []).forEach((row) => {
+      if (row.event_type === 'visit') visitMap[row.store_id] = (visitMap[row.store_id] || 0) + 1;
+      if (row.event_type === 'order') orderMap[row.store_id] = (orderMap[row.store_id] || 0) + 1;
+    });
+    for (const store of stores || []) {
+      const visits = visitMap[store.id] || 0;
+      const orders = orderMap[store.id] || 0;
+      if (store.metrics_date !== nairobiToday || Number(store.visitor_today || 0) !== visits || Number(store.orders_today || 0) !== orders) {
+        store.visitor_today = visits;
+        store.orders_today = orders;
+        store.metrics_date = nairobiToday;
+        await supabase.from('stores').update({ visitor_today: visits, orders_today: orders, metrics_date: nairobiToday }).eq('id', store.id);
+      }
+    }
     const now = Date.now();
     for (const store of stores || []) {
       const paid = store.billing_paid_until && new Date(store.billing_paid_until).getTime() > now;

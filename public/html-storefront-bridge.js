@@ -101,29 +101,58 @@
     }).join('');
   }
 
+  function paintPills(kind, items) {
+    if (!popup) return;
+    var select = popup.querySelector('[data-' + kind + ']');
+    if (!select) return;
+    fillSelect(select, items, kind === 'color' ? 'Choose colour' : 'Choose size');
+    var host = select.parentNode || popup;
+    var pills = host.querySelector('.sty-pills[data-pills="' + kind + '"]');
+    if (!pills) {
+      pills = document.createElement('div');
+      pills.className = 'sty-pills';
+      pills.setAttribute('data-pills', kind);
+      host.appendChild(pills);
+    }
+    if (!items || !items.length) { pills.innerHTML = ''; return; }
+    pills.innerHTML = items.map(function (item) {
+      return '<button type="button" class="sty-pill" data-pill="' + kind + '" data-value="' + esc(item) + '">' + esc(item) + '</button>';
+    }).join('');
+  }
+
   function ensureCss() {
     if (document.getElementById('sty-shop-css')) return;
     var style = document.createElement('style');
     style.id = 'sty-shop-css';
     style.textContent = ''
       + '#cartBtn,#cartDrawer,#cartOverlay,#toast,.cart-drawer{display:none!important}'
-      + '.sty-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;margin:20px 0;align-items:stretch}'
-      + '.sty-grid .product-card,.sty-card{display:flex;flex-direction:column;height:100%;border-radius:18px;overflow:hidden;background:rgba(127,127,127,.08);min-width:0}'
-      + '.sty-grid .product-card img,.sty-card img{width:100%;aspect-ratio:1/1.05;object-fit:cover;display:block;background:rgba(0,0,0,.06)}'
-      + '.sty-body{padding:14px;display:flex;flex-direction:column;gap:6px;flex:1}'
-      + '.sty-cat,.product-category{font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.65;font-weight:700}'
-      + '.product-name{margin:0;font-weight:700;font-size:15px;line-height:1.3}'
-      + '.product-price{margin:0;font-weight:800;font-size:14px}'
-      + '.sty-view,[data-view-product]{margin-top:auto;background:#111;color:#fff;border:0;border-radius:10px;padding:11px 12px;font-weight:800;font-size:12px;cursor:pointer;width:100%}'
+      + 'html{scroll-padding-top:84px}'
+      + '.sty-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 28px;align-items:stretch}'
+      + '@media(min-width:720px){.sty-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}}'
+      + '@media(min-width:1100px){.sty-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}}'
+      + '.sty-grid .product-card,.sty-card{display:flex;flex-direction:column;height:100%;min-width:0;border-radius:18px;overflow:hidden;border:1px solid rgba(127,127,127,.16);background:rgba(255,255,255,.04);box-shadow:0 10px 28px rgba(0,0,0,.06)}'
+      + '.sty-grid .product-card>img,.sty-card>img,.sty-grid .product-card .sty-photo{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;background:rgba(0,0,0,.06)}'
+      + '.sty-body{padding:12px 12px 14px;display:flex;flex-direction:column;gap:5px;flex:1}'
+      + '.sty-cat,.product-category{font-size:10px;letter-spacing:.1em;text-transform:uppercase;opacity:.6;font-weight:700}'
+      + '.product-name{margin:0;font-weight:700;font-size:14px;line-height:1.3}'
+      + '.product-price{margin:0;font-weight:800;font-size:13px}'
+      + '.sty-view,[data-view-product]{margin-top:auto;background:currentColor;color:#fff;mix-blend-mode:multiply;border:0;border-radius:10px;padding:10px 12px;font-weight:800;font-size:12px;cursor:pointer;width:100%;background:#171717;color:#fff}'
       + '.sty-empty{grid-column:1/-1;padding:28px;text-align:center;opacity:.7}'
-      + '.product-popup{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center}'
+      + '.product-popup{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(10,10,10,.62);backdrop-filter:blur(8px)}'
       + '.product-popup.open{display:flex!important}'
-      + '.sty-close{position:fixed;top:16px;right:16px;z-index:96}'
-      + '.sty-thumbs{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px 0}'
-      + '.sty-thumbs button{width:56px;height:56px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:none}'
-      + '.sty-thumbs button.active{border-color:currentColor}'
+      + '.product-popup .dialog{width:min(860px,100%);max-height:88vh;overflow:auto;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:0;border-radius:22px}'
+      + '.product-popup .popup-image,[data-popup-image]{width:100%;max-height:min(420px,46vh);height:auto;aspect-ratio:4/5;object-fit:cover;display:block}'
+      + '.product-popup .content{padding:22px 24px 26px;display:grid;gap:11px;align-content:start}'
+      + '.sty-close{position:fixed;top:14px;right:14px;z-index:97;border:0;width:42px;height:42px;border-radius:50%;background:#fff;color:#111;font-size:22px;line-height:42px;padding:0;cursor:pointer;box-shadow:0 10px 24px rgba(0,0,0,.28)}'
+      + '.sty-thumbs{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px 0}'
+      + '.sty-thumbs button{width:52px;height:52px;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:none}'
+      + '.sty-thumbs button.active{border-color:#25D366}'
       + '.sty-thumbs img{width:100%;height:100%;object-fit:cover;display:block}'
-      + '.sty-brand-logo{height:36px;width:auto;object-fit:contain;display:block}'
+      + '.sty-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}'
+      + '.sty-pill{border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer}'
+      + '.sty-pill.active{background:#171717;color:#fff;border-color:#171717}'
+      + '.product-popup select[data-color],.product-popup select[data-size]{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px}'
+      + '.sty-brand-logo{height:36px;width:auto;max-width:120px;object-fit:contain;display:block}'
       + '.filter-chip,.sty-filter{cursor:pointer}'
       + 'header.sty-sticky-nav,#navbar.sty-sticky-nav,.sty-sticky-nav{position:sticky!important;top:0!important;z-index:60!important}'
       + '#menuBtn,.mobile-menu,#mobileMenu,.sj-menu-trigger{display:none!important}'
@@ -131,8 +160,8 @@
       + '.sty-nav a{white-space:nowrap;text-decoration:none;font-size:13px;font-weight:700}'
       + '.sty-filters{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 8px}'
       + '.sty-filters .sty-filter{border:1px solid rgba(127,127,127,.28);background:transparent;color:inherit;border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700}'
-      + '.sty-filters .sty-filter.active{background:#111;color:#fff;border-color:#111}'
-      + '@media(max-width:640px){.sty-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.sty-nav{gap:10px}.sty-nav a{font-size:12px}}';
+      + '.sty-filters .sty-filter.active{background:#171717;color:#fff;border-color:#171717}'
+      + '@media(max-width:760px){.product-popup .dialog{grid-template-columns:1fr;max-height:92vh}.product-popup .popup-image,[data-popup-image]{max-height:220px;aspect-ratio:16/11}.sty-nav{gap:10px}.sty-nav a{font-size:12px}}';
     document.head.appendChild(style);
   }
 
@@ -410,8 +439,8 @@
     if (img) { img.src = activeImage; img.alt = product.name; }
     if (nameEl) nameEl.textContent = product.name;
     if (priceEl) priceEl.textContent = money(product.price);
-    fillSelect(popup.querySelector('[data-color]'), product.colors || [], 'Choose colour');
-    fillSelect(popup.querySelector('[data-size]'), product.sizes || [], 'Choose size');
+    paintPills('color', product.colors || []);
+    paintPills('size', product.sizes || []);
     if (noteEl) noteEl.value = '';
     var fulfil = popup.querySelector('[data-fulfilment]');
     if (fulfil) fulfil.value = 'Delivery';
@@ -452,6 +481,19 @@
     document.addEventListener('click', function (event) {
       var t = event.target;
       if (!t || !t.closest) return;
+      var pill = t.closest('[data-pill]');
+      if (pill && popup && popup.contains(pill)) {
+        var kind = pill.getAttribute('data-pill');
+        var value = pill.getAttribute('data-value') || '';
+        var select = popup.querySelector('[data-' + kind + ']');
+        if (select) select.value = value;
+        popup.querySelectorAll('[data-pill="' + kind + '"]').forEach(function (btn) {
+          btn.classList.toggle('active', btn.getAttribute('data-value') === value);
+        });
+        rebuildOrder();
+        event.preventDefault();
+        return;
+      }
       var thumb = t.closest('[data-thumb]');
       if (thumb && popup && popup.contains(thumb)) {
         activeImage = thumb.getAttribute('data-thumb');

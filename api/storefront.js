@@ -87,7 +87,7 @@ function liveCardHtml(product) {
   const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean);
   const primary = images[0] || '';
   return `<article class="product-card" data-id="${escapeAttr(product.id)}" data-name="${escapeAttr(product.name)}" data-category="${escapeAttr(product.category || '')}" data-price="${escapeAttr(formatPrice(product.price))}" data-image="${escapeAttr(primary)}" data-colors="${escapeAttr((product.colors || []).join('|'))}" data-sizes="${escapeAttr((product.sizes || []).join('|'))}">
-    <img src="${escapeAttr(primary)}" alt="${escapeAttr(product.name)}" />
+    <img class="sty-photo" src="${escapeAttr(primary)}" alt="${escapeAttr(product.name)}" />
     <div class="sty-body">
       <span class="product-category sty-cat">${escapeAttr(product.category || '')}</span>
       <p class="product-name">${escapeAttr(product.name)}</p>
@@ -98,7 +98,14 @@ function liveCardHtml(product) {
 }
 
 function stripSampleCards(html) {
-  return String(html || '').replace(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi, '');
+  let out = String(html || '');
+  out = out.replace(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi, '');
+  out = out.replace(/<div\b[^>]*id=["']featuredGrid["'][^>]*>[\s\S]*?<\/div>/i, '<div id="featuredGrid" hidden></div>');
+  out = out.replace(/<div\b[^>]*id=["']productGrid["'][^>]*>[\s\S]*?<\/div>/i, (full) => {
+    if (/data-sty-live/.test(full)) return full;
+    return full.replace(/>[\s\S]*$/i, '></div>');
+  });
+  return out;
 }
 
 function applyStoreLogo(html, store) {
@@ -578,11 +585,12 @@ MANDATORY MARKUP (keep these class names and data-attributes exactly):
      <p class="product-price">KES 0</p>
      <button type="button" class="view-product" data-view-product>View product</button>
    </article>
-   Style the card as a neat equal-height tile (photo on top, name, price, full-width "View product" button at the bottom). Use a responsive grid: 2 columns on phones, 3–4 on desktop.
+   Style the card as a neat equal-height tile: portrait photo (4:5) on top, name, price, full-width "View product" at the bottom. 2 columns on phones, 3–4 on desktop. Never dump a giant full-width photo as the only thing in the popup.
 
 4. PRODUCT POPUP — design this as carefully as the rest of the shop
    It must look like it belongs to this store (same background, type, buttons, radius).
    Start HIDDEN (do not add class "open"). Never show it on first paint.
+   Layout as TWO columns on desktop (photo left, details right). Keep the photo modest — never a full-screen image. Colour and size should look like pills or tidy selects.
    <div class="product-popup">
      <button type="button" class="sty-close" data-close-popup aria-label="Close">×</button>
      <div class="dialog">
