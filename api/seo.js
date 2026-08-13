@@ -1,4 +1,6 @@
 import supabase from '../lib/db-client.js';
+import { ensureDesignRuntime } from '../lib/html-runtime.js';
+import { sanitizeStorefrontHtml } from '../lib/html-sanitize.js';
 
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
@@ -213,6 +215,11 @@ async function handleStorefrontHtml(req, res) {
         return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
       }
     }
+    const storedHtml = store && store.is_active ? String(store.design_json?.storefront_html || '').trim() : '';
+    if (store && store.is_active && storedHtml) {
+      res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
+      return res.status(200).send(stampStoredHtml(storedHtml, store));
+    }
     if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
@@ -308,6 +315,19 @@ async function handleSkinUpload(req, res) {
   return res.status(200).json({ signed, skipped: files.length - filteredFiles.length });
 }
 
+
+function stampStoredHtml(html, store) {
+  const phone = String(store.whatsapp || '').replace(/\D/g, '');
+  const meta = `<meta name="stoyangu-store" data-slug="${escHtml(store.slug)}" data-name="${escHtml(store.name)}" data-whatsapp="${phone}" data-currency="KES"><meta name="stoyangu-slug" content="${escHtml(store.slug)}">`;
+  let out = ensureDesignRuntime(sanitizeStorefrontHtml(html).html);
+  if (!/name="stoyangu-store"/.test(out)) {
+    out = /<head/i.test(out) ? out.replace(/<head([^>]*)>/i, `<head$1>${meta}`) : `<!doctype html><html><head>${meta}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${out}</body></html>`;
+  }
+  if (!/html-storefront-bridge\.js/.test(out)) {
+    out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `<script src="/html-storefront-bridge.js" defer></script></body>`) : `${out}<script src="/html-storefront-bridge.js" defer></script>`;
+  }
+  return out;
+}
 
 function transformSkinHtml(html, storeId, slug) {
   const base = skinBaseUrl(storeId);

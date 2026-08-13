@@ -1,0 +1,102 @@
+HOW TO PUT THIS UPDATE ON YOUR LIVE STOYANGU APP
+================================================
+
+You do not need to change anything in Vercel settings.
+You do not need to change anything in Supabase.
+You only copy a few files and push them with GitHub Desktop.
+Vercel will update the live site by itself.
+
+------------------------------------------------
+STEP 1. Download the zip
+------------------------------------------------
+On the founder dashboard, click the green bar:
+  “Drop these files into your 4YANGU folder”
+or the button “Get HTML update files”.
+
+A file called stoyangu-html-update.zip will download.
+
+------------------------------------------------
+STEP 2. Unzip it
+------------------------------------------------
+On your computer, double-click the zip.
+You will see a folder named stoyangu-html-update
+and inside it the same folders you already have:
+  api
+  lib
+  public
+  src
+
+------------------------------------------------
+STEP 3. Copy into your 4YANGU folder
+------------------------------------------------
+Open two windows side by side:
+
+  LEFT  = the unzipped stoyangu-html-update folder
+  RIGHT = your real 4YANGU project folder
+          (the one GitHub Desktop already opens)
+
+Copy each file from LEFT into the SAME place on the RIGHT.
+When the computer asks “Replace?”, click Replace.
+
+Files you are adding or replacing:
+
+  api/storefront.js
+  api/stores.js
+  api/seo.js
+  lib/html-images.js          (new)
+  lib/html-runtime.js         (new)
+  lib/html-sanitize.js        (new)
+  lib/html-theme.js           (new — this brings the colours back)
+  public/html-storefront-bridge.js   (draws live products + View product popup)
+  public/html-storefront-bridge.js   (new)
+  src/components/HtmlStorefront.tsx  (new)
+  src/components/HtmlEditor.tsx      (new)
+  src/html-storefront.css            (new)
+  src/pages/FounderDashboard.tsx
+  src/pages/StorefrontPage.tsx
+  src/types.ts
+
+Do NOT copy anything else.
+Do NOT touch .env
+Do NOT touch vercel.json
+Do NOT touch api/db-client.js
+
+------------------------------------------------
+STEP 4. Push with GitHub Desktop
+------------------------------------------------
+1. Open GitHub Desktop.
+2. You should see only the files above in the list.
+3. At the bottom left, type a short message, for example:
+     HTML storefront colours and sanitise report
+4. Click “Commit to main”.
+5. Click “Push origin”.
+
+That is all. Wait 1–2 minutes. Vercel rebuilds automatically.
+
+------------------------------------------------
+STEP 5. Check the live shop
+------------------------------------------------
+Open the store link and refresh once (hold Shift and click refresh
+if the old page is still showing).
+
+If a shop was saved while colours were missing:
+  Founder dashboard → that store’s H button → paste the original
+  HTML again → Save. The green report will appear, and colours
+  will come back.
+
+------------------------------------------------
+Vercel? Supabase?
+------------------------------------------------
+Nothing to click in Vercel.
+Nothing to click in Supabase.
+No new passwords, no new tables, no new keys.
+
+Design photos (Unsplash, Pexels, Pixabay) are saved for you
+when you paste HTML and click Save. The app copies those
+pictures into your existing StoYangu photo bucket
+(called stoyangu-media) and rewrites the HTML to use
+your own permanent links. If Unsplash ever goes down,
+the shop still shows the copies.
+
+You do not create a bucket or change storage settings.
+That bucket already exists on your project.

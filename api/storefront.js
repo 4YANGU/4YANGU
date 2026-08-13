@@ -25,163 +25,18 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
-
-const ALLOWED_OUTBOUND = /^https:\/\/(wa\.me|t\.me|instagram\.com|www\.instagram\.com|facebook\.com|www\.facebook\.com|threads\.net|www\.threads\.net|twitter\.com|x\.com|www\.x\.com|youtube\.com|www\.youtube\.com|youtu\.be|tiktok\.com|www\.tiktok\.com|maps\.google\.com|goo\.gl\/maps|supabase\.co|wzcttkjydjvflkwjijcq\.supabase\.co)/i;
-const ALLOWED_LINK_SCHEMES = /^(https:\/\/wa\.me|https:\/\/t\.me|https:\/\/(www\.)?(instagram|facebook|threads|twitter|x|youtube|tiktok)\.com|tel:|mailto:)/i;
-const FORBIDDEN_SCRIPT_PATTERNS = [
-  { label: 'fetch() call',           regex: /\bfetch\s*\(/i },
-  { label: 'XMLHttpRequest',         regex: /\bXMLHttpRequest\b/ },
-  { label: 'eval() call',            regex: /\beval\s*\(/ },
-  { label: 'Function constructor',   regex: /\bnew\s+Function\s*\(/ },
-  { label: 'document.cookie',        regex: /document\s*\.\s*cookie/i },
-  { label: 'localStorage access',    regex: /\blocalStorage\b/ },
-  { label: 'sessionStorage access',  regex: /\bsessionStorage\b/ },
-  { label: 'navigator.sendBeacon',   regex: /sendBeacon\s*\(/i },
-  { label: 'WebSocket',              regex: /\bnew\s+WebSocket\s*\(/i },
-  { label: 'EventSource (SSE)',      regex: /\bnew\s+EventSource\s*\(/i },
-  { label: 'importScripts',          regex: /\bimportScripts\s*\(/i },
-  { label: 'postMessage (cross)',    regex: /\.postMessage\s*\(/i },
-];
-const MAX_HTML_BYTES = 1_500_000;
+import { interceptHotlinkImages } from '../lib/html-images.js';
+import { ensureDesignRuntime } from '../lib/html-runtime.js';
+import { sanitizeStorefrontHtml, sanitizationHeadline } from '../lib/html-sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Security + repair — strips / neutralises anything dangerous in place
 // and returns the safe HTML plus a notes array describing what changed.
 // ---------------------------------------------------------------------------
 function scanAndRepair(rawHtml) {
-  const notes = [];
-  if (typeof rawHtml !== 'string' || !rawHtml.trim()) {
-    return { ok: false, errors: ['Template is empty. Paste your HTML in the textarea and try again.'], html: rawHtml, notes };
-  }
-  if (Buffer.byteLength(rawHtml, 'utf8') > MAX_HTML_BYTES) {
-    return { ok: false, errors: [`Template is larger than ${Math.round(MAX_HTML_BYTES / 1024)} KB. Shorten it and try again.`], html: rawHtml, notes };
-  }
-
-  let html = rawHtml;
-
-  // 1) <script src="https?://…"> — strip the src attribute entirely.
-  const beforeScriptSrc = html;
-  html = html.replace(/<script\b([^>]*?)\bsrc\s*=\s*["'][^"']*["']([^>]*?)>/gi, (full, before, after) => {
-    notes.push('Removed off-domain <script src>.');
-    return `<script${before}${after}>`;
-  });
-  void beforeScriptSrc;
-
-  // 2) Empty <script> blocks (had a src, now empty) — drop the whole block.
-  html = html.replace(/<script\b[^>]*>\s*<\/script>/gi, (full) => {
-    notes.push('Removed an empty <script> block (had an off-domain src).');
-    return '';
-  });
-
-  // 3) Inline scripts — neutralise the truly dangerous APIs in place.
-  html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (_full, attrs, body) => {
-    let patched = body;
-    const subs = [
-      { from: /\bfetch\s*\(/g,                to: 'void fetch(', label: 'fetch()' },
-      { from: /\bnew\s+XMLHttpRequest\b/g,    to: 'null /* XHR removed */', label: 'XMLHttpRequest' },
-      { from: /\bXMLHttpRequest\b/g,          to: 'null /* XHR removed */', label: 'XMLHttpRequest' },
-      { from: /\beval\s*\(/g,                 to: 'void eval(', label: 'eval()' },
-      { from: /\bnew\s+Function\s*\(/g,       to: 'void new Function(', label: 'new Function()' },
-      { from: /document\s*\.\s*cookie\b/gi,   to: 'document.cookie /* cleared */ = ""', label: 'document.cookie' },
-      { from: /\blocalStorage\b/g,            to: 'null /* localStorage removed */', label: 'localStorage' },
-      { from: /\bsessionStorage\b/g,          to: 'null /* sessionStorage removed */', label: 'sessionStorage' },
-      { from: /\bsendBeacon\s*\(/g,           to: 'void sendBeacon(', label: 'sendBeacon' },
-      { from: /\bnew\s+WebSocket\s*\(/g,      to: 'null /* WebSocket removed */', label: 'WebSocket' },
-      { from: /\bnew\s+EventSource\s*\(/g,    to: 'null /* EventSource removed */', label: 'EventSource' },
-      { from: /\bimportScripts\s*\(/g,        to: 'void importScripts(', label: 'importScripts' },
-      { from: /\.postMessage\s*\(/g,          to: '.postMessage /* cross-frame */(', label: 'postMessage' },
-    ];
-    for (const { from, to, label } of subs) {
-      if (from.test(patched)) {
-        patched = patched.replace(from, to);
-        if (!notes.some((note) => note.includes(label))) notes.push(`Neutralised ${label} in inline script.`);
-      }
-    }
-    return `<script${attrs}>${patched}</script>`;
-  });
-
-  // 4) <img src="https?://…"> for non-allowed hosts → swap to a neutral
-  //    placeholder image (a tiny inline SVG so layout doesn't break).
-  const PLACEHOLDER_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><rect width="100%" height="100%" fill="#e6dcc8"/><text x="50%" y="50%" font-size="18" text-anchor="middle" fill="#8a8475" font-family="system-ui">image</text></svg>');
-  html = html.replace(/<img\b([^>]*?)\bsrc\s*=\s*["']([^"']+)["']([^>]*?)>/gi, (full, before, src, after) => {
-    const trimmed = src.trim();
-    if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:') || trimmed.startsWith('/')) return full;
-    if (/^https?:\/\//i.test(trimmed) && ALLOWED_OUTBOUND.test(trimmed)) return full;
-    if (trimmed.startsWith('//')) {
-      notes.push(`Replaced protocol-relative <img src> with a placeholder.`);
-      return `<img${before}src="${PLACEHOLDER_IMG}"${after}>`;
-    }
-    if (/^https?:\/\//i.test(trimmed)) {
-      notes.push(`Replaced off-domain <img src="${trimmed}"> with a placeholder.`);
-      return `<img${before}src="${PLACEHOLDER_IMG}"${after}>`;
-    }
-    return full;
-  });
-
-  // 5) <link href="https?://…"> for non-allowed hosts → drop the link.
-  html = html.replace(/<link\b[^>]*?>/gi, (full) => {
-    const hrefMatch = /<link\b[^>]*?\bhref\s*=\s*["']([^"']+)["']/i.exec(full);
-    if (!hrefMatch) return full;
-    const href = hrefMatch[1].trim();
-    if (!href || href.startsWith('data:') || href.startsWith('blob:') || href.startsWith('/')) return full;
-    if (/^https?:\/\//i.test(href) && ALLOWED_OUTBOUND.test(href)) return full;
-    if (/^https?:\/\//i.test(href)) {
-      notes.push(`Dropped <link href="${href}"> (off-domain).`);
-      return '';
-    }
-    return full;
-  });
-
-  // 6) @import and @font-face in inline styles → drop the lines.
-  html = html.replace(/@import[^;]*;/gi, (full) => { notes.push('Removed @import.'); return ''; });
-  html = html.replace(/@font-face\s*\{[^}]*\}/gi, () => { notes.push('Removed @font-face.'); return ''; });
-
-  // 7) url() in inline styles for off-domain → drop the declaration.
-  html = html.replace(/url\(\s*["']?([^"')]+)["']?\s*\)/g, (full, ref) => {
-    const trimmed = ref.trim();
-    if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('#') || trimmed.startsWith('blob:') || trimmed.startsWith('/')) return full;
-    if (/^https?:\/\//i.test(trimmed) && ALLOWED_OUTBOUND.test(trimmed)) return full;
-    if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('//')) {
-      notes.push(`Removed off-domain url("${trimmed}") from inline styles.`);
-      return '/* url() removed for safety */';
-    }
-    return full;
-  });
-
-  // 8) <a href="javascript:…"> → strip the dangerous scheme.
-  html = html.replace(/<a\b([^>]*?)\bhref\s*=\s*["']javascript:[^"']*["']([^>]*?)>/gi, (full, before, after) => {
-    notes.push('Removed a javascript: link.');
-    return `<a${before}href="#"${after}>`;
-  });
-
-  // 9) <a href="https?://…"> for non-allowed hosts → replace with #.
-  html = html.replace(/<a\b([^>]*?)\bhref\s*=\s*["'](https?:\/\/[^"']+)["']([^>]*?)>/gi, (full, before, href, after) => {
-    if (ALLOWED_OUTBOUND.test(href)) return full;
-    if (ALLOWED_LINK_SCHEMES.test(href)) return full;
-    notes.push(`Replaced off-domain link (${href}) with #.`);
-    return `<a${before}href="#"${after}>`;
-  });
-
-  // 10) Things we genuinely can't make safe — reject with a clear message.
-  const errors = [];
-  const iframeMatch = html.match(/<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i);
-  if (iframeMatch && /^https?:\/\//i.test(iframeMatch[1]) && !ALLOWED_OUTBOUND.test(iframeMatch[1])) {
-    errors.push(`Off-domain <iframe src="${iframeMatch[1]}"> can't be embedded safely. Replace it with a placeholder <div> or remove the iframe.`);
-  }
-  const objectMatch = html.match(/<object\b[^>]*\bdata\s*=\s*["']([^"']+)["']/i);
-  if (objectMatch && /^https?:\/\//i.test(objectMatch[1]) && !ALLOWED_OUTBOUND.test(objectMatch[1])) {
-    errors.push(`Off-domain <object data="${objectMatch[1]}"> can't be embedded safely.`);
-  }
-  const baseMatch = html.match(/<base\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
-  if (baseMatch && /^https?:\/\//i.test(baseMatch[1]) && !ALLOWED_OUTBOUND.test(baseMatch[1])) {
-    errors.push(`<base href="${baseMatch[1]}"> is off-domain — it would hijack every relative link. Remove the <base> tag.`);
-  }
-
-  if (errors.length) return { ok: false, errors, html, notes };
-  return { ok: true, errors: [], html, notes };
+  return sanitizeStorefrontHtml(rawHtml);
 }
 
-// ---------------------------------------------------------------------------
 // Structural validation
 // ---------------------------------------------------------------------------
 function findProductCardBlock(html) {
@@ -194,22 +49,12 @@ function findPopupBlock(html) {
   return m ? m[0] : null;
 }
 function structureCheck(html) {
-  const errors = [];
+  const warnings = [];
   const card = findProductCardBlock(html);
-  if (!card) errors.push('No .product-card element found. The template must include a repeatable product card with class "product-card".');
   const popup = findPopupBlock(html);
-  if (!popup) errors.push('No .product-popup element found. The template must include a hidden popup with class "product-popup".');
-  if (card) {
-    for (const attr of ['data-name', 'data-price', 'data-image']) {
-      if (!new RegExp(`\\b${attr}\\s*=\\s*["']`).test(card)) errors.push(`The product-card is missing the required attribute ${attr}.`);
-    }
-  }
-  if (popup) {
-    for (const attr of ['data-popup-image', 'data-popup-name', 'data-popup-price', 'data-whatsapp']) {
-      if (!new RegExp(`\\b${attr}\\s*=\\s*["']`).test(popup)) errors.push(`The product-popup is missing the required attribute ${attr}.`);
-    }
-  }
-  return { ok: errors.length === 0, errors, card, popup };
+  if (!card) warnings.push('No .product-card block — live products will be injected into [data-product-grid], #products, or a WhatsApp button will be added.');
+  if (!popup) warnings.push('No .product-popup block — orders still work through WhatsApp buttons.');
+  return { ok: true, errors: [], warnings, card, popup };
 }
 
 // ---------------------------------------------------------------------------
@@ -238,17 +83,64 @@ function buildCard(cardTemplate, product) {
   card = card.replace(/(\bclass\s*=\s*["'][^"']*\bproduct-price\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z][a-z0-9]*>)/i, (_, open, _mid, close) => `${open}${escapeAttr(formatPrice(product.price))}${close}`);
   return card;
 }
+function liveCardHtml(product) {
+  const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean);
+  const primary = images[0] || '';
+  return `<article class="product-card" data-id="${escapeAttr(product.id)}" data-name="${escapeAttr(product.name)}" data-category="${escapeAttr(product.category || '')}" data-price="${escapeAttr(formatPrice(product.price))}" data-image="${escapeAttr(primary)}" data-colors="${escapeAttr((product.colors || []).join('|'))}" data-sizes="${escapeAttr((product.sizes || []).join('|'))}">
+    <img src="${escapeAttr(primary)}" alt="${escapeAttr(product.name)}" />
+    <div class="sty-body">
+      <span class="product-category sty-cat">${escapeAttr(product.category || '')}</span>
+      <p class="product-name">${escapeAttr(product.name)}</p>
+      <p class="product-price">${escapeAttr(formatPrice(product.price))}</p>
+      <button type="button" class="sty-view" data-view-product="1">View product</button>
+    </div>
+  </article>`;
+}
+
+function injectLiveProducts(html, store, products) {
+  const list = Array.isArray(products) ? products : [];
+  const catalog = escapeAttr(JSON.stringify(list.map((product) => ({
+    id: product.id,
+    name: product.name,
+    price: product.price,
+    category: product.category || '',
+    colors: product.colors || [],
+    sizes: product.sizes || [],
+    image_url: product.image_url || '',
+    images: Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean),
+  }))));
+  const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}">${catalog}</template>`;
+  let out = /id=["']stoyangu-catalog["']/.test(html) ? html : (/<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${payload}</body>`) : html + payload);
+
+  const cards = list.map(liveCardHtml).join('\n');
+  const grid = `<div class="sty-grid" data-sty-live="1" data-product-grid="1">${cards || '<p class="sty-empty">New products are coming soon.</p>'}</div>`;
+
+  if (/id=["']productGrid["']/.test(out)) {
+    out = out.replace(/(<[^>]*id=["']productGrid["'][^>]*>)[\s\S]*?(<\/div>)/i, `$1${grid}$2`);
+  } else if (/data-product-grid/.test(out) && !/data-sty-live/.test(out)) {
+    out = out.replace(/(<[^>]*data-product-grid[^>]*>)/i, `$1${grid}`);
+  } else if (/id=["']products["']/.test(out)) {
+    const withoutScripts = out.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+    const cardMatch = withoutScripts.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
+    if (cardMatch && out.includes(cardMatch[0])) out = out.replace(cardMatch[0], grid);
+    else out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${grid}`);
+  } else if (/id=["']shop["']/.test(out)) {
+    out = out.replace(/(<[^>]*id=["']shop["'][^>]*>)/i, `$1${grid}`);
+  }
+  return out;
+}
+
 function renderTemplate(templateHtml, store, products) {
-  const cardMatch = templateHtml.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
-  if (!cardMatch) return { html: templateHtml, warnings: ['No .product-card block to duplicate.'] };
-  const cardBlock = cardMatch[0];
-  const cards = products.map((product) => buildCard(cardBlock, product)).join('\n');
-  const wrapperOpen = `<div data-products data-store-slug="${escapeAttr(store.slug)}">`;
-  const wrapperClose = `</div>`;
-  const newHtml = templateHtml.replace(cardBlock, `${wrapperOpen}\n${cards}\n${wrapperClose}`);
+  const cleaned = sanitizeStorefrontHtml(templateHtml);
+  let newHtml = injectLiveProducts(ensureDesignRuntime(cleaned.html), store, products);
   const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
-  const storeMeta = `<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES">`;
-  const stamped = newHtml.replace(/<head>/i, `<head>${storeMeta}`);
+  const storeMeta = `<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}">`;
+  let stamped = /<head/i.test(newHtml) ? newHtml.replace(/<head([^>]*)>/i, `<head$1>${storeMeta}`) : `<!doctype html><html><head>${storeMeta}</head><body>${newHtml}</body></html>`;
+  if (!/html-storefront-bridge\.js/.test(stamped)) {
+    stamped = /<\/body>/i.test(stamped)
+      ? stamped.replace(/<\/body>/i, `<script src="/html-storefront-bridge.js" defer></script></body>`)
+      : `${stamped}<script src="/html-storefront-bridge.js" defer></script>`;
+  }
   return { html: stamped, warnings: [] };
 }
 
@@ -507,9 +399,10 @@ export default async function handler(req, res) {
       const html = String(req.body?.template ?? '');
       const security = scanAndRepair(html);
       if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
-      const structure = structureCheck(security.html);
-      if (!structure.ok) return res.status(400).json({ error: 'Structure check failed.', details: structure.errors });
-      const nextDesign = withStorefrontHtml(storeRow, security.html);
+      const intercepted = await interceptHotlinkImages(security.html, storeId);
+      const prepared = ensureDesignRuntime(intercepted.html);
+      const structure = structureCheck(prepared);
+      const nextDesign = withStorefrontHtml(storeRow, prepared);
       const { data, error } = await supabase
         .from('stores')
         .update({ design_json: nextDesign, updated_at: new Date().toISOString() })
@@ -520,7 +413,15 @@ export default async function handler(req, res) {
         console.error('Save failed:', error);
         return res.status(500).json({ error: `Could not save the template: ${error.message}` });
       }
-      return res.status(200).json({ ok: true, store: { id: data.id, name: data.name, slug: data.slug, storefront_html: String(data.design_json?.storefront_html || '').length }, notes: security.notes });
+      const notes = [...(security.notes || []), ...(intercepted.notes || []), ...(structure.warnings || [])];
+      return res.status(200).json({
+        ok: true,
+        store: { id: data.id, name: data.name, slug: data.slug, storefront_html: String(data.design_json?.storefront_html || '').length },
+        headline: sanitizationHeadline(security.summary || {}),
+        notes,
+        summary: security.summary || {},
+        replaced_images: intercepted.replaced || 0,
+      });
     }
 
     // ------------------------------------------------------------ preview
@@ -538,7 +439,13 @@ export default async function handler(req, res) {
       const liveProducts = (products || []).slice(0, 6).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
       const template = repaired.html.trim() || readStorefrontHtml(store) || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
       const rendered = renderTemplate(template, store, liveProducts);
-      return res.status(200).json({ html: rendered.html, warnings: rendered.warnings, notes: repaired.notes });
+      return res.status(200).json({
+        html: rendered.html,
+        warnings: rendered.warnings,
+        headline: sanitizationHeadline(repaired.summary || {}),
+        notes: repaired.notes,
+        summary: repaired.summary || {},
+      });
     }
 
     // ----------------------------------------------------------- default template
@@ -611,29 +518,85 @@ export default async function handler(req, res) {
 function buildPrompt(storeName, products, ownerWhatsApp) {
   return `You are designing a SINGLE-FILE storefront for a Kenyan social-shop called "${storeName}" that sells ${products}. The owner sells via WhatsApp (number: ${ownerWhatsApp}).
 
-Produce ONE self-contained HTML document. All CSS goes inside one <style> in the <head>, all JS inside one <script> at the end of <body>. No external stylesheets, no external scripts, no web fonts, no @import, no @font-face. The only outbound network access your page may perform is the final WhatsApp order link.
+There is NO shopping cart. The only buy path is:
+  View product → choose colour / size / delivery / note → Order via WhatsApp.
 
-MANDATORY STRUCTURE — the StoYangu app will inject real products into the page, so this contract is non-negotiable:
+Produce ONE self-contained HTML file. All CSS in one <style> in the <head>. You may use Tailwind class names and a tailwind.config colour theme so the shop, cards and popup share the same colours, fonts and corners.
 
-1. One repeatable product CARD block. Tag it with class="product-card" on the wrapping element. The element MUST include these empty data-attributes (the app fills them per real product):
-     data-id, data-name, data-price, data-image, data-colors, data-sizes
-   Inside the card, use <p class="product-name"> and <p class="product-price"> for the visible name/price (the app fills the text too, so the placeholders are just "Product" and "KES 0"). Use <img data-image /> or a <img src=""> — both work, the app patches whichever you used.
+Do NOT write JavaScript that fetches data, invents products, or builds a cart. StoYangu injects LIVE products from the seller's Manage Store page.
 
-2. One hidden POPUP/MODAL block. Tag it class="product-popup". It must include these data-attributes on the wrapper:
-     data-popup-image, data-popup-name, data-popup-price, data-whatsapp
-   Inside the popup, an <img data-popup-image />, an <h3 data-popup-name>, a <p data-popup-price>, two <select> elements (one with data-color, one with data-size), and an <a data-whatsapp href="#">Order on WhatsApp</a> button.
+MANDATORY MARKUP (keep these class names and data-attributes exactly):
 
-3. Inside the <head>, the StoYangu app will inject a <meta name="stoyangu-store" data-slug="…" data-name="…" data-whatsapp="…" data-currency="KES"> tag. Your inline JS reads this meta to know the store's name, the owner's WhatsApp digits, and to build wa.me order links.
+1. STICKY NAV — the APP builds the three links. You only style the bar.
+   Put an empty hook in the header:
+     <header data-store-nav>
+       <a href="#home">STORE NAME</a>
+       <nav data-app-nav></nav>
+     </header>
+   Leave <nav data-app-nav> empty. StoYangu always fills exactly:
+     Home    → #home
+     Products → #products
+     Contact  → #contact
+   Do NOT invent extra menu items. Do NOT add a hamburger / three-line menu.
+   Those three words must be visible on phones and computers. No click-to-open drawer.
+   Make the header sticky (stays at the top while the customer scrolls).
+   Style header, the store name and nav links to match the shop.
 
-4. Your inline JS must:
-   - On click of any .product-card, copy that card's data-name / data-price / data-image / data-colors / data-sizes into the popup (image src, name text, price text, dropdown options).
-   - Set the popup's WhatsApp button href to "https://wa.me/" + the meta's data-whatsapp + "?text=" + a friendly message that includes the product name, the price, and any selected colour or size.
-   - Close the popup on background click or Escape key.
-   - That is ALL your JS may do. No fetch, no XMLHttpRequest, no localStorage, no document.cookie, no external scripts, no postMessage to other windows.
+2. CATEGORY BUTTONS — the APP builds these too. You only style them.
+   <div id="filters"></div>
+   Leave it empty. StoYangu fills All + every live product category from Manage Store.
+   When the seller adds or renames a category, the buttons update by themselves.
+   Style #filters and .sty-filter / .sty-filter.active (pill buttons in a row).
 
-5. Style freely — make it look like a real Kenyan shop (warm earth tones or modern minimal). Mobile-first, fast, accessible. Use system font stack so no font files are needed.
+3. PRODUCT GRID
+   <div id="productGrid" data-product-grid></div>
+   Also include ONE sample card the app clones for every live product:
+   <article class="product-card" data-id="" data-name="" data-price="" data-image="" data-category="">
+     <img alt="" />
+     <span class="product-category"></span>
+     <p class="product-name">Product</p>
+     <p class="product-price">KES 0</p>
+     <button type="button" class="view-product" data-view-product>View product</button>
+   </article>
+   Style the card as a neat equal-height tile (photo on top, name, price, full-width "View product" button at the bottom). Use a responsive grid: 2 columns on phones, 3–4 on desktop.
 
-IMAGES: use only https permanent image hosts (images.unsplash.com, images.pexels.com, cdn.pixabay.com) or your own uploaded assets. Avoid temp hosts (tmpfiles.org etc.) — they expire in hours. If you reference an image in a product-card, it will be REPLACED with the seller's real product photo at runtime, so a placeholder URL is fine for the template.
+4. PRODUCT POPUP — design this as carefully as the rest of the shop
+   It must look like it belongs to this store (same background, type, buttons, radius).
+   Start HIDDEN (do not add class "open"). Never show it on first paint.
+   <div class="product-popup">
+     <button type="button" class="sty-close" data-close-popup aria-label="Close">×</button>
+     <div class="dialog">
+       <img class="popup-image" data-popup-image alt="" />
+       <div data-thumbs></div>
+       <div class="content">
+         <h3 data-popup-name>Product</h3>
+         <p class="popup-price" data-popup-price>KES 0</p>
+         <label>Colour <select data-color></select></label>
+         <label>Size <select data-size></select></label>
+         <label>How would you like to receive it?
+           <select data-fulfilment>
+             <option>Delivery</option>
+             <option>In-store pickup</option>
+           </select>
+         </label>
+         <label>Delivery or order note
+           <textarea data-note maxlength="300" placeholder="Estate, building, landmark or collection time"></textarea>
+         </label>
+         <a class="order" data-whatsapp href="#">Order via WhatsApp</a>
+       </div>
+     </div>
+   </div>
+   Style .sty-close so it stays on screen even when the customer scrolls the popup
+   (fixed to the top-right of the window, a clear circle, high contrast).
+   Style .order as the primary WhatsApp button (green #25D366 is fine if it fits).
+   The app fills the live product, photos, colour, size, delivery and note, then WhatsApp opens with:
+     Hi ${storeName}! I want to order {name} (KES …) in size …, colour ….
+     Fulfilment: Delivery / In-store pickup
+     Customer note: …
 
-DELIVERY: paste the complete single HTML file back. Do not split into multiple files. Do not include build steps. Do not include a README. Just the one .html document.`;
+5. Do not invent a product list, prices, extra nav items, or category names. Do not add a hamburger menu, bag, cart or checkout drawer.
+
+IMAGES: Unsplash / Pexels / Pixabay https links are welcome for hero and lifestyle photos. StoYangu copies them into our own storage when you save. Product photos always come from the seller's uploads.
+
+DELIVERY: paste the complete single HTML file back. One file only.`;
 }

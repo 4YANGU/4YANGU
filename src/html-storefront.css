@@ -1,0 +1,23 @@
+/* Only used when a store has pasted HTML. Does not change dashboards or JSON stores. */
+.html-storefront-frame-wrap{position:fixed;inset:0;z-index:20;background:#0a0a0a}
+.html-storefront-frame{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:#0a0a0a}
+.html-storefront-loading{min-height:100vh;display:grid;place-content:center;justify-items:center;gap:14px;background:#f7f5ee;color:#17261f;font-family:Manrope,system-ui,sans-serif}
+.html-storefront-loading img{width:140px}
+.html-editor{min-height:340px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45}
+.html-paste-label textarea{margin-top:8px}
+.update-pack-button{display:inline-flex;align-items:center;gap:.45rem}
+.update-pack-banner{display:flex;align-items:center;gap:14px;background:#eaf3ec;border:1px solid #b7d0bc;border-radius:16px;padding:14px 16px;margin:0 0 22px;color:#244833;text-decoration:none}
+.update-pack-banner>svg{width:22px;height:22px;flex-shrink:0}
+.update-pack-banner strong,.update-pack-banner span{display:block}
+.update-pack-banner strong{font-size:.86rem}
+.update-pack-banner span{font-size:.72rem;line-height:1.45;color:#4b6755;margin-top:3px}
+.update-pack-banner em{margin-left:auto;font-style:normal;font-size:.72rem;font-weight:800;background:#244833;color:#fff;border-radius:999px;padding:.5rem .8rem;white-space:nowrap}
+@media(max-width:720px){.update-pack-banner{flex-wrap:wrap}.update-pack-banner em{margin-left:0}}
+.sanitize-report{margin:16px 28px 0;background:#eef6ef;border:1px solid #b7d0bc;border-radius:14px;padding:16px 18px;color:#1d3a28}
+.sanitize-report-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.sanitize-report-head svg{width:18px;color:#2d6242}
+.sanitize-report-head strong{font-size:.86rem}
+.sanitize-report-extra{font-size:.74rem;margin:0 0 8px;color:#3f5d4a}
+.sanitize-report ol{margin:8px 0 0;padding-left:18px}
+.sanitize-report li{font-size:.74rem;line-height:1.5;margin:4px 0;color:#355443}
+.sanitize-report-actions{display:flex;gap:10px;margin-top:14px;justify-content:flex-end}

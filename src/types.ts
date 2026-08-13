@@ -17,7 +17,7 @@ export type Store = {
   phone: string;
   logo_url: string;
   categories: string[];
-  design_json: Record<string, unknown>;
+  design_json: Record<string, unknown> & { storefront_html?: string };
   is_active: boolean;
   billing_started_at: string | null;
   billing_paid_until: string | null;

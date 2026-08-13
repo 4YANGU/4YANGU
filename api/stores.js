@@ -7,14 +7,23 @@ const normalizePhone = (value) => {
   return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
 };
 const ownerAuthEmail = (phone) => `phone-${String(phone).replace(/\D/g, '')}@owners.stoyangu.invalid`;
-const safeDesign = (value) => {
+const safeDesign = (value, extraHtml) => {
+  let design;
   if (typeof value === 'string') {
-    if (value.length > 2000000) throw new Error('Design JSON is too large.');
-    return JSON.parse(value);
+    const trimmed = value.trim();
+    if (trimmed.startsWith('<') || trimmed.toLowerCase().startsWith('<!doctype')) {
+      design = { storefront_html: trimmed };
+    } else {
+      if (value.length > 2000000) throw new Error('Design JSON is too large.');
+      design = JSON.parse(value);
+    }
+  } else {
+    const text = JSON.stringify(value || {});
+    if (text.length > 2000000) throw new Error('Design JSON is too large.');
+    design = value && typeof value === 'object' ? { ...value } : {};
   }
-  const text = JSON.stringify(value || {});
-  if (text.length > 2000000) throw new Error('Design JSON is too large.');
-  return value && typeof value === 'object' ? value : {};
+  if (typeof extraHtml === 'string' && extraHtml.trim()) design.storefront_html = extraHtml;
+  return design;
 };
 async function authProfile(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -74,7 +83,7 @@ export default async function handler(req, res) {
       let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
       const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
-      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json, body.storefront_html), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
       if (error) throw error;
       const authEmail = ownerAuthEmail(whatsapp);
       const { data: created, error: userError } = await supabase.auth.admin.createUser({ email: authEmail, password, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp } });
@@ -112,7 +121,7 @@ export default async function handler(req, res) {
       }
       if (req.body.action === 'design') {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-        const { data, error } = await supabase.from('stores').update({ design_json: safeDesign(req.body.design_json), updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+        const { data, error } = await supabase.from('stores').update({ design_json: safeDesign(req.body.design_json, req.body.storefront_html), updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
       }
       return res.status(400).json({ error: 'Unknown store update.' });
     }
