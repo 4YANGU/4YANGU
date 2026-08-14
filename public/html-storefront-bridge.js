@@ -85,6 +85,13 @@
     });
   }
 
+  function removeGeneralWhatsAppLinks() {
+    document.querySelectorAll('a[href*="wa.me"],a[href*="api.whatsapp.com"],a[data-wa-link]').forEach(function (link) {
+      if (link.closest && link.closest('[data-stoyangu-order-popup="1"]')) return;
+      link.remove();
+    });
+  }
+
   function chosenOption(kind) {
     if (!popup) return '';
     var on = popup.querySelector('[data-sty-option="' + kind + '"].active, [data-sty-option="' + kind + '"][aria-pressed="true"]');
@@ -633,7 +640,7 @@
     if (phoneStep && document.body.contains(phoneStep)) return phoneStep;
     phoneStep = document.createElement('div');
     phoneStep.className = 'sty-phone-step';
-    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><span class="sty-phone-kicker">One last step</span><h3>Where can we reach you?</h3><p>Click send on the next page and we will reply to you on WhatsApp.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Click send on the next page and we will reply to you on WhatsApp.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
     document.body.appendChild(phoneStep);
     return phoneStep;
   }
@@ -822,6 +829,7 @@
     byId = {};
     products.forEach(function (p) { byId[String(p.id)] = p; });
     hideCart();
+    removeGeneralWhatsAppLinks();
     ensurePopup();
     if (!popupOpen) closePopup();
     paintNav();
