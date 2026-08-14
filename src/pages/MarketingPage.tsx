@@ -100,7 +100,7 @@ export default function MarketingPage() {
       </section>
 
       <section className="marketing-section comments-section" aria-labelledby="comments-heading">
-        <div className="section-heading"><span className="eyebrow">Umechoka kureply?</span><h2 id="comments-heading">“Bei gani?” 700 times a day.<br /><em>One link answers them all.</em></h2><p>Price. Size. Colour. Delivery. Your store shows it all per product — the customer taps the link, chooses, and orders on WhatsApp.</p></div>
+        <div className="section-heading"><span className="eyebrow">Umechoka kureply?</span><h2 id="comments-heading">How much?, Size gani?, Colour gani?<br /><em>One link answers them all.</em></h2><p>Price. Size. Colour. Delivery. Your store shows it all per product — the customer taps the link, chooses, and orders on WhatsApp.</p></div>
         <div className="comments-grid">
           <div className="comments-chaos" aria-hidden="true">
             <span className="chaos-tag">WITHOUT STOYANGU</span>
