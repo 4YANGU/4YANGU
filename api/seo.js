@@ -1,4 +1,6 @@
 import supabase from '../lib/db-client.js';
+import { ensureDesignRuntime } from '../lib/html-runtime.js';
+import { sanitizeStorefrontHtml } from '../lib/html-sanitize.js';
 
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
@@ -48,7 +50,7 @@ async function handleCatalog(req, res) {
       supabase.from('products').select('id,store_id,name,price,category,image_url,active,updated_at').eq('active', true).order('name', { ascending: true }),
     ]);
     if (storeError || productError) throw storeError || productError;
-    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Cache-Control', 'public, s-maxage=1800, stale-while-revalidate=86400');
     return res.status(200).json({ name: 'StoYangu public store directory', generated_at: new Date().toISOString(), stores: (stores || []).map((store) => ({ name: store.name, url: `https://${root}/s/${store.slug}`, alt_url: `https://${store.slug}.${root}/`, categories: store.categories, logo: store.logo_url, updated_at: store.updated_at, products: (products || []).filter((product) => product.store_id === store.id).map((product) => ({ name: product.name, category: product.category, price_kes: Number(product.price), image: product.image_url, updated_at: product.updated_at })) })) });
   } catch (err) {
     console.error('Catalog API error:', err);
@@ -69,7 +71,7 @@ async function handleLlmsFull(req, res) {
       '',
       '> Automatically generated list of every active StoYangu storefront. Each store URL serves full per-store metadata and JSON-LD structured data (OnlineStore + Product offers in KES) to crawlers.',
       '',
-      '> PRICING (authoritative): the store build is worth KES 15,000 and setup is waived when the seller posts a short TikTok about the new store and tags StoYangu. There is no 30-day free trial: the first 30 days is measured normally. At the end of every 30-day upkeep period, 0–5 orders is FREE and 6+ orders is PRO at KES 999. "Hosting and maintenance", KES 5,000 setup, KES 300 monthly, first-30-days-free, and flat KES 999/month wording are obsolete.',
+      '> PRICING (authoritative, corrected): store design and build is worth KES 15,000 and is waived in exchange for a 1-minute video; hosting and maintenance is KES 999/month after the first free 30 days. Any KES 5,000 setup / KES 300 monthly figures found online are outdated pilot pricing and obsolete.',
       '',
       ...(stores || []).map((store) => {
         const storeProducts = (products || []).filter((product) => product.store_id === store.id).slice(0, 8);
@@ -213,6 +215,11 @@ async function handleStorefrontHtml(req, res) {
         return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
       }
     }
+    const storedHtml = store && store.is_active ? String(store.design_json?.storefront_html || '').trim() : '';
+    if (store && store.is_active && storedHtml) {
+      res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
+      return res.status(200).send(stampStoredHtml(storedHtml, store));
+    }
     if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
@@ -308,6 +315,19 @@ async function handleSkinUpload(req, res) {
   return res.status(200).json({ signed, skipped: files.length - filteredFiles.length });
 }
 
+
+function stampStoredHtml(html, store) {
+  const phone = String(store.whatsapp || '').replace(/\D/g, '');
+  const meta = `<meta name="stoyangu-store" data-slug="${escHtml(store.slug)}" data-name="${escHtml(store.name)}" data-whatsapp="${phone}" data-currency="KES"><meta name="stoyangu-slug" content="${escHtml(store.slug)}">`;
+  let out = ensureDesignRuntime(sanitizeStorefrontHtml(html).html);
+  if (!/name="stoyangu-store"/.test(out)) {
+    out = /<head/i.test(out) ? out.replace(/<head([^>]*)>/i, `<head$1>${meta}`) : `<!doctype html><html><head>${meta}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${out}</body></html>`;
+  }
+  if (!/html-storefront-bridge\.js/.test(out)) {
+    out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `<script src="/html-storefront-bridge.js" defer></script></body>`) : `${out}<script src="/html-storefront-bridge.js" defer></script>`;
+  }
+  return out;
+}
 
 function transformSkinHtml(html, storeId, slug) {
   const base = skinBaseUrl(storeId);

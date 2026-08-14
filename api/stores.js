@@ -1,5 +1,4 @@
-import supabase from './db-client.js';
-import { prepareStorefrontHtml, persistStorefrontHtml, STOREFRONT_BUCKET } from '../lib/storefront-html.js';
+import supabase from '../lib/db-client.js';
 
 const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
 const normalizePhone = (value) => {
@@ -8,6 +7,24 @@ const normalizePhone = (value) => {
   return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
 };
 const ownerAuthEmail = (phone) => `phone-${String(phone).replace(/\D/g, '')}@owners.stoyangu.invalid`;
+const safeDesign = (value, extraHtml) => {
+  let design;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('<') || trimmed.toLowerCase().startsWith('<!doctype')) {
+      design = { storefront_html: trimmed };
+    } else {
+      if (value.length > 2000000) throw new Error('Design JSON is too large.');
+      design = JSON.parse(value);
+    }
+  } else {
+    const text = JSON.stringify(value || {});
+    if (text.length > 2000000) throw new Error('Design JSON is too large.');
+    design = value && typeof value === 'object' ? { ...value } : {};
+  }
+  if (typeof extraHtml === 'string' && extraHtml.trim()) design.storefront_html = extraHtml;
+  return design;
+};
 async function authProfile(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return null;
@@ -16,6 +33,11 @@ async function authProfile(req) {
   const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
   return data ? { ...data, user } : null;
 }
+const expired = (store) => {
+  if (!store.is_active || !store.billing_started_at || store.billing_paid_until && new Date(store.billing_paid_until) > new Date()) return false;
+  return Date.now() > new Date(store.billing_started_at).getTime() + 35 * 86400000;
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -39,6 +61,7 @@ export default async function handler(req, res) {
       }
       const { data: store, error } = result;
       if (error || !store) return res.status(404).json({ error: 'Store not found or currently offline.' });
+      if (expired(store)) { await supabase.from('stores').update({ is_active: false }).eq('id', store.id); return res.status(404).json({ error: 'This store is currently offline.' }); }
       const { data: products, error: productsError } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
       if (productsError) throw productsError;
       const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
@@ -55,30 +78,19 @@ export default async function handler(req, res) {
     }
     if (req.method === 'POST') {
       if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(body.whatsapp); const password = String(body.owner_password || ''); const storefrontHtml = String(body.storefront_html || '');
+      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(body.whatsapp); const password = String(body.owner_password || '');
       if (name.length < 2 || !whatsapp || password.length < 8) return res.status(400).json({ error: 'Store name, owner WhatsApp number and a temporary password of at least 8 characters are required.' });
-      if (!storefrontHtml.trim()) return res.status(400).json({ error: 'Paste the complete HTML storefront before creating the store.' });
       let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
       const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
-      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: {}, is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json, body.storefront_html), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
       if (error) throw error;
-      let savedStore = store;
-      try {
-        const prepared = await prepareStorefrontHtml({ supabase, storeId: store.id, rawHtml: storefrontHtml, copyImages: true });
-        const saved = await persistStorefrontHtml(supabase, store.id, prepared.html);
-        if (saved.error) throw saved.error;
-        savedStore = saved.data;
-      } catch (storefrontError) {
-        await supabase.from('stores').delete().eq('id', store.id);
-        throw storefrontError;
-      }
       const authEmail = ownerAuthEmail(whatsapp);
       const { data: created, error: userError } = await supabase.auth.admin.createUser({ email: authEmail, password, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp } });
       if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
       const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: authEmail, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
       if (profileError) throw profileError;
-      return res.status(201).json(savedStore);
+      return res.status(201).json(store);
     }
     if (req.method === 'PUT') {
       const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Store is required.' });
@@ -107,6 +119,10 @@ export default async function handler(req, res) {
         const active = Boolean(req.body.is_active); const changes = active ? { is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() } : { is_active: false, updated_at: new Date().toISOString() };
         const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
       }
+      if (req.body.action === 'design') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data, error } = await supabase.from('stores').update({ design_json: safeDesign(req.body.design_json, req.body.storefront_html), updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+      }
       return res.status(400).json({ error: 'Unknown store update.' });
     }
     if (req.method === 'DELETE') {
@@ -116,8 +132,6 @@ export default async function handler(req, res) {
       const { data: target, error: targetError } = await supabase.from('stores').select('id,slug,name').eq('id', id).single();
       if (targetError || !target) return res.status(404).json({ error: 'Store not found.' });
       const { data: ownerProfiles } = await supabase.from('profiles').select('user_id').eq('store_id', id);
-      const { data: storefrontAssets } = await supabase.storage.from(STOREFRONT_BUCKET).list(`storefronts/${id}`, { limit: 1000 });
-      if (storefrontAssets?.length) await supabase.storage.from(STOREFRONT_BUCKET).remove(storefrontAssets.map((asset) => `storefronts/${id}/${asset.name}`));
       // Deleting the store row cascades to products, product images, aliases, events,
       // notifications, highlights, push subscriptions and PWA installations.
       const { error: deleteError } = await supabase.from('stores').delete().eq('id', id);
@@ -132,8 +146,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     console.error('Stores API error:', err);
-    const message = err instanceof Error ? err.message : 'Could not process that store.';
-    const clientError = /paste|html|image|unsplash|larger|complete|unsupported/i.test(message);
-    return res.status(clientError ? 400 : 500).json({ error: clientError ? message : 'Could not process that store.' });
+    return res.status(500).json({ error: err.message === 'Design JSON is too large.' ? err.message : 'Could not process that store.' });
   }
 }

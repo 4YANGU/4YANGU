@@ -1,15 +1,5 @@
 import supabase from '../lib/db-client.js';
 
-const UPKEEP_PERIOD_MS = 30 * 86400000;
-const upkeepPeriod = (store, now = Date.now()) => {
-  const started = new Date(store.billing_started_at || store.created_at || now).getTime();
-  const anchor = Number.isFinite(started) ? started : now;
-  const periodNumber = Math.max(0, Math.floor((now - anchor) / UPKEEP_PERIOD_MS));
-  const startsAt = anchor + periodNumber * UPKEEP_PERIOD_MS;
-  return { startsAt, endsAt: startsAt + UPKEEP_PERIOD_MS };
-};
-const addUpkeepPlan = (store, periodOrders, period) => ({ ...store, orders_this_period: periodOrders, upkeep_plan: periodOrders > 5 ? 'PRO' : 'FREE', upkeep_due: periodOrders > 5 ? 999 : 0, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() });
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -30,12 +20,19 @@ export default async function handler(req, res) {
         supabase.from('notifications').select('id,batch_key,title,body,edited_body,status,created_at').eq('store_id', storeId).order('created_at', { ascending: false }).limit(5),
       ]);
       if (error || !store) return res.status(404).json({ error: 'Store not found.' });
-      const period = upkeepPeriod(store);
-      const { data: periodOrders } = await supabase.from('store_events').select('id').eq('store_id', storeId).eq('event_type', 'order').gte('created_at', new Date(period.startsAt).toISOString()).lt('created_at', new Date(period.endsAt).toISOString());
       // Show today's counters as zero on a fresh Nairobi day even before the first
       // event lands, so yesterday's numbers never masquerade as today's.
       const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
-      if (store.metrics_date !== nairobiToday) { store.visitor_today = 0; store.orders_today = 0; }
+      const dayStart = `${nairobiToday}T00:00:00+03:00`;
+      const { data: todayEvents } = await supabase.from('store_events').select('event_type').eq('store_id', storeId).gte('created_at', dayStart);
+      const countedVisits = (todayEvents || []).filter((row) => row.event_type === 'visit').length;
+      const countedOrders = (todayEvents || []).filter((row) => row.event_type === 'order').length;
+      if (store.metrics_date !== nairobiToday || Number(store.visitor_today || 0) !== countedVisits || Number(store.orders_today || 0) !== countedOrders) {
+        store.visitor_today = countedVisits;
+        store.orders_today = countedOrders;
+        store.metrics_date = nairobiToday;
+        await supabase.from('stores').update({ visitor_today: countedVisits, orders_today: countedOrders, metrics_date: nairobiToday }).eq('id', store.id);
+      }
       const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
       if (mediaError) throw mediaError;
       const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) }; });
@@ -46,25 +43,46 @@ export default async function handler(req, res) {
       const fallbackNeeds = [...liveProducts].filter((product) => product.id !== fallbackWinner?.id).sort((a, b) => (Number(b.views_today) - Number(b.orders_today) * 3) - (Number(a.views_today) - Number(a.orders_today) * 3))[0] || null;
       const quietDay = Number(store.visitor_today || 0) === 0 && Number(store.orders_today || 0) === 0;
       const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); const isCustomMessage = String(item.batch_key || '').startsWith('custom-'); const noProduct = isCustomMessage || quietDay; return { ...item, body: item.edited_body || item.body, winner_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
-      return res.status(200).json({ profile, store: addUpkeepPlan(store, periodOrders?.length || 0, period), products: liveProducts, notifications: enrichedNotifications });
+      return res.status(200).json({ profile, store, products: liveProducts, notifications: enrichedNotifications });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }, { data: recentOrders }] = await Promise.all([
+    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([
       supabase.from('stores').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id,store_id,active'),
       supabase.from('applications').select('*').order('created_at', { ascending: false }),
       supabase.from('pwa_installations').select('store_id,installed,notifications_enabled,welcome_sent_at,last_seen_at'),
-      supabase.from('store_events').select('store_id,created_at').eq('event_type', 'order').gte('created_at', new Date(Date.now() - UPKEEP_PERIOD_MS).toISOString()),
     ]);
     // Fresh Nairobi day before the first event: show zero for today's counters.
     const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
-    for (const store of stores || []) { if (store.metrics_date !== nairobiToday) { store.visitor_today = 0; store.orders_today = 0; } }
-    const storesWithPlans = (stores || []).map((store) => { const period = upkeepPeriod(store); const count = (recentOrders || []).filter((event) => event.store_id === store.id && new Date(event.created_at).getTime() >= period.startsAt && new Date(event.created_at).getTime() < period.endsAt).length; return addUpkeepPlan(store, count, period); });
+    const dayStart = `${nairobiToday}T00:00:00+03:00`;
+    const { data: todayEvents } = await supabase.from('store_events').select('store_id,event_type').gte('created_at', dayStart);
+    const visitMap = {};
+    const orderMap = {};
+    (todayEvents || []).forEach((row) => {
+      if (row.event_type === 'visit') visitMap[row.store_id] = (visitMap[row.store_id] || 0) + 1;
+      if (row.event_type === 'order') orderMap[row.store_id] = (orderMap[row.store_id] || 0) + 1;
+    });
+    for (const store of stores || []) {
+      const visits = visitMap[store.id] || 0;
+      const orders = orderMap[store.id] || 0;
+      if (store.metrics_date !== nairobiToday || Number(store.visitor_today || 0) !== visits || Number(store.orders_today || 0) !== orders) {
+        store.visitor_today = visits;
+        store.orders_today = orders;
+        store.metrics_date = nairobiToday;
+        await supabase.from('stores').update({ visitor_today: visits, orders_today: orders, metrics_date: nairobiToday }).eq('id', store.id);
+      }
+    }
+    const now = Date.now();
+    for (const store of stores || []) {
+      const paid = store.billing_paid_until && new Date(store.billing_paid_until).getTime() > now;
+      const overdue = store.is_active && store.billing_started_at && now > new Date(store.billing_started_at).getTime() + 35 * 86400000 && !paid;
+      if (overdue) { store.is_active = false; await supabase.from('stores').update({ is_active: false }).eq('id', store.id); }
+    }
     const liveProducts = (products || []).filter((product) => product.active);
-    const analytics = { activeStores: storesWithPlans.filter((store) => store.is_active).length, visitors: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: storesWithPlans.reduce((sum, store) => sum + Number(store.orders_total || 0), 0), ordersToday: storesWithPlans.reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length };
+    const analytics = { activeStores: (stores || []).filter((store) => store.is_active).length, visitors: (stores || []).reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: (stores || []).reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: (stores || []).reduce((sum, store) => sum + Number(store.orders_total || 0), 0), ordersToday: (stores || []).reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length };
     const productCounts = liveProducts.reduce((map, product) => ({ ...map, [product.store_id]: (map[product.store_id] || 0) + 1 }), {});
     const installationStatus = (installations || []).reduce((map, item) => ({ ...map, [item.store_id]: item }), {});
-    return res.status(200).json({ profile, analytics, stores: storesWithPlans, applications: applications || [], productCounts, installations: installationStatus });
+    return res.status(200).json({ profile, analytics, stores: stores || [], applications: applications || [], productCounts, installations: installationStatus });
   } catch (err) {
     console.error('Dashboard API error:', err);
     return res.status(500).json({ error: 'Could not load the dashboard.' });
