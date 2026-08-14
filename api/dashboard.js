@@ -1,4 +1,5 @@
 import supabase from '../lib/db-client.js';
+import { storeOrders } from '../lib/order-fallback.js';
 
 const PERIOD_MS = 30 * 86400000;
 const currentPeriod = (store, now = Date.now()) => {
@@ -29,13 +30,13 @@ export default async function handler(req, res) {
     if (profile.role === 'owner' || requested) {
       const storeId = profile.role === 'founder' ? requested : profile.store_id;
       if (!storeId) return res.status(404).json({ error: 'No store is assigned.' });
-      const [{ data: store, error }, { data: products }, { data: notifications }, { data: orders }] = await Promise.all([
+      const [{ data: store, error }, { data: products }, { data: notifications }] = await Promise.all([
         supabase.from('stores').select('*').eq('id', storeId).single(),
         supabase.from('products').select('*').eq('store_id', storeId).eq('active', true).order('created_at', { ascending: false }),
         supabase.from('notifications').select('id,batch_key,title,body,edited_body,status,created_at').eq('store_id', storeId).order('created_at', { ascending: false }).limit(5),
-        supabase.from('orders').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(200),
       ]);
       if (error || !store) return res.status(404).json({ error: 'Store not found.' });
+      const orders = await storeOrders(supabase, storeId, 200);
       // Show today's counters as zero on a fresh Nairobi day even before the first
       // event lands, so yesterday's numbers never masquerade as today's.
       const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
@@ -62,13 +63,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ profile, store: addPlan(store, orders), products: liveProducts, orders: orders || [], notifications: enrichedNotifications });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }, { data: allOrders }] = await Promise.all([
+    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([
       supabase.from('stores').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id,store_id,active'),
       supabase.from('applications').select('*').order('created_at', { ascending: false }),
       supabase.from('pwa_installations').select('store_id,installed,notifications_enabled,welcome_sent_at,last_seen_at'),
-      supabase.from('orders').select('id,store_id,status,created_at').order('created_at', { ascending: false }).limit(1000),
     ]);
+    const allOrders = (await Promise.all((stores || []).map((store) => storeOrders(supabase, store.id, 500)))).flat();
     // Fresh Nairobi day before the first event: show zero for today's counters.
     const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
     const dayStart = `${nairobiToday}T00:00:00+03:00`;

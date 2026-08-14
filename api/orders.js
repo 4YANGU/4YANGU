@@ -1,5 +1,6 @@
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
+import { fallbackOrders, missingOrdersTable, saveFallbackOrder, storeOrders, updateFallbackOrder } from '../lib/order-fallback.js';
 
 const cors = (res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -65,8 +66,9 @@ export default async function handler(req, res) {
       if (!store) return res.status(404).json({ error: 'Store not found.' });
       const { data: product } = await supabase.from('products').select('*').eq('id', productId).eq('store_id', store.id).eq('active', true).single();
       if (!product) return res.status(404).json({ error: 'Product not found.' });
-      const { data: duplicate } = await supabase.from('orders').select('*').eq('store_id', store.id).eq('order_key', orderKey).limit(1);
-      if (duplicate?.length) return res.status(200).json({ order: duplicate[0], duplicate: true });
+      const existingOrders = await storeOrders(supabase, store.id, 200);
+      const duplicate = existingOrders.find((order) => order.order_key === orderKey);
+      if (duplicate) return res.status(200).json({ order: duplicate, duplicate: true });
       const values = {
         order_key: orderKey,
         store_id: store.id,
@@ -80,11 +82,16 @@ export default async function handler(req, res) {
         note: String(body.note || '').slice(0, 500),
         status: 'new',
       };
-      const { data: order, error } = await supabase.from('orders').insert(values).select().single();
-      if (error) throw error;
+      const inserted = await supabase.from('orders').insert(values).select().single();
+      let order = inserted.data;
+      let fallbackUsed = false;
+      if (inserted.error) {
+        if (!missingOrdersTable(inserted.error)) throw inserted.error;
+        order = await saveFallbackOrder(supabase, values);
+        fallbackUsed = true;
+      }
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
-      const sessionId = `order-${order.id}`;
-      await supabase.from('store_events').insert({ store_id: store.id, product_id: product.id, event_type: 'order', session_id: sessionId });
+      if (!fallbackUsed) { const sessionId = `order-${order.id}`; await supabase.from('store_events').insert({ store_id: store.id, product_id: product.id, event_type: 'order', session_id: sessionId }); }
       const storeIsToday = store.metrics_date === today;
       const productIsToday = product.metrics_date === today;
       await Promise.all([
@@ -101,15 +108,21 @@ export default async function handler(req, res) {
       const requestedStoreId = Number(req.query?.storeId || 0);
       const storeId = profile.role === 'founder' ? requestedStoreId || Number(profile.store_id || 0) : Number(profile.store_id || 0);
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
-      const { data, error } = await supabase.from('orders').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(200);
-      if (error) throw error;
-      return res.status(200).json(data || []);
+      return res.status(200).json(await storeOrders(supabase, storeId, 200));
     }
     if (req.method === 'PUT') {
       const id = Number(req.body?.id || 0);
       const status = String(req.body?.status || '');
       if (!id || !['new', 'contacted', 'completed', 'cancelled'].includes(status)) return res.status(400).json({ error: 'Valid order and status are required.' });
-      const { data: existing } = await supabase.from('orders').select('*').eq('id', id).single();
+      if (id < 0) {
+        if (profile.role !== 'founder') { const owned = await fallbackOrders(supabase, Number(profile.store_id || 0), 200); if (!owned.some((order) => order.id === id)) return res.status(403).json({ error: 'You cannot change this order.' }); }
+        const fallback = await updateFallbackOrder(supabase, id, status);
+        if (!fallback) return res.status(404).json({ error: 'Order not found.' });
+        return res.status(200).json(fallback);
+      }
+      const { data: existing, error: existingError } = await supabase.from('orders').select('*').eq('id', id).single();
+      if (missingOrdersTable(existingError)) return res.status(404).json({ error: 'Order not found.' });
+      if (existingError && existingError.code !== 'PGRST116') throw existingError;
       if (!existing) return res.status(404).json({ error: 'Order not found.' });
       if (profile.role !== 'founder' && Number(profile.store_id) !== Number(existing.store_id)) return res.status(403).json({ error: 'You cannot change this order.' });
       const { data, error } = await supabase.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select().single();
