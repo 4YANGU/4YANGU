@@ -17,7 +17,8 @@ export type Store = {
   phone: string;
   logo_url: string;
   categories: string[];
-  design_json: Record<string, unknown> & { storefront_html?: string };
+  storefront_html?: string | null;
+  design_json: Record<string, unknown> | string;
   is_active: boolean;
   billing_started_at: string | null;
   billing_paid_until: string | null;
@@ -25,8 +26,15 @@ export type Store = {
   visitor_today: number;
   orders_total: number;
   orders_today: number;
+  orders_this_month?: number;
+  orders_this_period?: number;
+  upkeep_plan?: 'FREE' | 'PRO';
+  upkeep_due?: 0 | 999;
+  upkeep_period_starts_at?: string;
+  upkeep_period_ends_at?: string;
   metrics_date: string;
   created_at: string;
+  updated_at?: string;
 };
 
 export type Product = {

@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, formatMoney, storeDomain, storeLink, uploadImage } from '../lib/api';
 import supabase from '../lib/supabase';
 import type { DashboardData, Product } from '../types';
+import '../pricing-update.css';
 
 const colorPresets = ['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold'];
 const sizePresets = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42'];
@@ -93,10 +94,13 @@ export default function StoreDashboard() {
   const latestUpdate = data.notifications?.[0];
   const updateDate = latestUpdate ? new Date(latestUpdate.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
   const updateTitle = latestUpdate?.title?.match(/\d/) ? latestUpdate.title : `StoYangu daily update, ${updateDate}`;
+  const upkeepOrders = Number(store.orders_this_period ?? store.orders_this_month ?? 0);
+  const upkeepPeriodEnd = store.upkeep_period_ends_at ? new Date(store.upkeep_period_ends_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' }) : 'the end of this 30-day period';
   return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'My StoYangu'}</span><div>{profile?.role === 'owner' && !isStandaloneApp() && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a></header><main className="owner-main">
     {error && <div className="dashboard-error">{error}</div>}
     {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}
+    <section className={`upkeep-status ${store.upkeep_plan === 'PRO' ? 'pro' : 'free'}`}><div className="upkeep-status-head"><div><span className="eyebrow">Current 30-day upkeep period</span><h2>{store.upkeep_plan === 'PRO' ? 'PRO · KES 999' : 'FREE · KES 0'}</h2></div><span className="upkeep-order-count"><b>{upkeepOrders}</b> order{upkeepOrders === 1 ? '' : 's'}</span></div><p>{store.upkeep_plan === 'PRO' ? `Your store has more than five orders in this 30-day period, so KES 999 upkeep applies when the period ends on ${upkeepPeriodEnd}.` : `You have ${upkeepOrders} of 5 FREE-tier orders in this 30-day period. Five or fewer by ${upkeepPeriodEnd} means no upkeep payment.`}</p><div className="upkeep-meter"><i style={{ width: `${Math.min(100, (upkeepOrders / 6) * 100)}%` }} /></div><small><Check /> Your KES 15,000 setup remains fully covered by the Video Yangu, Store Yangu TikTok exchange. This first 30 days is measured normally; it is not a free trial.</small></section>
     <section className="analytics-grid two"><article className="metric-card owner-metric"><div className="metric-icon"><Users /></div><span>Store visitors</span><strong>{store.visitor_total.toLocaleString()}</strong><small>+{store.visitor_today} Today</small></article><article className="metric-card owner-metric green"><div className="metric-icon"><MessageCircle /></div><span>WhatsApp order clicks</span><strong>{store.orders_total.toLocaleString()}</strong><small>+{store.orders_today} Today</small></article></section>
     <StickerDownload slug={store.slug} />
     {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
