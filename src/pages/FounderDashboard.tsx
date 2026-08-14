@@ -10,10 +10,13 @@ import { disableSkin, skinStatus, uploadSkinZip } from '../lib/skinUpload';
 import type { Application, DashboardData, Store } from '../types';
 import '../latest-update.css';
 
+type StoreUpkeep = Store & { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'FREE' | 'PRO'; upkeep_due?: 0 | 999; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
+
 const daysLeft = (store: Store) => {
   if (!store.is_active) return { label: 'OFF', tone: 'off' };
-  const orders = Number(store.orders_this_period ?? store.orders_this_month ?? 0);
-  const ends = store.upkeep_period_ends_at ? new Date(store.upkeep_period_ends_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' }) : '30-day end';
+  const upkeep = store as StoreUpkeep;
+  const orders = Number(upkeep.orders_this_period ?? upkeep.orders_this_month ?? 0);
+  const ends = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' }) : '30-day end';
   if (orders > 5) return { label: `PRO · ${orders} orders · KES 999 · ${ends}`, tone: 'paid' };
   return { label: `FREE · ${orders}/5 orders · ${ends}`, tone: 'active' };
 };
