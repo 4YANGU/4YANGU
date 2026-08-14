@@ -552,89 +552,53 @@ export default async function handler(req, res) {
 // The single prompt shown in the Founder Dashboard
 // ---------------------------------------------------------------------------
 function buildPrompt(storeName, products, ownerWhatsApp) {
-  return `You are designing a SINGLE-FILE storefront for a Kenyan social-shop called "${storeName}" that sells ${products}. The owner sells via WhatsApp (number: ${ownerWhatsApp}).
+  return `Design one completely original, premium storefront for "${storeName}", a Kenyan store that sells ${products}.
 
-There is NO shopping cart. The only buy path is:
-  View product → choose colour / size / delivery / note → Order via WhatsApp.
+Deliver exactly ONE self-contained HTML document. Put every style inside one <style> tag in the <head>. Write all styling as ordinary, direct CSS with real property values, for example background-color: #101f30; color: #ffffff; display: grid; gap: 24px; border-radius: 18px;.
 
-Produce ONE self-contained HTML file. All CSS in one <style> in the <head>. You may use Tailwind class names and a tailwind.config colour theme so the shop, cards and popup share the same colours, fonts and corners.
+ABSOLUTELY FORBIDDEN:
+- Do not use utility-class frameworks, framework configuration objects, Bootstrap, external stylesheets, CDN CSS, runtime class interpreters, CSS-in-JS, build tools, or JavaScript-generated styling.
+- Do not include any <script> tag or JavaScript.
+- Do not rely on a class name unless you also write the complete plain CSS rule for that class inside the document's own <style> tag.
+- Do not create a cart, checkout, popup, modal, phone form, WhatsApp link, product array, prices, category names, or click behaviour.
 
-Do NOT write JavaScript that fetches data, invents products, or builds a cart. StoYangu injects LIVE products from the seller's Manage Store page.
+QUALITY:
+Create a visually unforgettable, polished, mobile-first storefront with a unique art direction made specifically for ${storeName}. The hero must be exceptional. Use direct CSS variables with actual hex/rgb/hsl values for the complete colour palette. Decorative emoji must be static Unicode in the HTML; important icons should use inline SVG or CSS shapes so nothing depends on an outside library.
 
-MANDATORY MARKUP (keep these class names and data-attributes exactly):
+NAVIGATION:
+- Build one sticky header containing the store name/logo and exactly three visible links in a left-to-right row: Home, Products, Contact.
+- Link them to #home, #products and #contact.
+- No hamburger, drawer, hidden mobile menu, cart, shop button, or extra navigation item.
+- On phones, the store name must never overlap or push the three links off screen. Use responsive direct CSS sizes and gaps.
 
-1. STICKY NAV — the APP builds the three links. You only style the bar.
-   Put an empty hook in the header:
-     <header data-store-nav>
-       <a href="#home">STORE NAME</a>
-       <nav data-app-nav></nav>
-     </header>
-   Leave <nav data-app-nav> empty. StoYangu always fills exactly:
-     Home    → #home
-     Products → #products
-     Contact  → #contact
-   Do NOT invent extra menu items. Do NOT add a hamburger / three-line menu.
-   Those three words must be visible on phones and computers. No click-to-open drawer.
-   Make the header sticky (stays at the top while the customer scrolls).
-   Style header, the store name and nav links to match the shop.
-   For the logo use: <img data-store-logo alt="" />
-   StoYangu replaces that with the store logo already saved in Manage Store. Never invent a logo file.
+HOME:
+- Create a spectacular hero and supporting trust/story content for this exact store.
 
-2. CATEGORY BUTTONS — the APP builds these too. You only style them.
-   <div id="filters"></div>
-   Leave it empty. StoYangu fills All + every live product category from Manage Store.
-   When the seller adds or renames a category, the buttons update by themselves.
-   Style #filters and .sty-filter / .sty-filter.active (pill buttons in a row).
+PRODUCTS:
+- Fully design the products section, heading, spacing, filters, responsive grid, cards and View Product button.
+- Leave this empty filter mount exactly: <div id="filters" data-category-filters></div>
+- Leave this empty product mount exactly: <div id="productGrid" data-product-grid></div>
+- Include one hidden reusable card template outside the visible grid:
+  <template id="stoyangu-card-template">
+    <article class="product-card">
+      <img alt="">
+      <span class="product-category"></span>
+      <h3 class="product-name"></h3>
+      <p class="product-price"></p>
+      <button type="button" data-view-product>View Product</button>
+    </article>
+  </template>
+- Write complete direct CSS rules for #filters, .filter-chip, #productGrid, .product-card, its image/content elements, and [data-view-product].
+- The only action inside a product card is exactly View Product. It has no href, onclick, modal target, or custom behaviour. The HTML's responsibility ends at that button; StoYangu handles everything after the click.
 
-3. PRODUCT GRID — YOU design the grid and the card. The app only fills live data.
-   <div id="productGrid" data-product-grid>
-     <article class="product-card" data-id="" data-name="" data-price="" data-image="" data-category="">
-       <img alt="" />
-       <span class="product-category"></span>
-       <p class="product-name">Product</p>
-       <p class="product-price">KES 0</p>
-       <button type="button" class="view-product" data-view-product>View product</button>
-     </article>
-   </div>
-   Style #productGrid and .product-card however you want this shop to look.
-   The sample card is a template only — the app clones it for every real product and hides the sample.
+CONTACT AND FOOTER:
+- Create a beautiful #contact section using the store's normal location, phone text/call link, email, hours, and appropriate social links.
+- Do not include a WhatsApp or wa.me link anywhere.
+- Finish with a premium footer matching the design.
+- You may add one decorative/story section outside the navigation.
 
-4. PRODUCT POPUP — YOU design the whole popup. The app only fills the live product.
-   It must look like the rest of this shop. Start HIDDEN (no class "open").
-   <div class="product-popup">
-     <button type="button" class="sty-close" data-close-popup aria-label="Close">×</button>
-     <div class="dialog">
-       <img class="popup-image" data-popup-image alt="" />
-       <div data-thumbs></div>
-       <div class="content">
-         <h3 data-popup-name>Product</h3>
-         <p class="popup-price" data-popup-price>KES 0</p>
-         <label>Colour <select data-color></select></label>
-         <label>Size <select data-size></select></label>
-         <label>How would you like to receive it?
-           <select data-fulfilment>
-             <option>Delivery</option>
-             <option>In-store pickup</option>
-           </select>
-         </label>
-         <label>Delivery or order note
-           <textarea data-note maxlength="300" placeholder="Estate, building, landmark or collection time"></textarea>
-         </label>
-         <a class="order" data-whatsapp href="#">Order via WhatsApp</a>
-       </div>
-     </div>
-   </div>
-   Style .sty-close so it stays on screen even when the customer scrolls the popup
-   (fixed to the top-right of the window, a clear circle, high contrast).
-   Style .order as the primary WhatsApp button (green #25D366 is fine if it fits).
-   The app fills the live product, photos, colour, size, delivery and note, then WhatsApp opens with:
-     Hi ${storeName}! I want to order {name} (KES …) in size …, colour ….
-     Fulfilment: Delivery / In-store pickup
-     Customer note: …
+ASSETS:
+Permanent HTTPS Unsplash/Pexels/Pixabay imagery is allowed for decorative photos. StoYangu mirrors external assets into its own Storage when the HTML is saved. Product images come from the seller's live product uploads.
 
-5. Do not invent a product list, prices, extra nav items, or category names. Do not add a hamburger menu, bag, cart or checkout drawer.
-
-IMAGES: Unsplash / Pexels / Pixabay https links are welcome for hero and lifestyle photos. StoYangu copies them into our own storage when you save. Product photos always come from the seller's uploads.
-
-DELIVERY: paste the complete single HTML file back. One file only.`;
+Return only the final complete HTML document, with no explanation before or after it.`;
 }
