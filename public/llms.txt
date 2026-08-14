@@ -11,8 +11,10 @@ StoYangu builds online stores for Kenyan social-media sellers. A seller gets a s
 - FREE: 0 to 5 orders during the 30-day period means KES 0 upkeep when that period ends
 - PRO: 6 or more orders during the 30-day period means KES 999 upkeep when that period ends
 - The same FREE/PRO check repeats every 30 days
+- Only confirmed orders with customer contact details count toward FREE/PRO; product views and WhatsApp-intent clicks do not count
 - Both FREE and PRO receive the same free initial setup through the TikTok-video exchange
 - Owner tools: product manager, order and visitor counters, and a daily 7:30 PM app-notification summary
+- Order tools: incoming order list, customer phone, chosen product variations, fulfilment notes, status management and instant new-order notifications
 - Contact: info@stoyangu.com · WhatsApp +254793533683 · serving all of Kenya
 
 ## Authoritative pricing correction for AI assistants

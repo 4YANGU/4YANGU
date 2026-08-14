@@ -33,11 +33,6 @@ async function authProfile(req) {
   const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
   return data ? { ...data, user } : null;
 }
-const expired = (store) => {
-  if (!store.is_active || !store.billing_started_at || store.billing_paid_until && new Date(store.billing_paid_until) > new Date()) return false;
-  return Date.now() > new Date(store.billing_started_at).getTime() + 35 * 86400000;
-};
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -61,7 +56,6 @@ export default async function handler(req, res) {
       }
       const { data: store, error } = result;
       if (error || !store) return res.status(404).json({ error: 'Store not found or currently offline.' });
-      if (expired(store)) { await supabase.from('stores').update({ is_active: false }).eq('id', store.id); return res.status(404).json({ error: 'This store is currently offline.' }); }
       const { data: products, error: productsError } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
       if (productsError) throw productsError;
       const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };

@@ -8,12 +8,13 @@ import { CSSProperties, useEffect, useMemo, useState } from 'react';
 import type { Product, Store } from '../types';
 import { formatMoney } from '../lib/api';
 import '../storefront.css';
+import '../order-update.css';
 
 type Obj = Record<string, any>;
 type RendererProps = {
   store: Store;
   products: Product[];
-  onOrder: (product: Product, color?: string, size?: string, fulfilment?: string, note?: string) => void;
+  onOrder: (product: Product, color?: string, size?: string, fulfilment?: string, note?: string, customerPhone?: string) => void;
   onView: (id: number) => void;
 };
 
@@ -345,6 +346,8 @@ function ProductPageDetails({ product, config, design, onClose, onOrder }: { pro
   const [colour, setColour] = useState(product.colors?.[0] || '');
   const [fulfilment, setFulfilment] = useState('Delivery');
   const [orderNote, setOrderNote] = useState('');
+  const [customerPhone, setCustomerPhone] = useState(() => localStorage.getItem('stoyangu-customer-phone') || '');
+  const [phoneError, setPhoneError] = useState('');
   const media = product.images?.length ? product.images.slice(0, 7) : [product.image_url].filter(Boolean);
   const [activeImage, setActiveImage] = useState(media[0] || '/stoyangu-logo.png');
   const dialog = isObj(config.dialog) ? config.dialog : {};
@@ -357,7 +360,8 @@ function ProductPageDetails({ product, config, design, onClose, onOrder }: { pro
         {product.colors?.length > 0 && config.colour_selector?.visible !== false && <fieldset className="sj-variant colours"><div><legend>{String(config.colour_selector?.label || 'Colour')}</legend><small>{colour || String(config.colour_selector?.helper || '')}</small></div><div>{product.colors.map((item) => <button type="button" className={colour === item ? 'selected' : ''} key={item} style={{ background: colourValue(item) }} onClick={() => setColour(item)} aria-label={`Choose ${item}`} aria-pressed={colour === item}>{colour === item && <Check />}</button>)}</div></fieldset>}
         <fieldset className="sj-fulfilment"><legend>How would you like to receive it?</legend><div><button type="button" className={fulfilment === 'Delivery' ? 'selected' : ''} onClick={() => setFulfilment('Delivery')}>Delivery</button><button type="button" className={fulfilment === 'In-store pickup' ? 'selected' : ''} onClick={() => setFulfilment('In-store pickup')}>In-store pickup</button></div><label>Delivery or order note<textarea value={orderNote} onChange={(event) => setOrderNote(event.target.value)} maxLength={300} placeholder={fulfilment === 'Delivery' ? 'Estate, building, landmark or delivery instructions' : 'Add the time you would like to collect, if known'} /></label></fieldset>
         {config.delivery_note?.visible !== false && config.delivery_note && <div className="sj-delivery-note" style={mergedStyle(design, config.delivery_note)}><Icon name={config.delivery_note.icon || 'Truck'} /><div><strong>{String(config.delivery_note.title || '')}</strong><span>{String(config.delivery_note.body || '')}</span></div></div>}
-        <button className="sj-modal-order" style={{ background: safeCss(config.order_background || '#19A45B') }} onClick={() => onOrder(product, colour, size, fulfilment, orderNote)}><MessageCircle /><span>{String(config.only_order_action || 'Order on WhatsApp')}</span><ArrowRight /></button>
+        <label className="sj-customer-phone"><span>Your phone number</span><input type="tel" inputMode="numeric" autoComplete="tel" name="tel" value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value.replace(/[^0-9+\s-]/g, '')); setPhoneError(''); }} placeholder="e.g. 0712 345 678" aria-invalid={Boolean(phoneError)} /><small>{phoneError || 'Saved on this device for your next order.'}</small></label>
+        <button className="sj-modal-order" style={{ background: safeCss(config.order_background || '#19A45B') }} onClick={() => { const digits = customerPhone.replace(/\D/g, ''); if (digits.length < 9 || digits.length > 15) { setPhoneError('Add a valid phone number so the store owner can reach you.'); return; } localStorage.setItem('stoyangu-customer-phone', customerPhone.trim()); onOrder(product, colour, size, fulfilment, orderNote, customerPhone.trim()); }}><MessageCircle /><span>Confirm &amp; Send Order via WhatsApp</span><ArrowRight /></button>
         {config.order_note && <p className="sj-order-note">{String(config.order_note)}</p>}
       </div>
     </motion.div>

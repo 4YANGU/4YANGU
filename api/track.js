@@ -25,8 +25,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
     if (!(await withinRateLimit(req))) return res.status(429).json({ error: 'Too many events. Please try again later.' });
-    const slug = String(req.body?.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60); const type = String(req.body?.event_type || ''); const productId = Number(req.body?.product_id || 0); const sessionId = String(req.body?.session_id || '').replace(/[^a-z0-9-]/gi, '').slice(0, 80);
-    if (!slug || !['visit', 'product_view', 'order'].includes(type) || !sessionId) return res.status(400).json({ error: 'Invalid event.' });
+    const slug = String(req.body?.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60); const requestedType = String(req.body?.event_type || ''); const type = requestedType === 'order' ? 'order_click' : requestedType; const productId = Number(req.body?.product_id || 0); const sessionId = String(req.body?.session_id || '').replace(/[^a-z0-9-]/gi, '').slice(0, 80);
+    if (!slug || !['visit', 'product_view', 'order_click'].includes(type) || !sessionId) return res.status(400).json({ error: 'Invalid event.' });
     let { data: store } = await supabase.from('stores').select('*').eq('slug', slug).eq('is_active', true).single();
     if (!store) { const { data: alias } = await supabase.from('store_aliases').select('store_id').eq('slug', slug).eq('active', true).single(); if (alias?.store_id) ({ data: store } = await supabase.from('stores').select('*').eq('id', alias.store_id).eq('is_active', true).single()); }
     if (!store) return res.status(404).json({ error: 'Store not found.' });
@@ -37,14 +37,14 @@ export default async function handler(req, res) {
     // into the wrong day by UTC dates.
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
     await supabase.from('store_events').insert({ store_id: store.id, product_id: productId || 0, event_type: type, session_id: sessionId });
-    if (type === 'visit' || type === 'order') {
+    if (type === 'visit') {
       const isToday = store.metrics_date === today;
-      const changes = type === 'visit' ? { visitor_total: Number(store.visitor_total || 0) + 1, visitor_today: (isToday ? Number(store.visitor_today || 0) : 0) + 1, metrics_date: today } : { orders_total: Number(store.orders_total || 0) + 1, orders_today: (isToday ? Number(store.orders_today || 0) : 0) + 1, metrics_date: today };
+      const changes = { visitor_total: Number(store.visitor_total || 0) + 1, visitor_today: (isToday ? Number(store.visitor_today || 0) : 0) + 1, metrics_date: today };
       await supabase.from('stores').update(changes).eq('id', store.id);
     }
-    if (productId && (type === 'product_view' || type === 'order')) {
+    if (productId && type === 'product_view') {
       const { data: product } = await supabase.from('products').select('*').eq('id', productId).single(); const isToday = product.metrics_date === today;
-      const changes = type === 'product_view' ? { views_total: Number(product.views_total || 0) + 1, views_today: (isToday ? Number(product.views_today || 0) : 0) + 1, metrics_date: today } : { orders_total: Number(product.orders_total || 0) + 1, orders_today: (isToday ? Number(product.orders_today || 0) : 0) + 1, metrics_date: today };
+      const changes = { views_total: Number(product.views_total || 0) + 1, views_today: (isToday ? Number(product.views_today || 0) : 0) + 1, metrics_date: today };
       await supabase.from('products').update(changes).eq('id', productId);
     }
     return res.status(201).json({ ok: true });

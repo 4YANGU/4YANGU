@@ -10,17 +10,45 @@ import type { Application, DashboardData, Store } from '../types';
 import '../html-storefront.css';
 
 const daysLeft = (store: Store) => {
-  if (!store.is_active || !store.billing_started_at) return { label: 'OFF', tone: 'off' };
-  if (store.billing_paid_until && new Date(store.billing_paid_until) > new Date()) return { label: `Paid to ${new Date(store.billing_paid_until).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}`, tone: 'paid' };
-  const elapsed = Math.floor((Date.now() - new Date(store.billing_started_at).getTime()) / 86400000);
-  if (elapsed < 30) return { label: `${30 - elapsed} days left`, tone: 'active' };
-  return { label: `${Math.max(0, 35 - elapsed)} grace days left`, tone: 'grace' };
+  if (!store.is_active) return { label: 'OFF', tone: 'off' };
+  const orders = Number(store.orders_this_period || 0);
+  if (store.upkeep_plan === 'PRO') return { label: `PRO · ${orders} orders · KES 999`, tone: 'paid' };
+  return { label: `FREE · ${orders}/5 orders`, tone: 'active' };
 };
+
+const CLIENT_STORE_PROMPT = `Create a completely original, premium online storefront for this StoYangu client.
+
+STORE NAME: [FILL IN]
+LOCATION: [FILL IN]
+WHAT THEY SELL: [FILL IN]
+TARGET CUSTOMER: [FILL IN]
+BRAND PERSONALITY: [FILL IN]
+PREFERRED COLOURS: [FILL IN OR WRITE "SURPRISE ME"]
+WHATSAPP / CONTACT: [FILL IN]
+SPECIAL STORY, OFFER OR TRUST POINTS: [FILL IN]
+
+You are the creative director of a world-class, million-dollar digital design team. Produce the absolute best storefront this business could possibly have: visually unforgettable, highly polished, editorial, confident, mobile-first and genuinely unique to this exact client. Do not reuse a generic ecommerce layout. Build a distinctive art direction, hierarchy, colour system, typography, imagery, spacing and responsive composition that makes the seller feel like a major brand while staying fast, clear and effortless to shop.
+
+Push the creativity much further than a normal template. Every section should feel intentional and custom-made, with refined details, excellent accessibility, strong conversion design and a memorable first impression. The final result should look as though an elite agency spent months designing it. Make courageous creative decisions that fit the store, location, products and audience while keeping product browsing obvious and beautiful.
+
+OUTPUT RULES:
+- Return one complete, self-contained HTML document only.
+- Keep CSS inside a <style> tag. Do not use frameworks, build tools or external JavaScript.
+- You may use permanent Unsplash image URLs for decorative lifestyle imagery; StoYangu will copy them into Supabase Storage when saved.
+- Use {{STORE_NAME}}, {{STORE_LOGO}}, {{STORE_DOMAIN}} and {{WHATSAPP_URL}} where store identity belongs.
+- Include one clearly designed live-products area using: <div data-product-grid></div>.
+- Product cards must only provide a clear button or action labelled exactly "View Product".
+- DO NOT build a product popup, product-detail modal, cart, checkout, customer phone form, variation selectors, WhatsApp order logic or order-tracking JavaScript inside the HTML.
+- StoYangu automatically supplies the one perfect product popup for every store. It adds live product photos, price, colour, size, fulfilment, customer note, customer phone autofill, the final "Confirm & Send Order via WhatsApp" button, confirmed-order tracking, FREE/PRO counting and owner notifications.
+- The HTML must leave all popup and ordering behaviour to StoYangu so every store uses the same reliable ordering system.
+- Include elegant Home, Products and Contact navigation targets with clear IDs.
+- Use real, complete copy tailored to the filled client information. Do not leave lorem ipsum, TODOs or explanations outside the HTML.`;
 
 export default function FounderDashboard() {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardData | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  const [clientPromptCopied, setClientPromptCopied] = useState(false);
   const [search, setSearch] = useState(''); const [newStore, setNewStore] = useState(false); const [editStore, setEditStore] = useState<Store | null>(null); const [jsonStore, setJsonStore] = useState<Store | null>(null); const [notifications, setNotifications] = useState(false); const [deletingStore, setDeletingStore] = useState<Store | null>(null);
   const load = useCallback(async () => { setError(''); try { setData(await apiFetch<DashboardData>('/api/dashboard')); } catch (err) { setError(err instanceof Error ? err.message : 'Could not load dashboard.'); } finally { setLoading(false); } }, []);
   useEffect(() => { load(); }, [load]);
@@ -40,18 +68,19 @@ export default function FounderDashboard() {
   const toggle = async (store: Store) => { try { await apiFetch('/api/stores', { method: 'PUT', body: JSON.stringify({ action: 'billing', id: store.id, is_active: !store.is_active }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not update store.'); } };
   const applicationStatus = async (application: Application, status: Application['status']) => { await apiFetch('/api/applications', { method: 'PUT', body: JSON.stringify({ id: application.id, status }) }); await load(); };
   const handleSignOut = async () => { await signOut(); navigate('/login', { replace: true }); };
-  return <div className="dashboard-shell"><aside className="dashboard-sidebar"><BrandLogo /><div className="founder-chip"><span>F</span><div><strong>Founder</strong><small>Shared workspace</small></div></div><nav><a className="active" href="#overview"><LayoutDashboard /> Overview</a><a href="#applications"><FilePlus2 /> Applications</a><a href="#stores"><StoreIcon /> All stores</a><button onClick={() => setNotifications(true)}><BellRing /> Notifications</button><a href="/stoyangu-html-update.zip" download><Download /> HTML update files</a></nav><button className="sidebar-signout" onClick={handleSignOut}><Settings2 /> Sign out</button></aside><main className="dashboard-main"><div className="mobile-topbar"><BrandLogo /><div className="mobile-topbar-actions"><button onClick={() => setNotifications(true)}><BellRing /> Alerts</button><button onClick={handleSignOut}><LogOut /> Sign out</button></div></div><header className="dashboard-top"><div><span className="eyebrow">Founder dashboard</span><h1>StoYangu overview</h1><p>Everything moving across the platform today.</p></div><div className="top-actions"><a className="secondary-button source-download update-pack-button" href="/stoyangu-html-update.zip" download><Download /> Get HTML update files</a><button className="secondary-button" onClick={() => setNotifications(true)}><BellRing /> Notifications</button><button className="button-primary compact" onClick={() => setNewStore(true)}><Plus /> New store</button></div></header>
-    <a className="update-pack-banner" href="/stoyangu-html-update.zip" download>
+  const copyClientPrompt = async () => { try { await navigator.clipboard.writeText(CLIENT_STORE_PROMPT); setClientPromptCopied(true); window.setTimeout(() => setClientPromptCopied(false), 2200); } catch { window.prompt('Copy this AI prompt manually:', CLIENT_STORE_PROMPT); } };
+  return <div className="dashboard-shell"><aside className="dashboard-sidebar"><BrandLogo /><div className="founder-chip"><span>F</span><div><strong>Founder</strong><small>Shared workspace</small></div></div><nav><a className="active" href="#overview"><LayoutDashboard /> Overview</a><a href="#applications"><FilePlus2 /> Applications</a><a href="#stores"><StoreIcon /> All stores</a><button onClick={() => setNotifications(true)}><BellRing /> Notifications</button><button onClick={copyClientPrompt}><Clipboard /> Client AI prompt</button></nav><button className="sidebar-signout" onClick={handleSignOut}><Settings2 /> Sign out</button></aside><main className="dashboard-main"><div className="mobile-topbar"><BrandLogo /><div className="mobile-topbar-actions"><button onClick={() => setNotifications(true)}><BellRing /> Alerts</button><button onClick={handleSignOut}><LogOut /> Sign out</button></div></div><header className="dashboard-top"><div><span className="eyebrow">Founder dashboard</span><h1>StoYangu overview</h1><p>Everything moving across the platform today.</p></div><div className="top-actions"><button className="secondary-button source-download update-pack-button" onClick={copyClientPrompt}>{clientPromptCopied ? <><Check /> Prompt copied!</> : <><Clipboard /> Copy new-client AI prompt</>}</button><button className="secondary-button" onClick={() => setNotifications(true)}><BellRing /> Notifications</button><button className="button-primary compact" onClick={() => setNewStore(true)}><Plus /> New store</button></div></header>
+    <a className="update-pack-banner" href="/stoyangu-billing-orders-update.zip" download>
       <Download />
       <div>
-        <strong>Drop these files into your 4YANGU folder</strong>
-        <span>Only the HTML storefront files. Logins, products, billing and everything else stay exactly as they are. Unzip, copy into the matching folders, then push with GitHub Desktop.</span>
+        <strong>FREE/PRO billing and confirmed orders update</strong>
+        <span>Only billing, order confirmation, order management, notifications and the related product-order popup files.</span>
       </div>
-      <em>Download zip</em>
+      <em>Download update</em>
     </a>
     {error && <div className="dashboard-error">{error}<button onClick={load}><RefreshCw /> Try again</button></div>}
     {loading ? <DashboardSkeleton /> : data && <>
-      <section id="overview" className="analytics-grid four"><Metric icon={<StoreIcon />} label="Active stores" value={data.analytics?.activeStores || 0} note="Live now" /><Metric icon={<Eye />} label="Lifetime store visitors" value={data.analytics?.visitors || 0} note={`+${data.analytics?.visitorsToday || 0} Today`} /><Metric icon={<MessageCircle />} label="Lifetime WhatsApp orders" value={data.analytics?.orders || 0} note={`+${data.analytics?.ordersToday || 0} Today`} /><Metric icon={<Package />} label="Products live" value={data.analytics?.products || 0} note="Across all stores" /></section>
+      <section id="overview" className="analytics-grid four"><Metric icon={<StoreIcon />} label="Active stores" value={data.analytics?.activeStores || 0} note="Live now" /><Metric icon={<Eye />} label="Lifetime store visitors" value={data.analytics?.visitors || 0} note={`+${data.analytics?.visitorsToday || 0} Today`} /><Metric icon={<MessageCircle />} label="Confirmed orders" value={data.analytics?.orders || 0} note={`+${data.analytics?.ordersToday || 0} Today`} /><Metric icon={<Package />} label="Products live" value={data.analytics?.products || 0} note="Across all stores" /></section>
       <section id="applications" className="dash-section"><div className="dash-section-head"><div><span className="eyebrow">Fresh leads</span><h2>StoYangu applications</h2></div><span className="count-badge">{data.applications?.length || 0} total</span></div><div className="application-list">{data.applications?.map((application) => <article key={application.id}><span className={`status-dot ${application.status}`} /><div className="application-person">{(() => { const [personName, tiktokHandle] = application.name.split(' · TikTok: @'); return <><strong>{personName}</strong><a href={`tel:${application.phone}`}>{application.phone}</a>{tiktokHandle && <a className="application-tiktok" href={`https://tiktok.com/@${encodeURIComponent(tiktokHandle)}`} target="_blank" rel="noreferrer">@{tiktokHandle} on TikTok</a>}</>; })()}</div><span className="application-date">{new Date(application.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}</span><select value={application.status} onChange={(event) => applicationStatus(application, event.target.value as Application['status'])} aria-label={`Status for ${application.name}`}><option value="new">New</option><option value="contacted">Contacted</option><option value="approved">Approved</option><option value="closed">Closed</option></select></article>)}</div></section>
       <section id="stores" className="dash-section"><div className="dash-section-head stores-head"><div><span className="eyebrow">The network</span><h2>All stores</h2></div><label className="search-box"><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search stores or WhatsApp" /></label></div><div className="store-admin-grid">{stores.map((store) => { const billing = daysLeft(store); const installation = (data as any).installations?.[store.id]; return <article className="store-admin-card" key={store.id}><div className="store-card-top"><div className="store-avatar">{store.logo_url ? <img src={store.logo_url} alt="" /> : <span>{store.name[0]}</span>}</div><div><h3>{store.name}</h3><a href={storeLink(store.slug)} target="_blank" rel="noreferrer">{storeDomain(store.slug)} <ExternalLink /></a><span className={`install-status ${installation?.notifications_enabled ? 'ready' : ''}`}>{installation?.notifications_enabled ? 'App + alerts ready' : installation?.installed ? 'App installed · alerts off' : 'App not installed'}</span></div><div className="billing-control"><button className={`power-toggle ${store.is_active ? 'on' : ''}`} onClick={() => toggle(store)} aria-label={`Turn ${store.name} ${store.is_active ? 'off' : 'on'}`}><Power /><span>{store.is_active ? 'ON' : 'OFF'}</span></button><small className={billing.tone}>{billing.label}</small></div></div><div className="store-stats"><div><strong>{store.visitor_total.toLocaleString()}</strong><span>Visits <small>+{store.visitor_today} today</small></span></div><div><strong>{store.orders_total.toLocaleString()}</strong><span>WhatsApp <small>+{store.orders_today} today</small></span></div><div><strong>{(data as any).productCounts?.[store.id] || 0}</strong><span>Products live</span></div></div><div className="store-card-actions"><Link className="manage-button" to={`/manage/${store.id}`}>Manage store <ChevronRight /></Link><button className="json-button-admin details-button" onClick={() => setEditStore(store)} aria-label={`Edit ${store.name} details`}><Settings2 /></button><button className="json-button-admin" onClick={() => setJsonStore(store)} aria-label={`Edit ${store.name} HTML storefront`} title="Paste storefront HTML"><FileCode2 /> H</button><button className="json-button-admin delete-store-button" onClick={() => setDeletingStore(store)} aria-label={`Delete ${store.name} completely`}><Trash2 /></button></div></article>; })}</div></section>
     </>}

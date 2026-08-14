@@ -12,7 +12,7 @@ const selectHighlights = (products) => {
 };
 const makeBody = (store, products) => {
   const { winner, needs } = selectHighlights(products);
-  return `Today: ${store.visitor_today || 0} store visits and ${store.orders_today || 0} WhatsApp order clicks.\n\nToday's champion product: ${winner ? `${winner.name} (${winner.orders_today || 0} orders, ${winner.views_today || 0} views)` : 'No product activity yet.'}\n\nNeeds a look: ${needs ? `${needs.name}, ${needs.views_today || 0} views and ${needs.orders_today || 0} orders. Try checking the photo or price.` : 'Keep sharing your products to build more activity.'}\n\nReminder: Mention your store link in your videos so customers always know where to shop.`;
+  return `Today: ${store.visitor_today || 0} store visits and ${store.orders_today || 0} confirmed orders.\n\nToday's champion product: ${winner ? `${winner.name} (${winner.orders_today || 0} orders, ${winner.views_today || 0} views)` : 'No product activity yet.'}\n\nNeeds a look: ${needs ? `${needs.name}, ${needs.views_today || 0} views and ${needs.orders_today || 0} orders. Try checking the photo or price.` : 'Keep sharing your products to build more activity.'}\n\nReminder: Mention your store link in your videos so customers always know where to shop.`;
 };
 const marker = (store) => `=== STORE ${store.id}: ${store.name} ===`;
 

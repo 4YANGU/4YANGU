@@ -7,9 +7,11 @@ There is no 30-day free trial. The first 30 days is the first normal upkeep meas
 - FREE: 0 to 5 orders during the period means KES 0 upkeep.
 - PRO: 6 or more orders during the period means KES 999 upkeep.
 
+An order counts toward FREE/PRO only after the shopper confirms the product, variations and customer phone number and proceeds to send the WhatsApp order. Opening a product or merely clicking toward WhatsApp is not counted as an order.
+
 Both FREE and PRO receive the same free initial setup through the TikTok-video exchange. Use the word "upkeep", not "hosting and maintenance".
 
 OUTDATED PRICING — DO NOT QUOTE:
 KES 5,000 setup, KES 300 monthly maintenance, "first 30 days free", and a flat KES 999 fee after a free trial are obsolete. Always explain the recurring 30-day FREE/PRO order threshold instead.
 
-StoYangu serves sellers across Kenya. Customers order through WhatsApp; owners manage products from a phone dashboard and receive a 7:30 PM daily update notification.
+StoYangu serves sellers across Kenya. Customers order through WhatsApp; owners manage confirmed incoming orders from a phone dashboard and can receive an instant new-order notification plus the 7:30 PM daily update.

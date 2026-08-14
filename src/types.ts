@@ -25,8 +25,31 @@ export type Store = {
   visitor_today: number;
   orders_total: number;
   orders_today: number;
+  actual_orders_total?: number;
+  orders_this_period?: number;
+  upkeep_plan?: 'FREE' | 'PRO';
+  upkeep_due?: 0 | 999;
+  upkeep_period_starts_at?: string;
+  upkeep_period_ends_at?: string;
   metrics_date: string;
   created_at: string;
+};
+
+export type Order = {
+  id: number;
+  order_key: string;
+  store_id: number;
+  product_id: number;
+  product_name: string;
+  product_price: number;
+  customer_phone: string;
+  color: string;
+  size: string;
+  fulfilment: string;
+  note: string;
+  status: 'new' | 'contacted' | 'completed' | 'cancelled';
+  created_at: string;
+  updated_at: string;
 };
 
 export type Product = {
@@ -70,5 +93,6 @@ export type DashboardData = {
   applications?: Application[];
   store?: Store;
   products?: Product[];
+  orders?: Order[];
   notifications?: Array<{ id: number; batch_key?: string; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
 };

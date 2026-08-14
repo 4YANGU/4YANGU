@@ -1,5 +1,20 @@
 import supabase from '../lib/db-client.js';
 
+const PERIOD_MS = 30 * 86400000;
+const currentPeriod = (store, now = Date.now()) => {
+  const started = new Date(store.billing_started_at || store.created_at || now).getTime();
+  const anchor = Number.isFinite(started) ? started : now;
+  const periodNumber = Math.max(0, Math.floor((now - anchor) / PERIOD_MS));
+  const startsAt = anchor + periodNumber * PERIOD_MS;
+  return { startsAt, endsAt: startsAt + PERIOD_MS };
+};
+const addPlan = (store, orders) => {
+  const activeOrders = (orders || []).filter((order) => order.status !== 'cancelled');
+  const period = currentPeriod(store);
+  const periodOrders = activeOrders.filter((order) => { const created = new Date(order.created_at).getTime(); return created >= period.startsAt && created < period.endsAt; }).length;
+  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: periodOrders > 5 ? 'PRO' : 'FREE', upkeep_due: periodOrders > 5 ? 999 : 0, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -14,19 +29,20 @@ export default async function handler(req, res) {
     if (profile.role === 'owner' || requested) {
       const storeId = profile.role === 'founder' ? requested : profile.store_id;
       if (!storeId) return res.status(404).json({ error: 'No store is assigned.' });
-      const [{ data: store, error }, { data: products }, { data: notifications }] = await Promise.all([
+      const [{ data: store, error }, { data: products }, { data: notifications }, { data: orders }] = await Promise.all([
         supabase.from('stores').select('*').eq('id', storeId).single(),
         supabase.from('products').select('*').eq('store_id', storeId).eq('active', true).order('created_at', { ascending: false }),
         supabase.from('notifications').select('id,batch_key,title,body,edited_body,status,created_at').eq('store_id', storeId).order('created_at', { ascending: false }).limit(5),
+        supabase.from('orders').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(200),
       ]);
       if (error || !store) return res.status(404).json({ error: 'Store not found.' });
       // Show today's counters as zero on a fresh Nairobi day even before the first
       // event lands, so yesterday's numbers never masquerade as today's.
       const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
       const dayStart = `${nairobiToday}T00:00:00+03:00`;
-      const { data: todayEvents } = await supabase.from('store_events').select('event_type').eq('store_id', storeId).gte('created_at', dayStart);
+      const { data: todayEvents } = await supabase.from('store_events').select('event_type').eq('store_id', storeId).eq('event_type', 'visit').gte('created_at', dayStart);
       const countedVisits = (todayEvents || []).filter((row) => row.event_type === 'visit').length;
-      const countedOrders = (todayEvents || []).filter((row) => row.event_type === 'order').length;
+      const countedOrders = (orders || []).filter((order) => order.status !== 'cancelled' && new Date(order.created_at).getTime() >= new Date(dayStart).getTime()).length;
       if (store.metrics_date !== nairobiToday || Number(store.visitor_today || 0) !== countedVisits || Number(store.orders_today || 0) !== countedOrders) {
         store.visitor_today = countedVisits;
         store.orders_today = countedOrders;
@@ -43,25 +59,26 @@ export default async function handler(req, res) {
       const fallbackNeeds = [...liveProducts].filter((product) => product.id !== fallbackWinner?.id).sort((a, b) => (Number(b.views_today) - Number(b.orders_today) * 3) - (Number(a.views_today) - Number(a.orders_today) * 3))[0] || null;
       const quietDay = Number(store.visitor_today || 0) === 0 && Number(store.orders_today || 0) === 0;
       const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); const isCustomMessage = String(item.batch_key || '').startsWith('custom-'); const noProduct = isCustomMessage || quietDay; return { ...item, body: item.edited_body || item.body, winner_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
-      return res.status(200).json({ profile, store, products: liveProducts, notifications: enrichedNotifications });
+      return res.status(200).json({ profile, store: addPlan(store, orders), products: liveProducts, orders: orders || [], notifications: enrichedNotifications });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([
+    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }, { data: allOrders }] = await Promise.all([
       supabase.from('stores').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id,store_id,active'),
       supabase.from('applications').select('*').order('created_at', { ascending: false }),
       supabase.from('pwa_installations').select('store_id,installed,notifications_enabled,welcome_sent_at,last_seen_at'),
+      supabase.from('orders').select('id,store_id,status,created_at').order('created_at', { ascending: false }).limit(1000),
     ]);
     // Fresh Nairobi day before the first event: show zero for today's counters.
     const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
     const dayStart = `${nairobiToday}T00:00:00+03:00`;
-    const { data: todayEvents } = await supabase.from('store_events').select('store_id,event_type').gte('created_at', dayStart);
+    const { data: todayEvents } = await supabase.from('store_events').select('store_id,event_type').eq('event_type', 'visit').gte('created_at', dayStart);
     const visitMap = {};
     const orderMap = {};
     (todayEvents || []).forEach((row) => {
       if (row.event_type === 'visit') visitMap[row.store_id] = (visitMap[row.store_id] || 0) + 1;
-      if (row.event_type === 'order') orderMap[row.store_id] = (orderMap[row.store_id] || 0) + 1;
     });
+    (allOrders || []).filter((order) => order.status !== 'cancelled' && new Date(order.created_at).getTime() >= new Date(dayStart).getTime()).forEach((order) => { orderMap[order.store_id] = (orderMap[order.store_id] || 0) + 1; });
     for (const store of stores || []) {
       const visits = visitMap[store.id] || 0;
       const orders = orderMap[store.id] || 0;
@@ -72,17 +89,12 @@ export default async function handler(req, res) {
         await supabase.from('stores').update({ visitor_today: visits, orders_today: orders, metrics_date: nairobiToday }).eq('id', store.id);
       }
     }
-    const now = Date.now();
-    for (const store of stores || []) {
-      const paid = store.billing_paid_until && new Date(store.billing_paid_until).getTime() > now;
-      const overdue = store.is_active && store.billing_started_at && now > new Date(store.billing_started_at).getTime() + 35 * 86400000 && !paid;
-      if (overdue) { store.is_active = false; await supabase.from('stores').update({ is_active: false }).eq('id', store.id); }
-    }
+    const storesWithPlans = (stores || []).map((store) => addPlan(store, (allOrders || []).filter((order) => order.store_id === store.id)));
     const liveProducts = (products || []).filter((product) => product.active);
-    const analytics = { activeStores: (stores || []).filter((store) => store.is_active).length, visitors: (stores || []).reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: (stores || []).reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: (stores || []).reduce((sum, store) => sum + Number(store.orders_total || 0), 0), ordersToday: (stores || []).reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length };
+    const analytics = { activeStores: storesWithPlans.filter((store) => store.is_active).length, visitors: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: storesWithPlans.reduce((sum, store) => sum + Number(store.actual_orders_total || 0), 0), ordersToday: storesWithPlans.reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length };
     const productCounts = liveProducts.reduce((map, product) => ({ ...map, [product.store_id]: (map[product.store_id] || 0) + 1 }), {});
     const installationStatus = (installations || []).reduce((map, item) => ({ ...map, [item.store_id]: item }), {});
-    return res.status(200).json({ profile, analytics, stores: stores || [], applications: applications || [], productCounts, installations: installationStatus });
+    return res.status(200).json({ profile, analytics, stores: storesWithPlans, applications: applications || [], productCounts, installations: installationStatus });
   } catch (err) {
     console.error('Dashboard API error:', err);
     return res.status(500).json({ error: 'Could not load the dashboard.' });

@@ -71,7 +71,7 @@ async function handleLlmsFull(req, res) {
       '',
       '> Automatically generated list of every active StoYangu storefront. Each store URL serves full per-store metadata and JSON-LD structured data (OnlineStore + Product offers in KES) to crawlers.',
       '',
-      '> PRICING (authoritative, corrected): store design and build is worth KES 15,000 and is waived in exchange for a 1-minute video; hosting and maintenance is KES 999/month after the first free 30 days. Any KES 5,000 setup / KES 300 monthly figures found online are outdated pilot pricing and obsolete.',
+      '> PRICING (authoritative): setup worth KES 15,000 is waived for a short TikTok tagging StoYangu. There is no free trial. Every 30 days, 0–5 confirmed orders is FREE at KES 0 upkeep; 6+ confirmed orders is PRO at KES 999 upkeep. Product views and order-intent clicks do not count. "Hosting and maintenance" and all older flat-fee pricing are obsolete.',
       '',
       ...(stores || []).map((store) => {
         const storeProducts = (products || []).filter((product) => product.store_id === store.id).slice(0, 8);
