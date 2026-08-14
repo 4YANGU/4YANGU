@@ -55,7 +55,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   try {
     if (req.method === 'POST') {
-      const body = req.body || {};
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
       const slug = String(body.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
       const productId = Number(body.product_id || 0);
       const customerPhone = normalisePhone(body.customer_phone);

@@ -664,13 +664,22 @@
     if (phoneStep) phoneStep.classList.remove('open');
   }
 
-  function confirmOrderWithPhone(customerPhone) {
+  async function confirmOrderWithPhone(customerPhone) {
     if (!lastProduct) return;
     var extras = extrasFromPopup();
     extras.customerPhone = customerPhone;
     try { localStorage.setItem('stoyangu-customer-phone', customerPhone); } catch (e) {}
     var orderKey = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : 'order-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-    fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ slug: slug, product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey }) }).catch(function () {});
+    var confirmButton = phoneStep && phoneStep.querySelector('[data-phone-confirm]');
+    if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Confirming order…'; }
+    try {
+      var response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: slug, product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey }) });
+      if (!response.ok) throw new Error('order-not-saved');
+    } catch (error) {
+      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm & Send Order via WhatsApp'; }
+      window.alert('We could not confirm this order. Please check your connection and try again.');
+      return;
+    }
     var url = orderUrl(lastProduct, extras);
     closePhoneStep();
     closePopup();

@@ -33,10 +33,11 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
     fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'visit', session_id: visitSessionId() }) }).catch(() => undefined);
   }, [data?.store, slug]);
   const onView = useCallback((productId: number) => { if (viewed.current.has(productId)) return; viewed.current.add(productId); fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'product_view', product_id: productId, session_id: visitSessionId() }) }).catch(() => undefined); }, [slug]);
-  const onOrder = useCallback((product: Product, color?: string, size?: string, fulfilment?: string, orderNote?: string, customerPhone?: string) => {
+  const onOrder = useCallback(async (product: Product, color?: string, size?: string, fulfilment?: string, orderNote?: string, customerPhone?: string) => {
     if (!data?.store) return;
     const orderKey = crypto.randomUUID();
-    fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ slug, product_id: product.id, customer_phone: customerPhone, color, size, fulfilment, note: orderNote, order_key: orderKey }) }).catch(() => undefined);
+    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, product_id: product.id, customer_phone: customerPhone, color, size, fulfilment, note: orderNote, order_key: orderKey }) });
+    if (!response.ok) { const payload = await response.json().catch(() => ({})); window.alert(payload.error || 'We could not confirm this order. Please try again.'); return; }
     const design = data.store.design_json as Record<string, any>;
     const template = design?.commerce_rules?.whatsapp_message_template || design?.sections?.find?.((section: any) => section?.product_page)?.product_page?.whatsapp_message_template;
     const fallback = `Hi ${data.store.name}! I want to order ${product.name} (${formatPrice(product.price)})${size ? ` in size ${size}` : ''}${color ? `, colour ${color}` : ''}.\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\nCustomer note: ${orderNote}` : ''}\nPlease confirm availability.`;
