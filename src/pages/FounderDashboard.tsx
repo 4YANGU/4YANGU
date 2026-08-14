@@ -34,7 +34,7 @@ You are the creative director of a world-class, million-dollar design team. Crea
 Push the work far beyond an ordinary website. The home hero must be the strongest and most impressive part of the entire store: breathtaking, distinctive, immediately clear and perfectly matched to the store's products, location, story and audience. Every detail should feel intentional, expensive and custom-made, as though an elite agency spent months creating it.
 
 STRUCTURE AND DESIGN RULES:
-- Return one complete, self-contained HTML document only, with all CSS inside a <style> tag and no external JavaScript or frameworks.
+- Return one complete, self-contained HTML document only, with all CSS inside a <style> tag. Do not include any <script> tag, JavaScript, framework, build tool or click handler.
 - Use the real store name and domain supplied above. Do not use placeholder tokens.
 - The sticky navigation must always remain visible while scrolling.
 - The navigation must show exactly three links in one clear left-to-right line: Home, Products, Contact.
@@ -45,6 +45,9 @@ STRUCTURE AND DESIGN RULES:
 - You may add one optional decorative or storytelling section to make the store feel richer, but it must not appear in the navigation.
 - Do not create product data, category names, carts, checkout flows or interaction JavaScript. The app supplies the live product cards and their behaviour.
 - Product cards must have only one customer action, labelled exactly "View Product".
+- RESPONSIBILITY BOUNDARY: your HTML controls every visual detail up to and including the product card and the appearance of its View Product button. Your work ends at that button. Do not give the button an href, onclick, modal target or custom behaviour. It must be exactly <button type="button" data-view-product>View Product</button>. When it is clicked, the StoYangu app takes over and immediately opens the universal product details experience.
+- Do not draw, describe, style or implement anything that happens after View Product is clicked. Do not include a product-details overlay, popup markup, hidden modal, phone step, delivery form or ordering elements anywhere in the HTML.
+- Keep the <template id="stoyangu-card-template"> separate from the visible product grid. Include exactly one template card; do not hard-code sample products into the visible page.
 - You may use permanent Unsplash image URLs for decorative lifestyle imagery.
 - Use complete, persuasive copy tailored to the client. Do not include lorem ipsum, TODOs, build notes or explanations outside the final HTML.`;
 
