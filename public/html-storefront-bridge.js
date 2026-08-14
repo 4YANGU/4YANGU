@@ -703,16 +703,18 @@
   }
 
   function productFromEvent(target) {
-    var card = target.closest && target.closest('.product-card, [data-id]');
+    var card = target.closest && target.closest('.product-card, [data-id], [data-product-id]');
     if (!card) return null;
-    var found = byId[String(card.getAttribute('data-id') || '')];
+    var found = byId[String(card.getAttribute('data-id') || card.getAttribute('data-product-id') || '')];
     if (found && rawPrice(found.price) > 0) return found;
     if (found) {
       var fallback = rawPrice(card.getAttribute('data-price-value') || card.getAttribute('data-price'));
       if (fallback) found.price = fallback;
       return found;
     }
-    return null;
+    var cards = Array.prototype.slice.call(document.querySelectorAll('[data-sty-live="1"] .product-card, #productGrid .product-card, [data-product-grid] .product-card'));
+    var index = cards.indexOf(card);
+    return index >= 0 ? visibleProducts()[index] || null : null;
   }
 
   function bindUi() {

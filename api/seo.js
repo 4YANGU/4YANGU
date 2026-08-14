@@ -194,26 +194,9 @@ async function handleStorefrontHtml(req, res) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(200).send(shell);
     }
-    const cached = req.query?.fresh ? undefined : pageCache.get(slug);
-    if (cached && Date.now() - cached.builtAt < PAGE_TTL_MS) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=1800');
-      return res.status(cached.status).send(cached.html);
-    }
     const { store, products } = await loadStore(slug);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=300, stale-while-revalidate=1800');
-    // Skins run ONLY on the store's own subdomain — a separate browser origin from
-    // stoyangu.com, so uploaded markup can never touch dashboard/login sessions.
-    const host = String(req.headers.host || '').toLowerCase();
-    const isStoreSubdomain = host.startsWith(`${slug}.`) && !host.startsWith('www.');
-    if (store && store.is_active && isStoreSubdomain) {
-      const skinHtml = await fetchSkinHtml(store.id);
-      if (skinHtml) {
-        res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-        return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
-      }
-    }
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
     if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {

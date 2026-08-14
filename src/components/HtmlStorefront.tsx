@@ -41,7 +41,7 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
     return <StorefrontRenderer store={store} products={products} onOrder={onOrder} onView={onView} />;
   }
 
-  const src = `/api/storefront?action=render&slug=${encodeURIComponent(store.slug)}&format=raw&fresh=1`;
+  const src = `/api/storefront?action=render&slug=${encodeURIComponent(store.slug)}&format=raw&fresh=1&runtime=popup-v3`;
 
   return (
     <div className="html-storefront-frame-wrap">
