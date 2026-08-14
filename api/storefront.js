@@ -27,15 +27,18 @@
 import supabase from '../lib/db-client.js';
 import { interceptHotlinkImages } from '../lib/html-images.js';
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
-import { sanitizeStorefrontHtml, sanitizationHeadline } from '../lib/html-sanitize.js';
 
 // ---------------------------------------------------------------------------
 // Security + repair — strips / neutralises anything dangerous in place
 // and returns the safe HTML plus a notes array describing what changed.
 // ---------------------------------------------------------------------------
-function scanAndRepair(rawHtml) {
-  return sanitizeStorefrontHtml(rawHtml);
+function preserveRawHtml(rawHtml) {
+  const html = String(rawHtml || '').trim();
+  if (!html) return { ok: false, errors: ['Template is empty. Paste your HTML and try again.'], html: '', notes: [], summary: {} };
+  if (Buffer.byteLength(html, 'utf8') > 1_500_000) return { ok: false, errors: ['Template is larger than 1,465 KB.'], html, notes: [], summary: {} };
+  return { ok: true, errors: [], html, notes: ['Visual test mode: HTML sanitisation is disabled and the supplied markup was kept unchanged.'], summary: {} };
 }
+const rawHtmlHeadline = () => 'Visual test mode — HTML kept unchanged.';
 
 // Structural validation
 // ---------------------------------------------------------------------------
@@ -158,8 +161,7 @@ function injectLiveProducts(html, store, products) {
 }
 
 function renderTemplate(templateHtml, store, products) {
-  const cleaned = sanitizeStorefrontHtml(templateHtml);
-  let newHtml = injectLiveProducts(ensureDesignRuntime(cleaned.html), store, products);
+  let newHtml = injectLiveProducts(ensureDesignRuntime(String(templateHtml || '')), store, products);
   const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
   const storeMeta = `<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}">`;
   let stamped = /<head/i.test(newHtml) ? newHtml.replace(/<head([^>]*)>/i, `<head$1>${storeMeta}`) : `<!doctype html><html><head>${storeMeta}</head><body>${newHtml}</body></html>`;
@@ -424,7 +426,7 @@ export default async function handler(req, res) {
       const { data: storeRow, error: storeErr } = await supabase.from('stores').select('id,name,slug,whatsapp,design_json').eq('id', storeId).single();
       if (storeErr || !storeRow) return res.status(404).json({ error: 'Store not found.' });
       const html = String(req.body?.template ?? '');
-      const security = scanAndRepair(html);
+      const security = preserveRawHtml(html);
       if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
       const intercepted = await interceptHotlinkImages(security.html, storeId);
       const prepared = ensureDesignRuntime(intercepted.html);
@@ -444,7 +446,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         ok: true,
         store: { id: data.id, name: data.name, slug: data.slug, storefront_html: String(data.design_json?.storefront_html || '').length },
-        headline: sanitizationHeadline(security.summary || {}),
+        headline: rawHtmlHeadline(security.summary || {}),
         notes,
         summary: security.summary || {},
         replaced_images: intercepted.replaced || 0,
@@ -458,7 +460,7 @@ export default async function handler(req, res) {
       const auth = await authForStoreSave(req, storeId);
       if (!auth.ok) return res.status(403).json({ error: 'You must be signed in as the founder or the owner of this store to preview its storefront.' });
       const override = String(req.body?.template ?? '');
-      const repaired = override.trim() ? scanAndRepair(override) : { ok: true, html: override, notes: [], errors: [] };
+      const repaired = override.trim() ? preserveRawHtml(override) : { ok: true, html: override, notes: [], errors: [] };
       if (!repaired.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: repaired.errors });
       const { data: store, error: storeError } = await supabase.from('stores').select('*').eq('id', storeId).single();
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
@@ -469,7 +471,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         html: rendered.html,
         warnings: rendered.warnings,
-        headline: sanitizationHeadline(repaired.summary || {}),
+        headline: rawHtmlHeadline(repaired.summary || {}),
         notes: repaired.notes,
         summary: repaired.summary || {},
       });

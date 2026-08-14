@@ -1,6 +1,5 @@
 import supabase from '../lib/db-client.js';
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
-import { sanitizeStorefrontHtml } from '../lib/html-sanitize.js';
 
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
@@ -319,7 +318,7 @@ async function handleSkinUpload(req, res) {
 function stampStoredHtml(html, store) {
   const phone = String(store.whatsapp || '').replace(/\D/g, '');
   const meta = `<meta name="stoyangu-store" data-slug="${escHtml(store.slug)}" data-name="${escHtml(store.name)}" data-whatsapp="${phone}" data-currency="KES"><meta name="stoyangu-slug" content="${escHtml(store.slug)}">`;
-  let out = ensureDesignRuntime(sanitizeStorefrontHtml(html).html);
+  let out = ensureDesignRuntime(String(html || ''));
   if (!/name="stoyangu-store"/.test(out)) {
     out = /<head/i.test(out) ? out.replace(/<head([^>]*)>/i, `<head$1>${meta}`) : `<!doctype html><html><head>${meta}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${out}</body></html>`;
   }

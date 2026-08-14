@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import StorefrontRenderer from './StorefrontRenderer';
 import type { Product, Store } from '../types';
 import '../html-storefront.css';
@@ -17,6 +17,17 @@ function readStoredHtml(store: Store) {
 
 export default function HtmlStorefront({ store, products, onOrder, onView }: Props) {
   const stored = useMemo(() => readStoredHtml(store), [store]);
+  const frame = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || !event.data?.type) return;
+      if (event.data.type === 'stoyangu-phone-get') frame.current?.contentWindow?.postMessage({ type: 'stoyangu-phone-value', value: localStorage.getItem('stoyangu-customer-phone') || '' }, '*');
+      if (event.data.type === 'stoyangu-phone-set') localStorage.setItem('stoyangu-customer-phone', String(event.data.value || ''));
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   if (!stored) {
     return <StorefrontRenderer store={store} products={products} onOrder={onOrder} onView={onView} />;
@@ -27,10 +38,11 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
   return (
     <div className="html-storefront-frame-wrap">
       <iframe
+        ref={frame}
         className="html-storefront-frame"
         title={`${store.name} storefront`}
         src={src}
-        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms allow-top-navigation-by-user-activation"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-top-navigation-by-user-activation"
         referrerPolicy="no-referrer-when-downgrade"
       />
     </div>

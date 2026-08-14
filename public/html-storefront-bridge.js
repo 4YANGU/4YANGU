@@ -31,6 +31,13 @@
   var activeCategory = 'all';
   var popupOpen = false;
   var lastSignature = '';
+  var cachedCustomerPhone = '';
+
+  function requestSavedPhone() { try { window.parent.postMessage({ type: 'stoyangu-phone-get' }, '*'); } catch (e) {} }
+  function readSavedPhone() { try { return localStorage.getItem('stoyangu-customer-phone') || cachedCustomerPhone || ''; } catch (e) { return cachedCustomerPhone || ''; } }
+  function rememberPhone(value) { cachedCustomerPhone = value; try { localStorage.setItem('stoyangu-customer-phone', value); } catch (e) {} try { window.parent.postMessage({ type: 'stoyangu-phone-set', value: value }, '*'); } catch (e) {} }
+  window.addEventListener('message', function (event) { if (event.data && event.data.type === 'stoyangu-phone-value') cachedCustomerPhone = String(event.data.value || ''); });
+  requestSavedPhone();
 
   function rawPrice(v) {
     if (typeof v === 'number' && isFinite(v)) return v;
@@ -88,7 +95,11 @@
   function removeGeneralWhatsAppLinks() {
     document.querySelectorAll('a[href*="wa.me"],a[href*="api.whatsapp.com"],a[data-wa-link]').forEach(function (link) {
       if (link.closest && link.closest('[data-stoyangu-order-popup="1"]')) return;
-      link.remove();
+      var replacement = document.createElement('span');
+      replacement.className = link.className || '';
+      replacement.innerHTML = link.innerHTML;
+      replacement.setAttribute('data-whatsapp-text-only', '1');
+      link.replaceWith(replacement);
     });
   }
 
@@ -653,8 +664,7 @@
   function openPhoneStep() {
     var step = ensurePhoneStep();
     var input = step.querySelector('[data-customer-phone]');
-    var saved = '';
-    try { saved = localStorage.getItem('stoyangu-customer-phone') || ''; } catch (e) {}
+    var saved = readSavedPhone();
     input.value = saved || '0';
     step.classList.add('open');
     window.setTimeout(function () { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 40);
@@ -668,7 +678,7 @@
     if (!lastProduct) return;
     var extras = extrasFromPopup();
     extras.customerPhone = customerPhone;
-    try { localStorage.setItem('stoyangu-customer-phone', customerPhone); } catch (e) {}
+    rememberPhone(customerPhone);
     var orderKey = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : 'order-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     var confirmButton = phoneStep && phoneStep.querySelector('[data-phone-confirm]');
     if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Confirming order…'; }
@@ -807,8 +817,7 @@
       if (order && lastProduct) {
         event.preventDefault();
         event.stopPropagation();
-        var savedPhone = '';
-        try { savedPhone = localStorage.getItem('stoyangu-customer-phone') || ''; } catch (e) {}
+        var savedPhone = readSavedPhone();
         if (validCustomerPhone(savedPhone)) confirmOrderWithPhone(savedPhone);
         else openPhoneStep();
       }

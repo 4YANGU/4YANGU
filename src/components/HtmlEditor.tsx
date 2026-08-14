@@ -75,8 +75,8 @@ export default function HtmlEditor({ store, onClose, onSaved }: { store: Store; 
       <div className="json-editor-help">
         <FileCode2 />
         <p>
-          Paste the complete HTML file from your AI. When you save, StoYangu sanitises it and lists everything that was removed or changed.
-          Unsplash photos are copied into your storage. WhatsApp ordering is wired in for you.
+          Paste the original complete HTML file from your AI. Visual test mode keeps the supplied markup, CSS, colours, emoji and layout unchanged.
+          Unsplash photos are still copied into your storage and live products are still connected.
         </p>
         <a href={`${storeLink(store.slug)}?fresh=1`} target="_blank" rel="noreferrer">Open live preview <ExternalLink /></a>
         <button type="button" className="prompt-copy-button" onClick={copyPrompt}>
@@ -94,7 +94,7 @@ export default function HtmlEditor({ store, onClose, onSaved }: { store: Store; 
         <div className="sanitize-report" role="status">
           <div className="sanitize-report-head">
             <ShieldCheck />
-            <strong>{result.headline || 'Sanitisation complete.'}</strong>
+            <strong>{result.headline || 'HTML saved unchanged.'}</strong>
           </div>
           {typeof result.replaced_images === 'number' && result.replaced_images > 0 && (
             <p className="sanitize-report-extra">Copied {result.replaced_images} photo{result.replaced_images === 1 ? '' : 's'} into StoYangu storage.</p>
@@ -104,7 +104,7 @@ export default function HtmlEditor({ store, onClose, onSaved }: { store: Store; 
               {result.notes.map((note) => <li key={note}>{note}</li>)}
             </ol>
           ) : (
-            <p>Nothing unsafe was found. The HTML was saved as designed.</p>
+            <p>The HTML was saved without visual sanitisation.</p>
           )}
           <div className="sanitize-report-actions">
             <a className="secondary-button" href={`${storeLink(store.slug)}?fresh=1`} target="_blank" rel="noreferrer">View store</a>
@@ -119,7 +119,7 @@ export default function HtmlEditor({ store, onClose, onSaved }: { store: Store; 
           {starterBusy ? 'Loading…' : 'Load starter template'}
         </button>
         <button className="button-primary" disabled={busy} onClick={save}>
-          {busy ? 'Sanitising and saving…' : 'Save HTML storefront'} <Check />
+          {busy ? 'Saving unchanged HTML…' : 'Save HTML storefront'} <Check />
         </button>
       </div>
     </Modal>
