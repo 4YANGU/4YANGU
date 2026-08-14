@@ -4,17 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const stripPreviewInstrumentation = {
-    name: 'strip-preview-instrumentation',
-    enforce: 'post' as const,
-    transformIndexHtml(html: string) {
-      return html
-        .replace(/\s*<script data-arena-recording="true">[\s\S]*?<\/script>/g, '')
-        .replace(/\s*<script data-arena-views="true">[\s\S]*?<\/script>/g, '');
-    },
-  };
   return {
-    plugins: [react(), tailwindcss(), stripPreviewInstrumentation],
+    plugins: [react(), tailwindcss()],
     build: {
       rollupOptions: {
         output: {
