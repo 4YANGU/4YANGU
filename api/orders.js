@@ -42,7 +42,7 @@ async function sendInstantOrderPush(storeId, order, product) {
   const image = product?.image_url ? (product.image_url.startsWith('http') ? product.image_url : `https://${rootDomain}${product.image_url}`) : undefined;
   for (const subscription of subscriptions || []) {
     try {
-      await webpush.sendNotification(subscription.subscription, JSON.stringify({ title: `New order: ${order.product_name}`, body, image, url: '/owner', tag: `order-${order.id}` }));
+      await webpush.sendNotification(subscription.subscription, JSON.stringify({ title: `New order: ${order.product_name}`, body, image, icon: image, product: { id: product.id, name: product.name, image }, customer_phone: order.customer_phone, url: '/owner', tag: `order-${order.id}` }));
     } catch (error) {
       if (error.statusCode === 404 || error.statusCode === 410) await supabase.from('push_subscriptions').delete().eq('id', subscription.id);
       else console.error('Instant order push failed:', error.message);

@@ -618,7 +618,7 @@
     if (phoneStep && document.body.contains(phoneStep)) return phoneStep;
     phoneStep = document.createElement('div');
     phoneStep.className = 'sty-phone-step';
-    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><span class="sty-phone-kicker">One last step</span><h3>Where can the store reach you?</h3><p>Your number is added to this order and saved only on this device for next time.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small>Kenyan numbers normally begin with 07 or 01.</small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><span class="sty-phone-kicker">One last step</span><h3>Where can we reach you?</h3><p>Click send on the next page and we will reply to you on WhatsApp.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
     document.body.appendChild(phoneStep);
     return phoneStep;
   }
@@ -764,7 +764,7 @@
         var phoneInput = phoneStep && phoneStep.querySelector('[data-customer-phone]');
         var phoneValue = phoneInput ? phoneInput.value.trim() : '';
         var phoneField = phoneStep && phoneStep.querySelector('.sty-phone-field');
-        if (!validCustomerPhone(phoneValue)) { if (phoneField) { phoneField.classList.add('has-error'); var phoneHelp = phoneField.querySelector('small'); if (phoneHelp) phoneHelp.textContent = 'Enter a valid number beginning with 07 or 01.'; } if (phoneInput) phoneInput.focus(); return; }
+        if (!validCustomerPhone(phoneValue)) { if (phoneField) { phoneField.classList.add('has-error'); var phoneHelp = phoneField.querySelector('small'); if (phoneHelp) phoneHelp.textContent = 'Enter a valid phone number.'; } if (phoneInput) phoneInput.focus(); return; }
         confirmOrderWithPhone(phoneValue);
         return;
       }
