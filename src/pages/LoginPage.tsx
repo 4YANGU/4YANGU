@@ -17,6 +17,8 @@ export default function LoginPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('');
     const trimmed = identifier.trim();
+    const productionHost = window.location.hostname === 'stoyangu.com' || window.location.hostname === 'www.stoyangu.com' || window.location.hostname.endsWith('.stoyangu.com');
+    if (productionHost && trimmed.toLowerCase() === 'founder-demo@stoyangu.com') return setError('The demo founder account is only available in the preview environment.');
     const isEmail = trimmed.includes('@');
     const phone = normalizePhone(trimmed);
     if (isEmail && !/^\S+@\S+\.\S+$/.test(trimmed)) return setError('Please enter a valid email address.');

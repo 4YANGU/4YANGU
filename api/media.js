@@ -34,6 +34,9 @@ async function handleProfile(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const { user, error } = await getAuthedUser(req);
   if (error) return res.status(401).json({ error });
+  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
+  const productionHost = host === 'stoyangu.com' || host === 'www.stoyangu.com' || host.endsWith('.stoyangu.com');
+  if (productionHost && String(user.email || '').toLowerCase() === 'founder-demo@stoyangu.com') return res.status(403).json({ error: 'Demo access is disabled on production.' });
   const { data, error: profileError } = await supabase
     .from('profiles')
     .select('*')
