@@ -25,7 +25,7 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
-import { interceptHotlinkImages } from '../lib/html-images.js';
+import { selfHostStorefrontAssets, scanStorefrontWarnings } from '../lib/html-assets.js';
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
 
 // ---------------------------------------------------------------------------
@@ -163,7 +163,10 @@ function injectLiveProducts(html, store, products) {
 function renderTemplate(templateHtml, store, products) {
   let newHtml = injectLiveProducts(ensureDesignRuntime(String(templateHtml || '')), store, products);
   const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
-  const storeMeta = `<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}">`;
+  let assetOrigin = '';
+  try { assetOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').origin; } catch {}
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' ${assetOrigin}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com ${assetOrigin}; font-src 'self' data: https://fonts.gstatic.com ${assetOrigin}; img-src 'self' data: blob: ${assetOrigin}; media-src 'self' data: blob: ${assetOrigin}; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
+  const storeMeta = `${csp}<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}">`;
   let stamped = /<head/i.test(newHtml) ? newHtml.replace(/<head([^>]*)>/i, `<head$1>${storeMeta}`) : `<!doctype html><html><head>${storeMeta}</head><body>${newHtml}</body></html>`;
   if (!/html-storefront-bridge\.js/.test(stamped)) {
     stamped = /<\/body>/i.test(stamped)
@@ -180,9 +183,11 @@ function readStorefrontHtml(store) {
   const design = store && typeof store.design_json === 'object' && store.design_json ? store.design_json : {};
   return String(design.storefront_html || '').trim();
 }
-function withStorefrontHtml(store, html) {
+function withStorefrontHtml(store, html, sourceHtml, warnings) {
   const design = store && typeof store.design_json === 'object' && store.design_json ? { ...store.design_json } : {};
   design.storefront_html = html;
+  design.storefront_source_html = sourceHtml;
+  design.storefront_warnings = warnings;
   return design;
 }
 
@@ -428,10 +433,12 @@ export default async function handler(req, res) {
       const html = String(req.body?.template ?? '');
       const security = preserveRawHtml(html);
       if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
-      const intercepted = await interceptHotlinkImages(security.html, storeId);
+      const visibilityWarnings = scanStorefrontWarnings(security.html);
+      if (visibilityWarnings.length) console.warn(`Store ${storeId} HTML visibility warnings:`, visibilityWarnings);
+      const intercepted = await selfHostStorefrontAssets(security.html, storeId);
       const prepared = ensureDesignRuntime(intercepted.html);
       const structure = structureCheck(prepared);
-      const nextDesign = withStorefrontHtml(storeRow, prepared);
+      const nextDesign = withStorefrontHtml(storeRow, prepared, html, visibilityWarnings);
       const { data, error } = await supabase
         .from('stores')
         .update({ design_json: nextDesign, updated_at: new Date().toISOString() })
@@ -442,14 +449,14 @@ export default async function handler(req, res) {
         console.error('Save failed:', error);
         return res.status(500).json({ error: `Could not save the template: ${error.message}` });
       }
-      const notes = [...(security.notes || []), ...(intercepted.notes || []), ...(structure.warnings || [])];
+      const notes = [...(security.notes || []), ...visibilityWarnings, ...(intercepted.notes || []), ...(structure.warnings || [])];
       return res.status(200).json({
         ok: true,
         store: { id: data.id, name: data.name, slug: data.slug, storefront_html: String(data.design_json?.storefront_html || '').length },
         headline: rawHtmlHeadline(security.summary || {}),
         notes,
         summary: security.summary || {},
-        replaced_images: intercepted.replaced || 0,
+        replaced_images: intercepted.mirrored || 0,
       });
     }
 

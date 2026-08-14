@@ -1,4 +1,6 @@
 import supabase from '../lib/db-client.js';
+import { selfHostStorefrontAssets, scanStorefrontWarnings } from '../lib/html-assets.js';
+import { ensureDesignRuntime } from '../lib/html-runtime.js';
 
 const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
 const normalizePhone = (value) => {
@@ -77,14 +79,27 @@ export default async function handler(req, res) {
       let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
       const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
       if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
-      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json, body.storefront_html), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+      const sourceHtml = String(body.storefront_html || '').trim();
+      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), categories: Array.isArray(body.categories) ? body.categories.slice(0, 50) : [], design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
       if (error) throw error;
+      let savedStore = store;
+      if (sourceHtml) {
+        const warnings = scanStorefrontWarnings(sourceHtml);
+        const mirrored = await selfHostStorefrontAssets(sourceHtml, store.id);
+        const design = safeDesign(body.design_json);
+        design.storefront_source_html = sourceHtml;
+        design.storefront_html = ensureDesignRuntime(mirrored.html);
+        design.storefront_warnings = warnings;
+        const updated = await supabase.from('stores').update({ design_json: design, updated_at: new Date().toISOString() }).eq('id', store.id).select().single();
+        if (updated.error) { await supabase.from('stores').delete().eq('id', store.id); throw updated.error; }
+        savedStore = updated.data;
+      }
       const authEmail = ownerAuthEmail(whatsapp);
       const { data: created, error: userError } = await supabase.auth.admin.createUser({ email: authEmail, password, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp } });
       if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
       const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: authEmail, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
       if (profileError) throw profileError;
-      return res.status(201).json(store);
+      return res.status(201).json(savedStore);
     }
     if (req.method === 'PUT') {
       const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Store is required.' });

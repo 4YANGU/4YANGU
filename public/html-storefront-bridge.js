@@ -32,11 +32,13 @@
   var popupOpen = false;
   var lastSignature = '';
   var cachedCustomerPhone = '';
+  var pendingOrderRequests = {};
 
   function requestSavedPhone() { try { window.parent.postMessage({ type: 'stoyangu-phone-get' }, '*'); } catch (e) {} }
   function readSavedPhone() { try { return localStorage.getItem('stoyangu-customer-phone') || cachedCustomerPhone || ''; } catch (e) { return cachedCustomerPhone || ''; } }
   function rememberPhone(value) { cachedCustomerPhone = value; try { localStorage.setItem('stoyangu-customer-phone', value); } catch (e) {} try { window.parent.postMessage({ type: 'stoyangu-phone-set', value: value }, '*'); } catch (e) {} }
-  window.addEventListener('message', function (event) { if (event.data && event.data.type === 'stoyangu-phone-value') cachedCustomerPhone = String(event.data.value || ''); });
+  function submitOrderToParent(order) { return new Promise(function (resolve) { var requestId = 'order-' + Date.now() + '-' + Math.random().toString(36).slice(2); pendingOrderRequests[requestId] = resolve; window.parent.postMessage({ type: 'stoyangu-order-submit', requestId: requestId, order: order }, '*'); window.setTimeout(function () { if (pendingOrderRequests[requestId]) { delete pendingOrderRequests[requestId]; resolve({ ok: false, error: 'Order confirmation timed out.' }); } }, 15000); }); }
+  window.addEventListener('message', function (event) { if (!event.data) return; if (event.data.type === 'stoyangu-phone-value') cachedCustomerPhone = String(event.data.value || ''); if (event.data.type === 'stoyangu-order-result' && pendingOrderRequests[event.data.requestId]) { pendingOrderRequests[event.data.requestId](event.data); delete pendingOrderRequests[event.data.requestId]; } });
   requestSavedPhone();
 
   function rawPrice(v) {
@@ -73,11 +75,7 @@
   }
 
   function track(type, productId) {
-    fetch('/api/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: slug, event_type: type, product_id: productId || 0, session_id: session }),
-    }).catch(function () {});
+    try { window.parent.postMessage({ type: 'stoyangu-track', event_type: type, product_id: productId || 0, session_id: session }, '*'); } catch (e) {}
   }
 
   function hideCart() {
@@ -683,8 +681,8 @@
     var confirmButton = phoneStep && phoneStep.querySelector('[data-phone-confirm]');
     if (confirmButton) { confirmButton.disabled = true; confirmButton.textContent = 'Confirming order…'; }
     try {
-      var response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: slug, product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey }) });
-      if (!response.ok) throw new Error('order-not-saved');
+      var result = await submitOrderToParent({ product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey });
+      if (!result.ok) throw new Error(result.error || 'order-not-saved');
     } catch (error) {
       if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm & Send Order via WhatsApp'; }
       window.alert('We could not confirm this order. Please check your connection and try again.');
@@ -830,7 +828,7 @@
   function readEmbeddedCatalog() {
     var node = document.getElementById('stoyangu-catalog');
     if (!node) return [];
-    try { return JSON.parse(node.textContent || node.innerHTML || '[]'); } catch (e) { return []; }
+    try { var raw = node.textContent || node.innerHTML || '[]'; var decoder = document.createElement('textarea'); decoder.innerHTML = raw; return JSON.parse(decoder.value || raw); } catch (e) { return []; }
   }
 
   function signatureOf(list) {
@@ -871,6 +869,4 @@
 
   hideCart();
   applyStore({ store: {}, products: readEmbeddedCatalog() }, true);
-  load();
-  setInterval(load, 20000);
 })();

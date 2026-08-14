@@ -6,7 +6,8 @@ import type { Store } from '../types';
 import '../html-storefront.css';
 
 function existingHtml(store: Store) {
-  return String(store.design_json?.storefront_html || '').trim();
+  const design = store.design_json as Record<string, unknown>;
+  return String(design?.storefront_source_html || design?.storefront_html || '').trim();
 }
 
 type SaveResult = {

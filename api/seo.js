@@ -214,11 +214,6 @@ async function handleStorefrontHtml(req, res) {
         return res.status(200).send(transformSkinHtml(skinHtml, store.id, slug));
       }
     }
-    const storedHtml = store && store.is_active ? String(store.design_json?.storefront_html || '').trim() : '';
-    if (store && store.is_active && storedHtml) {
-      res.setHeader('Cache-Control', req.query?.fresh ? 'no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
-      return res.status(200).send(stampStoredHtml(storedHtml, store));
-    }
     if (!store || !store.is_active) {
       const canonical = `https://${root}/s/${slug}`;
       const html = injectIntoShell(shell, {
