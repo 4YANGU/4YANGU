@@ -33,12 +33,10 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
     fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'visit', session_id: visitSessionId() }) }).catch(() => undefined);
   }, [data?.store, slug]);
   const onView = useCallback((productId: number) => { if (viewed.current.has(productId)) return; viewed.current.add(productId); fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'product_view', product_id: productId, session_id: visitSessionId() }) }).catch(() => undefined); }, [slug]);
-  const onOrder = useCallback(async (product: Product, color?: string, size?: string, fulfilment?: string, orderNote?: string, customerPhone?: string) => {
+  const onOrder = useCallback((product: Product, color?: string, size?: string, fulfilment?: string, orderNote?: string, customerPhone?: string) => {
     if (!data?.store) return;
-    const pendingWindow = window.open('about:blank', '_blank');
     const orderKey = crypto.randomUUID();
-    const orderResponse = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, product_id: product.id, customer_phone: customerPhone, color, size, fulfilment, note: orderNote, order_key: orderKey }) });
-    if (!orderResponse.ok) { pendingWindow?.close(); const payload = await orderResponse.json().catch(() => ({})); window.alert(payload.error || 'We could not confirm the order. Please try again.'); return; }
+    fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ slug, product_id: product.id, customer_phone: customerPhone, color, size, fulfilment, note: orderNote, order_key: orderKey }) }).catch(() => undefined);
     const design = data.store.design_json as Record<string, any>;
     const template = design?.commerce_rules?.whatsapp_message_template || design?.sections?.find?.((section: any) => section?.product_page)?.product_page?.whatsapp_message_template;
     const fallback = `Hi ${data.store.name}! I want to order ${product.name} (${formatPrice(product.price)})${size ? ` in size ${size}` : ''}${color ? `, colour ${color}` : ''}.\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\nCustomer note: ${orderNote}` : ''}\nPlease confirm availability.`;
@@ -52,7 +50,7 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
     const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\nCustomer note: ${orderNote}` : ''}` : `${templated}\nMy phone: ${customerPhone || ''}`;
     const phone = data.store.whatsapp.replace(/\D/g, '');
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    if (pendingWindow) pendingWindow.location.href = url; else window.location.href = url;
+    window.location.assign(url);
   }, [data?.store, slug]);
   if (!data && !error) return null;
   if (error || !data) return <main className="storefront-error"><img src="/stoyangu-logo.png" alt="StoYangu" /><h1>Let us open this store again.</h1><p>{error || 'Please check the store link and try again.'}</p><div><button onClick={() => window.location.reload()}>Try again</button><a href="https://wa.me/254793533683">Ask StoYangu for help</a></div></main>;

@@ -49,6 +49,7 @@ export default function StoreDashboard() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
+  const [activePage, setActivePage] = useState<'overview' | 'products'>('overview');
   const load = useCallback(async () => {
     setError('');
     try {
@@ -60,6 +61,7 @@ export default function StoreDashboard() {
     }
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { document.documentElement.dataset.managePage = activePage; return () => { delete document.documentElement.dataset.managePage; }; }, [activePage]);
   useEffect(() => {
     if (profile?.role !== 'owner') return;
     if (isStandaloneApp()) {
@@ -104,6 +106,7 @@ export default function StoreDashboard() {
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
   const cycleLabel = cycleStart && cycleEnd ? `Day ${cycleDay} of 30 · ${cycleStart.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })} – ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : 'Current 30-day cycle';
   return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'My StoYangu'}</span><div>{profile?.role === 'owner' && !isStandaloneApp() && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><span className="owner-cycle-dates">{cycleLabel}</span><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a></header><main className="owner-main">
+    <nav className="manage-page-tabs" aria-label="Manage store pages"><button className={activePage === 'overview' ? 'active' : ''} onClick={() => setActivePage('overview')}>Overview &amp; orders</button><button className={activePage === 'products' ? 'active' : ''} onClick={() => setActivePage('products')}>Products</button></nav>
     {error && <div className="dashboard-error">{error}</div>}
     {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}

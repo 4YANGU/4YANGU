@@ -24,6 +24,7 @@
   var byId = {};
   var cardTemplate = null;
   var popup = null;
+  var phoneStep = null;
   var lastProduct = null;
   var visited = false;
   var activeImage = '';
@@ -190,6 +191,7 @@
       + '.sty-nav{display:flex!important;align-items:center;gap:14px;flex-wrap:nowrap}'
       + '.sty-nav a{white-space:nowrap}'
       + '.sty-phone-field{display:grid;gap:6px;margin:12px 0;font:700 11px/1.4 system-ui}.sty-phone-field input{width:100%;box-sizing:border-box;min-height:44px;border:1px solid rgba(100,110,105,.3);border-radius:11px;padding:0 12px;background:#fff;color:#17261f;font:600 13px system-ui}.sty-phone-field input:focus{outline:2px solid #5a966e;outline-offset:1px}.sty-phone-field small{font-size:9px;font-weight:500;opacity:.7}.sty-phone-field.has-error input{border-color:#c84d45}.sty-phone-field.has-error small{color:#b13e37;opacity:1}'
+      + '.sty-phone-step{position:fixed;inset:0;z-index:240;background:rgba(5,15,25,.74);backdrop-filter:blur(10px);display:none;place-items:center;padding:18px}.sty-phone-step.open{display:grid}.sty-phone-card{position:relative;width:min(430px,100%);box-sizing:border-box;padding:28px;border-radius:24px;background:#fff;color:#17261f;box-shadow:0 35px 100px rgba(0,0,0,.34);font-family:system-ui}.sty-phone-card h3{margin:0 0 7px;font-size:24px;letter-spacing:-.04em}.sty-phone-card>p{margin:0 0 18px;color:#6d7b73;font-size:12px;line-height:1.5}.sty-phone-close{position:absolute;right:13px;top:13px;width:34px;height:34px;border:1px solid #dce3df;border-radius:50%;background:#fff}.sty-phone-confirm{width:100%;min-height:49px;border:0;border-radius:13px;background:#1fa75a;color:#fff;font-size:12px;font-weight:900}.sty-phone-kicker{display:block;margin-bottom:7px;color:#5a966e;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}'
       + '.sty-empty{padding:28px;text-align:center}';
     document.head.appendChild(style);
   }
@@ -215,8 +217,7 @@
         + '<div data-size-options></div>'
         + '<div data-fulfilment-options></div>'
         + '<textarea data-note maxlength="300" placeholder="Any colour preference, delivery area, or question?"></textarea>'
-        + '<label class="sty-phone-field">Your phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="e.g. 0712 345 678"><small>Saved on this device for your next order.</small></label>'
-        + '<a class="order" data-whatsapp href="#" target="_blank" rel="noopener noreferrer">Confirm &amp; Send Order via WhatsApp</a>'
+        + '<a class="order" data-whatsapp href="#">Order via WhatsApp</a>'
         + '</div></div>';
       document.body.appendChild(popup);
     }
@@ -243,13 +244,9 @@
     if (designedClose) designedClose.setAttribute('data-close-popup', '1');
     var orderButton = popup.querySelector('[data-whatsapp], a.order');
     if (orderButton) {
-      orderButton.textContent = 'Confirm & Send Order via WhatsApp';
-      if (!popup.querySelector('[data-customer-phone]')) {
-        var field = document.createElement('label');
-        field.className = 'sty-phone-field';
-        field.innerHTML = 'Your phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="e.g. 0712 345 678"><small>Saved on this device for your next order.</small>';
-        orderButton.parentNode.insertBefore(field, orderButton);
-      }
+      orderButton.textContent = 'Order via WhatsApp';
+      orderButton.setAttribute('href', '#');
+      popup.querySelectorAll('.sty-phone-field').forEach(function (field) { field.remove(); });
     }
     if (!popupOpen) {
       popup.classList.remove('open');
@@ -581,8 +578,6 @@
     }
     var noteEl = firstMatch(popup, ['[data-note]', 'textarea']);
     if (noteEl) noteEl.value = '';
-    var phoneEl = popup.querySelector('[data-customer-phone]');
-    if (phoneEl) { try { phoneEl.value = localStorage.getItem('stoyangu-customer-phone') || ''; } catch (e) {} }
     renderThumbs(product);
     rebuildOrder();
   }
@@ -619,13 +614,53 @@
     popup.style.setProperty('display', 'none', 'important');
   }
 
+  function ensurePhoneStep() {
+    if (phoneStep && document.body.contains(phoneStep)) return phoneStep;
+    phoneStep = document.createElement('div');
+    phoneStep.className = 'sty-phone-step';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><span class="sty-phone-kicker">One last step</span><h3>Where can the store reach you?</h3><p>Your number is added to this order and saved only on this device for next time.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small>Kenyan numbers normally begin with 07 or 01.</small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
+    document.body.appendChild(phoneStep);
+    return phoneStep;
+  }
+
+  function validCustomerPhone(value) {
+    var digits = String(value || '').replace(/\D/g, '');
+    return (digits.length === 10 && (digits.indexOf('07') === 0 || digits.indexOf('01') === 0)) || (digits.length === 12 && digits.indexOf('254') === 0);
+  }
+
+  function openPhoneStep() {
+    var step = ensurePhoneStep();
+    var input = step.querySelector('[data-customer-phone]');
+    var saved = '';
+    try { saved = localStorage.getItem('stoyangu-customer-phone') || ''; } catch (e) {}
+    input.value = saved || '0';
+    step.classList.add('open');
+    window.setTimeout(function () { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 40);
+  }
+
+  function closePhoneStep() {
+    if (phoneStep) phoneStep.classList.remove('open');
+  }
+
+  function confirmOrderWithPhone(customerPhone) {
+    if (!lastProduct) return;
+    var extras = extrasFromPopup();
+    extras.customerPhone = customerPhone;
+    try { localStorage.setItem('stoyangu-customer-phone', customerPhone); } catch (e) {}
+    var orderKey = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : 'order-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ slug: slug, product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey }) }).catch(function () {});
+    var url = orderUrl(lastProduct, extras);
+    closePhoneStep();
+    closePopup();
+    window.location.assign(url);
+  }
+
   function rebuildOrder() {
     if (!popup || !lastProduct) return;
     var btn = popup.querySelector('[data-whatsapp], a.order');
     if (!btn) return;
-    btn.setAttribute('href', orderUrl(lastProduct, extrasFromPopup()));
-    btn.setAttribute('target', '_blank');
-    btn.setAttribute('rel', 'noopener noreferrer');
+    btn.setAttribute('href', '#');
+    btn.removeAttribute('target');
   }
 
   function productFromEvent(target) {
@@ -721,24 +756,26 @@
       if (popup && popup.contains(event.target)) rebuildOrder();
     });
     document.addEventListener('click', function (event) {
+      var closePhone = event.target.closest && event.target.closest('[data-phone-close]');
+      if (closePhone || (phoneStep && event.target === phoneStep)) { event.preventDefault(); closePhoneStep(); return; }
+      var confirmPhone = event.target.closest && event.target.closest('[data-phone-confirm]');
+      if (confirmPhone) {
+        event.preventDefault();
+        var phoneInput = phoneStep && phoneStep.querySelector('[data-customer-phone]');
+        var phoneValue = phoneInput ? phoneInput.value.trim() : '';
+        var phoneField = phoneStep && phoneStep.querySelector('.sty-phone-field');
+        if (!validCustomerPhone(phoneValue)) { if (phoneField) { phoneField.classList.add('has-error'); var phoneHelp = phoneField.querySelector('small'); if (phoneHelp) phoneHelp.textContent = 'Enter a valid number beginning with 07 or 01.'; } if (phoneInput) phoneInput.focus(); return; }
+        confirmOrderWithPhone(phoneValue);
+        return;
+      }
       var order = event.target.closest && event.target.closest('[data-whatsapp]');
       if (order && lastProduct) {
-        var extras = extrasFromPopup();
-        var digits = String(extras.customerPhone || '').replace(/\D/g, '');
-        var field = popup && popup.querySelector('.sty-phone-field');
-        if (digits.length < 9 || digits.length > 15) {
-          event.preventDefault();
-          event.stopPropagation();
-          if (field) { field.classList.add('has-error'); var help = field.querySelector('small'); if (help) help.textContent = 'Add a valid phone number so the store owner can reach you.'; }
-          var input = popup && popup.querySelector('[data-customer-phone]');
-          if (input) input.focus();
-          return;
-        }
-        if (field) { field.classList.remove('has-error'); var savedHelp = field.querySelector('small'); if (savedHelp) savedHelp.textContent = 'Saved on this device for your next order.'; }
-        try { localStorage.setItem('stoyangu-customer-phone', extras.customerPhone); } catch (e) {}
-        var orderKey = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : 'order-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-        order.setAttribute('href', orderUrl(lastProduct, extras));
-        fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ slug: slug, product_id: lastProduct.id, customer_phone: extras.customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey }) }).catch(function () {});
+        event.preventDefault();
+        event.stopPropagation();
+        var savedPhone = '';
+        try { savedPhone = localStorage.getItem('stoyangu-customer-phone') || ''; } catch (e) {}
+        if (validCustomerPhone(savedPhone)) confirmOrderWithPhone(savedPhone);
+        else openPhoneStep();
       }
     }, true);
     document.addEventListener('keyup', function (event) {
