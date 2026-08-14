@@ -95,7 +95,7 @@
 
   function extrasFromPopup() {
     if (!popup) return {};
-    var note = popup.querySelector('[data-note], textarea');
+    var note = popup.querySelector('[data-note]') || popup.querySelector('textarea:not([data-delivery-address])');
     var address = popup.querySelector('[data-delivery-address]');
     var customerPhone = popup.querySelector('[data-customer-phone]');
     var noteText = note ? note.value : '';
@@ -263,7 +263,7 @@
         fulfilmentHost.setAttribute('data-fulfilment-options', '');
         orderButton.parentNode.insertBefore(fulfilmentHost, orderButton);
       }
-      var noteInput = popup.querySelector('[data-note], textarea');
+      var noteInput = popup.querySelector('[data-note]') || popup.querySelector('textarea:not([data-delivery-address])');
       if (!noteInput) {
         noteInput = document.createElement('textarea');
         noteInput.setAttribute('data-note', '');
@@ -279,6 +279,7 @@
         addressWrap.style.display = 'none';
         noteInput.parentNode.insertBefore(addressWrap, noteInput);
       }
+      popup.querySelectorAll('[data-delivery-address]').forEach(function (input) { input.removeAttribute('data-note'); input.setAttribute('placeholder', 'Estate, building and nearest landmark'); });
     }
     if (!popupOpen) {
       popup.classList.remove('open');
@@ -355,12 +356,7 @@
 
   function paintNav() {
     var header = document.querySelector('header, #navbar, [data-store-nav]');
-    if (!header) {
-      header = document.createElement('header');
-      header.setAttribute('data-store-nav', '1');
-      header.innerHTML = '<a class="sty-brand" href="#home">' + esc(storeName()) + '</a>';
-      document.body.insertBefore(header, document.body.firstChild);
-    }
+    if (!header) return;
     header.classList.add('sty-sticky-nav');
     header.style.position = 'sticky';
     header.style.top = '0';
@@ -368,21 +364,11 @@
     document.querySelectorAll('#menuBtn, .mobile-menu, #mobileMenu, .sj-menu-trigger, .store-menu-button').forEach(function (node) {
       node.style.setProperty('display', 'none', 'important');
     });
-    var nav = header.querySelector('nav.sty-nav, [data-app-nav]');
-    if (!nav) {
-      nav = document.createElement('nav');
-      nav.className = 'sty-nav';
-      nav.setAttribute('data-app-nav', '1');
-      header.appendChild(nav);
-    }
-    nav.className = ((nav.className || '') + ' sty-nav').replace(/\s+/g, ' ').trim();
-    nav.innerHTML = '<a href="#home" data-nav="home">Home</a>'
-      + '<a href="#products" data-nav="products">Products</a>'
-      + '<a href="#contact" data-nav="contact">Contact</a>';
+    var nav = header.querySelector('nav');
+    if (nav) nav.className = ((nav.className || '') + ' sty-nav').replace(/\s+/g, ' ').trim();
     ensureSection('home', ['#home', '#top', 'section', 'main']);
     ensureSection('products', ['#products', '#productGrid', '#shop', '[data-product-grid]', '[data-sty-live]']);
     ensureSection('contact', ['#contact', '#visit', 'footer']);
-    paintLogo();
   }
 
   function designedFilterHost() {
@@ -559,11 +545,12 @@
   }
 
   function setAllText(root, selectors, value) {
+    var priceSelectors = selectors.some(function (selector) { return /price/i.test(selector); });
     selectors.forEach(function (sel) {
       root.querySelectorAll(sel).forEach(function (node) {
         if (node.closest && node.closest('.product-card')) return;
         node.textContent = value;
-        if (node.setAttribute) {
+        if (priceSelectors && node.setAttribute) {
           node.setAttribute('data-price', value);
           node.setAttribute('data-popup-price', value);
         }
@@ -604,7 +591,7 @@
     var addressInput = popup.querySelector('[data-delivery-address]');
     if (addressWrap) addressWrap.style.display = 'none';
     if (addressInput) addressInput.value = '';
-    var noteEl = firstMatch(popup, ['[data-note]', 'textarea']);
+    var noteEl = popup.querySelector('[data-note]') || popup.querySelector('textarea:not([data-delivery-address])');
     if (noteEl) noteEl.value = '';
     renderThumbs(product);
     rebuildOrder();
