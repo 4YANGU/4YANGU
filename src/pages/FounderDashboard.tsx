@@ -16,33 +16,37 @@ const daysLeft = (store: Store) => {
   return { label: `FREE · ${orders}/5 orders`, tone: 'active' };
 };
 
-const CLIENT_STORE_PROMPT = `Create a completely original, premium online storefront for this StoYangu client.
+const CLIENT_STORE_PROMPT = `Design one extraordinary, completely original storefront for this client.
 
 STORE NAME: [FILL IN]
+STORE DOMAIN: [FILL IN]
 LOCATION: [FILL IN]
 WHAT THEY SELL: [FILL IN]
+PRODUCT CATEGORIES: [FILL IN]
 TARGET CUSTOMER: [FILL IN]
 BRAND PERSONALITY: [FILL IN]
 PREFERRED COLOURS: [FILL IN OR WRITE "SURPRISE ME"]
-WHATSAPP / CONTACT: [FILL IN]
+CONTACT DETAILS: [FILL IN]
 SPECIAL STORY, OFFER OR TRUST POINTS: [FILL IN]
 
-You are the creative director of a world-class, million-dollar digital design team. Produce the absolute best storefront this business could possibly have: visually unforgettable, highly polished, editorial, confident, mobile-first and genuinely unique to this exact client. Do not reuse a generic ecommerce layout. Build a distinctive art direction, hierarchy, colour system, typography, imagery, spacing and responsive composition that makes the seller feel like a major brand while staying fast, clear and effortless to shop.
+You are the creative director of a world-class, million-dollar design team. Create the absolute best visual storefront this business could possibly have: unforgettable, premium, artistic, highly polished, mobile-first and unmistakably designed for this exact client. Never use a generic ecommerce template. Build a unique art direction, typography system, colour palette, imagery style, spacing rhythm and responsive composition that makes the business look established, desirable and exceptional.
 
-Push the creativity much further than a normal template. Every section should feel intentional and custom-made, with refined details, excellent accessibility, strong conversion design and a memorable first impression. The final result should look as though an elite agency spent months designing it. Make courageous creative decisions that fit the store, location, products and audience while keeping product browsing obvious and beautiful.
+Push the work far beyond an ordinary website. The home hero must be the strongest and most impressive part of the entire store: breathtaking, distinctive, immediately clear and perfectly matched to the store's products, location, story and audience. Every detail should feel intentional, expensive and custom-made, as though an elite agency spent months creating it.
 
-OUTPUT RULES:
-- Return one complete, self-contained HTML document only.
-- Keep CSS inside a <style> tag. Do not use frameworks, build tools or external JavaScript.
-- You may use permanent Unsplash image URLs for decorative lifestyle imagery; StoYangu will copy them into Supabase Storage when saved.
-- Use {{STORE_NAME}}, {{STORE_LOGO}}, {{STORE_DOMAIN}} and {{WHATSAPP_URL}} where store identity belongs.
-- Include one clearly designed live-products area using: <div data-product-grid></div>.
-- Product cards must only provide a clear button or action labelled exactly "View Product".
-- DO NOT build a product popup, product-detail modal, cart, checkout, customer phone form, variation selectors, WhatsApp order logic or order-tracking JavaScript inside the HTML.
-- StoYangu automatically supplies the one perfect product popup for every store. It adds live product photos, price, colour, size, fulfilment, customer note, customer phone autofill, the final "Confirm & Send Order via WhatsApp" button, confirmed-order tracking, FREE/PRO counting and owner notifications.
-- The HTML must leave all popup and ordering behaviour to StoYangu so every store uses the same reliable ordering system.
-- Include elegant Home, Products and Contact navigation targets with clear IDs.
-- Use real, complete copy tailored to the filled client information. Do not leave lorem ipsum, TODOs or explanations outside the HTML.`;
+STRUCTURE AND DESIGN RULES:
+- Return one complete, self-contained HTML document only, with all CSS inside a <style> tag and no external JavaScript or frameworks.
+- Use the real store name and domain supplied above. Do not use placeholder tokens.
+- The sticky navigation must always remain visible while scrolling.
+- The navigation must show exactly three links in one clear left-to-right line: Home, Products, Contact.
+- Never add a hamburger, three-line menu, hidden mobile drawer, shop button, cart button or any fourth navigation item. The three links must remain clearly visible on phones and desktops.
+- HOME: create a spectacular hero as the visual centrepiece, followed by strong trust, story or lifestyle content that fits the client.
+- PRODUCTS: fully design the section background, heading, spacing, category-filter area, responsive product grid, product-card appearance and an excellent "View Product" button style. Leave <div id="filters" data-category-filters></div> for category buttons and <div id="productGrid" data-product-grid></div> for live products. The app fills both areas; your CSS must make .filter-chip, .product-card and [data-view-product] look exceptional.
+- CONTACT: create a clear, beautiful contact section using the real details supplied above.
+- You may add one optional decorative or storytelling section to make the store feel richer, but it must not appear in the navigation.
+- Do not create product data, category names, carts, checkout flows or interaction JavaScript. The app supplies the live product cards and their behaviour.
+- Product cards must have only one customer action, labelled exactly "View Product".
+- You may use permanent Unsplash image URLs for decorative lifestyle imagery.
+- Use complete, persuasive copy tailored to the client. Do not include lorem ipsum, TODOs, build notes or explanations outside the final HTML.`;
 
 export default function FounderDashboard() {
   const { signOut } = useAuth();

@@ -49,6 +49,7 @@
   function photoOf(p) { return photosOf(p)[0] || ''; }
   function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
   function norm(s) { return String(s || '').trim().toLowerCase(); }
+  function colourValue(value) { var known = { black:'#111827', white:'#ffffff', navy:'#172554', green:'#4d7c5b', red:'#dc2626', blue:'#2563eb', pink:'#ec4899', brown:'#795548', beige:'#d6c6a5', gold:'#d4a94c', cream:'#f5edda', sage:'#9caf88', mocha:'#8b6f61', olive:'#6b7245', terracotta:'#c66b4e', sky:'#87ceeb', peach:'#f4a58a', grey:'#6b7280', gray:'#6b7280' }; var key = norm(value); if (/^#|^rgb|^hsl/i.test(key)) return key; return known[key] || 'hsl(' + ([...key].reduce(function (sum, char) { return sum + char.charCodeAt(0); }, 0) % 360) + ' 38% 52%)'; }
 
   function orderUrl(product, extras) {
     var extra = extras || {};
@@ -95,12 +96,15 @@
   function extrasFromPopup() {
     if (!popup) return {};
     var note = popup.querySelector('[data-note], textarea');
+    var address = popup.querySelector('[data-delivery-address]');
     var customerPhone = popup.querySelector('[data-customer-phone]');
+    var noteText = note ? note.value : '';
+    var addressText = address ? address.value : '';
     return {
       color: chosenOption('color'),
       size: chosenOption('size'),
-      fulfilment: chosenOption('fulfilment') || 'Delivery',
-      note: note ? note.value : '',
+      fulfilment: chosenOption('fulfilment') || 'Walk in Store',
+      note: [addressText ? 'Delivery address: ' + addressText : '', noteText].filter(Boolean).join('\n'),
       customerPhone: customerPhone ? customerPhone.value.trim() : '',
     };
   }
@@ -165,6 +169,7 @@
       btn.setAttribute('data-sty-option', kind);
       btn.setAttribute('data-value', item);
       btn.textContent = item;
+      if (kind === 'color') { btn.style.background = colourValue(item); btn.setAttribute('aria-label', 'Choose ' + item); btn.title = item; }
       host.appendChild(btn);
     });
     if (kind === 'fulfilment' && opts.length && !chosenOption('fulfilment')) {
@@ -192,18 +197,21 @@
       + '.sty-nav a{white-space:nowrap}'
       + '.sty-phone-field{display:grid;gap:6px;margin:12px 0;font:700 11px/1.4 system-ui}.sty-phone-field input{width:100%;box-sizing:border-box;min-height:44px;border:1px solid rgba(100,110,105,.3);border-radius:11px;padding:0 12px;background:#fff;color:#17261f;font:600 13px system-ui}.sty-phone-field input:focus{outline:2px solid #5a966e;outline-offset:1px}.sty-phone-field small{font-size:9px;font-weight:500;opacity:.7}.sty-phone-field.has-error input{border-color:#c84d45}.sty-phone-field.has-error small{color:#b13e37;opacity:1}'
       + '.sty-phone-step{position:fixed;inset:0;z-index:240;background:rgba(5,15,25,.74);backdrop-filter:blur(10px);display:none;place-items:center;padding:18px}.sty-phone-step.open{display:grid}.sty-phone-card{position:relative;width:min(430px,100%);box-sizing:border-box;padding:28px;border-radius:24px;background:#fff;color:#17261f;box-shadow:0 35px 100px rgba(0,0,0,.34);font-family:system-ui}.sty-phone-card h3{margin:0 0 7px;font-size:24px;letter-spacing:-.04em}.sty-phone-card>p{margin:0 0 18px;color:#6d7b73;font-size:12px;line-height:1.5}.sty-phone-close{position:absolute;right:13px;top:13px;width:34px;height:34px;border:1px solid #dce3df;border-radius:50%;background:#fff}.sty-phone-confirm{width:100%;min-height:49px;border:0;border-radius:13px;background:#1fa75a;color:#fff;font-size:12px;font-weight:900}.sty-phone-kicker{display:block;margin-bottom:7px;color:#5a966e;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}'
+      + '.sty-delivery-address{display:grid;gap:5px;margin-top:10px;font:800 10px/1.4 system-ui}.sty-delivery-address textarea,[data-note]{width:100%;box-sizing:border-box;min-height:64px;margin-top:6px;border:1px solid rgba(100,110,105,.3);border-radius:11px;padding:10px;background:#fff;color:#17261f;font:500 12px/1.45 system-ui;resize:vertical}'
+      + '[data-stoyangu-order-popup="1"]{font-family:system-ui;color:#17261f}[data-stoyangu-order-popup="1"] .dialog{width:min(920px,100%)!important;display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.9fr);overflow:hidden;border-radius:24px;background:#fff;box-shadow:0 35px 100px rgba(0,0,0,.35)}[data-stoyangu-order-popup="1"] .popup-image{width:100%;height:100%;min-height:560px;object-fit:cover;background:#eef1ed}[data-stoyangu-order-popup="1"] .content{padding:34px;display:flex;flex-direction:column}[data-stoyangu-order-popup="1"] h3{margin:0;font-size:30px;letter-spacing:-.045em}[data-stoyangu-order-popup="1"] .popup-price{margin:8px 0 18px;color:#2f7147;font-size:17px;font-weight:900}[data-stoyangu-order-popup="1"] [data-color-options],[data-stoyangu-order-popup="1"] [data-size-options],[data-stoyangu-order-popup="1"] [data-fulfilment-options]{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0}[data-stoyangu-order-popup="1"] .sty-pill{min-height:38px;border:1px solid #dce3df;border-radius:999px;background:#fff;color:#17261f;padding:0 12px;font-size:10px;font-weight:900}[data-stoyangu-order-popup="1"] .sty-pill.active{background:#17261f;color:#fff;border-color:#17261f}[data-stoyangu-order-popup="1"] [data-sty-option="color"]{width:32px;min-width:32px;padding:0;border:3px solid #fff;box-shadow:0 0 0 1px #dce3df;font-size:0}[data-stoyangu-order-popup="1"] .order{display:flex;align-items:center;justify-content:center;min-height:50px;margin-top:13px;border-radius:13px;background:#19A45B!important;color:#fff!important;text-decoration:none;font-size:12px;font-weight:900}[data-stoyangu-order-popup="1"] .sty-close{position:fixed;z-index:250;width:40px;height:40px;border:0;border-radius:50%;background:#fff;color:#17261f;font-size:22px;box-shadow:0 8px 25px rgba(0,0,0,.18)}@media(max-width:720px){[data-stoyangu-order-popup="1"] .dialog{grid-template-columns:1fr}[data-stoyangu-order-popup="1"] .popup-image{min-height:310px;height:42vh}[data-stoyangu-order-popup="1"] .content{padding:22px}}'
       + '.sty-empty{padding:28px;text-align:center}';
     document.head.appendChild(style);
   }
 
   function findDesignedPopup() {
-    return document.querySelector('.product-popup, #productModal, .modal-backdrop, [data-product-popup]');
+    return document.querySelector('[data-stoyangu-order-popup="1"]');
   }
 
   function ensurePopup() {
     ensureCss();
     popup = findDesignedPopup();
     if (!popup) {
+      document.querySelectorAll('.product-popup, #productModal, .modal-backdrop, [data-product-popup]').forEach(function (legacyPopup) { legacyPopup.style.setProperty('display', 'none', 'important'); legacyPopup.setAttribute('aria-hidden', 'true'); });
       popup = document.createElement('div');
       popup.className = 'product-popup';
       popup.innerHTML = '<button type="button" class="sty-close" data-close-popup="1" aria-label="Close">×</button>'
@@ -221,6 +229,7 @@
         + '</div></div>';
       document.body.appendChild(popup);
     }
+    popup.setAttribute('data-stoyangu-order-popup', '1');
     popup.classList.add('product-popup');
     popup.setAttribute('data-product-popup', '1');
     popup.querySelectorAll('.sty-field-wrap, [data-sty-extra-fulfil]').forEach(function (node) { node.remove(); });
@@ -246,7 +255,30 @@
     if (orderButton) {
       orderButton.textContent = 'Order via WhatsApp';
       orderButton.setAttribute('href', '#');
+      orderButton.style.setProperty('background', '#19A45B', 'important');
+      orderButton.style.setProperty('background-color', '#19A45B', 'important');
       popup.querySelectorAll('.sty-phone-field').forEach(function (field) { field.remove(); });
+      if (!popup.querySelector('[data-fulfilment-options], [data-fulfilment]')) {
+        var fulfilmentHost = document.createElement('div');
+        fulfilmentHost.setAttribute('data-fulfilment-options', '');
+        orderButton.parentNode.insertBefore(fulfilmentHost, orderButton);
+      }
+      var noteInput = popup.querySelector('[data-note], textarea');
+      if (!noteInput) {
+        noteInput = document.createElement('textarea');
+        noteInput.setAttribute('data-note', '');
+        orderButton.parentNode.insertBefore(noteInput, orderButton);
+      }
+      noteInput.setAttribute('data-note', '');
+      noteInput.setAttribute('placeholder', 'Optional order note');
+      if (!popup.querySelector('[data-delivery-address-wrap]')) {
+        var addressWrap = document.createElement('label');
+        addressWrap.className = 'sty-delivery-address';
+        addressWrap.setAttribute('data-delivery-address-wrap', '');
+        addressWrap.innerHTML = 'Delivery address<textarea data-delivery-address maxlength="300" placeholder="Estate, building and nearest landmark"></textarea>';
+        addressWrap.style.display = 'none';
+        noteInput.parentNode.insertBefore(addressWrap, noteInput);
+      }
     }
     if (!popupOpen) {
       popup.classList.remove('open');
@@ -567,15 +599,11 @@
     });
     paintChoices('color', product.colors || []);
     paintChoices('size', product.sizes || []);
-    var fulfilHost = findChoiceHost('fulfilment');
-    if (fulfilHost) {
-      var existing = [];
-      fulfilHost.querySelectorAll('button, [role="button"]').forEach(function (btn) {
-        var label = String(btn.textContent || '').replace(/\s+/g, ' ').trim();
-        if (label && !/choose/i.test(label)) existing.push(label);
-      });
-      if (existing.length) paintChoices('fulfilment', existing);
-    }
+    paintChoices('fulfilment', ['Walk in Store', 'Delivery']);
+    var addressWrap = popup.querySelector('[data-delivery-address-wrap]');
+    var addressInput = popup.querySelector('[data-delivery-address]');
+    if (addressWrap) addressWrap.style.display = 'none';
+    if (addressInput) addressInput.value = '';
     var noteEl = firstMatch(popup, ['[data-note]', 'textarea']);
     if (noteEl) noteEl.value = '';
     renderThumbs(product);
@@ -689,6 +717,10 @@
           btn.classList.toggle('active', btn === choice);
           btn.setAttribute('aria-pressed', btn === choice ? 'true' : 'false');
         });
+        if (kind === 'fulfilment') {
+          var addressWrap = popup.querySelector('[data-delivery-address-wrap]');
+          if (addressWrap) addressWrap.style.display = String(choice.getAttribute('data-value') || choice.textContent).trim() === 'Delivery' ? 'grid' : 'none';
+        }
         rebuildOrder();
         event.preventDefault();
         event.stopPropagation();
