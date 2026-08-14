@@ -57,7 +57,7 @@ export default function MarketingPage() {
         <motion.div className="hero-copy" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7 }}>
           <span className="hero-pill"><Sparkles size={15} /> Store yako. Free kuanza.</span>
           <h1>Video Yangu,<br /><em>Store Yangu</em></h1>
-          <div className="hero-offer"><span>A full store build: <s>KES 15,000</s></span><b>FREE kwako</b><small>Post a short TikTok about your new store and tag StoYangu. At the end of every 30-day upkeep period: 0–5 orders is FREE; 6+ orders is PRO at KES 999.</small></div>
+          <div className="hero-offer"><span>A full store build: <s>KES 15,000</s></span><b>FREE kwako</b><small>Post a short TikTok about your new store and tag StoYangu. 5 orders au chini = FREE hio month. More than 5 = Ksh 999 upkeep hio month.</small></div>
           <div className="hero-commerce-tags"><span>Clothes</span><span>Perfumes</span><span>Watches</span><span>Anything physical</span></div>
           <div className="hero-actions"><button className="button-primary" onClick={() => setApplyOpen(true)}>Apply for my store <ArrowRight /></button><a className="text-link" href="#how"><Play size={16} fill="currentColor" /> See how it works</a></div>
           <div className="trust-row"><span><Check /> Full setup is free</span><span><Check /> Pay only after 5 orders</span><span><ShieldCheck /> Results-based upkeep</span></div>
