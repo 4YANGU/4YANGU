@@ -524,6 +524,10 @@
         openProduct(product);
       });
       host.appendChild(card);
+      var cardStyle = window.getComputedStyle(card);
+      if (cardStyle.display === 'none') card.style.setProperty('display', 'block', 'important');
+      if (cardStyle.visibility === 'hidden') card.style.setProperty('visibility', 'visible', 'important');
+      if (Number(cardStyle.opacity) === 0) card.style.setProperty('opacity', '1', 'important');
     });
   }
 
