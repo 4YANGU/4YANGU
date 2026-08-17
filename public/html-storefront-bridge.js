@@ -653,7 +653,7 @@
     if (phoneStep && document.body.contains(phoneStep)) return phoneStep;
     phoneStep = document.createElement('div');
     phoneStep.className = 'sty-phone-step';
-    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Click send on the next page and we will reply to you on WhatsApp.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Confirm, WhatsApp will open with your order ready — just hit send and we will reply shortly..</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
     document.body.appendChild(phoneStep);
     return phoneStep;
   }
@@ -688,7 +688,7 @@
       var result = await submitOrderToParent({ product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey });
       if (!result.ok) throw new Error(result.error || 'order-not-saved');
     } catch (error) {
-      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm & Send Order via WhatsApp'; }
+      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm'; }
       window.alert('We could not confirm this order. Please check your connection and try again.');
       return;
     }
