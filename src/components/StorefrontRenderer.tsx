@@ -353,7 +353,7 @@ function ProductPageDetails({ product, config, design, onClose, onOrder }: { pro
   const media = product.images?.length ? product.images.slice(0, 7) : [product.image_url].filter(Boolean);
   const [activeImage, setActiveImage] = useState(media[0] || '/stoyangu-logo.png');
   const dialog = isObj(config.dialog) ? config.dialog : {};
-  const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery address: ${deliveryAddress}` : '', orderNote].filter(Boolean).join('\n');
+const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery address: ${deliveryAddress}` : '', orderNote ? `Customer note: ${orderNote}` : ''].filter(Boolean).join('\n');
   return <section className="sj-product-page-detail" aria-label={product.name}>
     <style dangerouslySetInnerHTML={{ __html: [
       '.sj-product-page-detail{padding-top:26px}',
