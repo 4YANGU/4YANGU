@@ -25,7 +25,7 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
-import { selfHostStorefrontAssets, scanStorefrontWarnings } from '../lib/html-assets.js';
+import { selfHostStorefrontAssets, scanStorefrontWarnings, repairLocalImagePaths } from '../lib/html-assets.js';
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,8 @@ function injectLiveProducts(html, store, products) {
 }
 
 function renderTemplate(templateHtml, store, products) {
-  let newHtml = injectLiveProducts(ensureDesignRuntime(String(templateHtml || '')), store, products);
+  const localRepair = repairLocalImagePaths(String(templateHtml || ''));
+  let newHtml = injectLiveProducts(ensureDesignRuntime(localRepair.html), store, products);
   const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
   let assetOrigin = '';
   try { assetOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').origin; } catch {}
@@ -435,7 +436,9 @@ export default async function handler(req, res) {
       if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
       const visibilityWarnings = scanStorefrontWarnings(security.html);
       if (visibilityWarnings.length) console.warn(`Store ${storeId} HTML visibility warnings:`, visibilityWarnings);
-      const intercepted = await selfHostStorefrontAssets(security.html, storeId);
+      const localRepair = repairLocalImagePaths(security.html);
+      if (localRepair.repaired.length) console.warn(`Store ${storeId} local image paths repaired:`, localRepair.repaired);
+      const intercepted = await selfHostStorefrontAssets(localRepair.html, storeId);
       const prepared = ensureDesignRuntime(intercepted.html);
       const structure = structureCheck(prepared);
       const nextDesign = withStorefrontHtml(storeRow, prepared, html, visibilityWarnings);
@@ -565,7 +568,7 @@ export default async function handler(req, res) {
 function buildPrompt(storeName, products, ownerWhatsApp) {
   return `Design one completely original, premium storefront for "${storeName}", a Kenyan store that sells ${products}.
 
-Deliver exactly ONE self-contained HTML document. Put every style inside one <style> tag in the <head>. Write all styling as ordinary, direct CSS with real property values, for example background-color: #101f30; color: #ffffff; display: grid; gap: 24px; border-radius: 18px;.
+Deliver exactly ONE self-contained HTML document — this single file IS the entire store. Include absolutely everything needed inside it: all structure, all styles inside one <style> tag in the <head>, and all decorative text and imagery. Never reference any other local file (no local CSS, JavaScript, image, font or icon files). Write all styling as ordinary, direct CSS with real property values, for example background-color: #101f30; color: #ffffff; display: grid; gap: 24px; border-radius: 18px;.
 
 ABSOLUTELY FORBIDDEN:
 - Do not use utility-class frameworks, framework configuration objects, Bootstrap, external stylesheets, CDN CSS, runtime class interpreters, CSS-in-JS, build tools, or JavaScript-generated styling.
@@ -577,10 +580,12 @@ QUALITY:
 Create a visually unforgettable, polished, mobile-first storefront with a unique art direction made specifically for ${storeName}. The hero must be exceptional. Use direct CSS variables with actual hex/rgb/hsl values for the complete colour palette. Decorative emoji must be static Unicode in the HTML; important icons should use inline SVG or CSS shapes so nothing depends on an outside library.
 
 NAVIGATION:
-- Build one sticky header containing the store name/logo and exactly three visible links in a left-to-right row: Home, Products, Contact.
-- Link them to #home, #products and #contact.
+- Build one sticky header with a premium, high-class layout.
+- Put the store logo at the TOP LEFT of the header, large enough to sit comfortably beside both the store name and the menu (about 64-96px tall on desktop). Include it exactly as <img data-store-logo alt="Store logo" src=""> — StoYangu fills in the real logo automatically, so leave its src empty.
+- Beside the logo, write the store's FULL name in beautiful, elegant typography — the complete name, never abbreviated and never initials only.
+- Directly UNDER the store name, place exactly three menu buttons in one neat row: Home, Products, Contact. Style them nicely (refined pill or underline styling, generous spacing, smooth hover state) and link them to #home, #products and #contact.
 - No hamburger, drawer, hidden mobile menu, cart, shop button, or extra navigation item.
-- On phones, the store name must never overlap or push the three links off screen. Use responsive direct CSS sizes and gaps.
+- On phones, keep the logo on the left with the full store name beside it and the three menu buttons wrapped neatly underneath — nothing may overlap or be pushed off screen. Use responsive direct CSS sizes and gaps.
 
 HOME:
 - Create a spectacular hero for this exact store. The hero may be a maximum of 2 sections (one main hero plus at most one supporting trust/story block) — never more than 2 sections.
@@ -610,6 +615,7 @@ CONTACT AND FOOTER:
 
 ASSETS:
 Permanent HTTPS Unsplash/Pexels/Pixabay imagery is allowed for decorative photos. StoYangu mirrors external assets into its own Storage when the HTML is saved. Product images come from the seller's live product uploads.
+NEVER reference local image files such as /images/hero.jpg, img/photo.png or assets/banner.jpg — local paths do not exist on StoYangu and render as broken images. Every decorative photo must use a full permanent HTTPS URL from Unsplash, Pexels or Pixabay.
 
 Return only the final complete HTML document, with no explanation before or after it.`;
 }
