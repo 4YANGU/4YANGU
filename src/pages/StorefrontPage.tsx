@@ -48,7 +48,7 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
       .replaceAll('{selected_colour}', color || 'not selected')
       .replaceAll('{fulfilment_method}', fulfilment || 'Delivery')
       .replaceAll('{order_note}', orderNote || 'None') : fallback;
-    const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\nCustomer note: ${orderNote ? `\n${orderNote}` : ''} : `${templated}\nMy phone: ${customerPhone || ''}`;
+  const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\n${orderNote}` : ''}` : `${templated}\nMy phone: ${customerPhone || ''}`;
     const phone = data.store.whatsapp.replace(/\D/g, '');
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.location.assign(url);
