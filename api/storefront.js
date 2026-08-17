@@ -583,7 +583,7 @@ NAVIGATION:
 - On phones, the store name must never overlap or push the three links off screen. Use responsive direct CSS sizes and gaps.
 
 HOME:
-- Create a spectacular hero and supporting trust/story content for this exact store.
+- Create a spectacular hero for this exact store. The hero may be a maximum of 2 sections (one main hero plus at most one supporting trust/story block) — never more than 2 sections.
 
 PRODUCTS:
 - Fully design the products section, heading, spacing, filters, responsive grid, cards and View Product button.
@@ -606,7 +606,7 @@ CONTACT AND FOOTER:
 - Create a beautiful #contact section using the store's normal location, phone text/call link, email, hours, and appropriate social links.
 - Do not include a WhatsApp or wa.me link anywhere.
 - Finish with a premium footer matching the design.
-- You may add one decorative/story section outside the navigation.
+- Between the products section and the contact section, you may add any additional sections you need (for example testimonials, lookbook, brand story, offers, FAQ or gallery). Design each one fully in the same art direction. These extra sections stay outside the three navigation links.
 
 ASSETS:
 Permanent HTTPS Unsplash/Pexels/Pixabay imagery is allowed for decorative photos. StoYangu mirrors external assets into its own Storage when the HTML is saved. Product images come from the seller's live product uploads.
