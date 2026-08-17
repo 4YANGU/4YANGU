@@ -47,11 +47,17 @@ function findProductCardBlock(html) {
   if (!m) return null;
   return m[0];
 }
+function findPopupBlock(html) {
+  const m = html.match(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-popup\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/i);
+  return m ? m[0] : null;
+}
 function structureCheck(html) {
-  const warnings = ['StoYangu will attach its universal product popup and ordering flow automatically. The pasted HTML does not need popup or WhatsApp markup.'];
+  const warnings = [];
   const card = findProductCardBlock(html);
-  if (!card) warnings.push('No .product-card template was found, so StoYangu will create the live product cards. The app-owned popup is attached automatically in every case.');
-  return { ok: true, errors: [], warnings, card };
+  const popup = findPopupBlock(html);
+  if (!card) warnings.push('No .product-card block — live products will be injected into [data-product-grid], #products, or a WhatsApp button will be added.');
+  if (!popup) warnings.push('No .product-popup block — orders still work through WhatsApp buttons.');
+  return { ok: true, errors: [], warnings, card, popup };
 }
 
 // ---------------------------------------------------------------------------
@@ -162,10 +168,11 @@ function renderTemplate(templateHtml, store, products) {
   const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' ${assetOrigin}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com ${assetOrigin}; font-src 'self' data: https://fonts.gstatic.com ${assetOrigin}; img-src 'self' data: blob: ${assetOrigin}; media-src 'self' data: blob: ${assetOrigin}; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
   const storeMeta = `${csp}<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}">`;
   let stamped = /<head/i.test(newHtml) ? newHtml.replace(/<head([^>]*)>/i, `<head$1>${storeMeta}`) : `<!doctype html><html><head>${storeMeta}</head><body>${newHtml}</body></html>`;
-  stamped = stamped.replace(/<script\b[^>]*\bsrc=["'][^"']*html-storefront-bridge\.js[^"']*["'][^>]*>[\s\S]*?<\/script>/gi, '');
-  stamped = /<\/body>/i.test(stamped)
-    ? stamped.replace(/<\/body>/i, `<script src="/html-storefront-bridge.js" defer></script></body>`)
-    : `${stamped}<script src="/html-storefront-bridge.js" defer></script>`;
+  if (!/html-storefront-bridge\.js/.test(stamped)) {
+    stamped = /<\/body>/i.test(stamped)
+      ? stamped.replace(/<\/body>/i, `<script src="/html-storefront-bridge.js" defer></script></body>`)
+      : `${stamped}<script src="/html-storefront-bridge.js" defer></script>`;
+  }
   return { html: stamped, warnings: [] };
 }
 
