@@ -472,7 +472,13 @@ export default async function handler(req, res) {
       const { data: store, error: storeError } = await supabase.from('stores').select('*').eq('id', storeId).single();
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
       const { data: products } = await supabase.from('products').select('*').eq('store_id', storeId).eq('active', true).order('created_at', { ascending: false });
-      const liveProducts = (products || []).slice(0, 6).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
+      const previewProducts = (products || []).slice(0, 6);
+      const { data: previewMedia, error: previewMediaError } = previewProducts.length ? await supabase.from('product_images').select('*').in('product_id', previewProducts.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
+      if (previewMediaError) throw previewMediaError;
+      const liveProducts = previewProducts.map((product) => {
+        const images = (previewMedia || []).filter((image) => image.product_id === product.id).map((image) => image.url).filter(Boolean).slice(0, 7);
+        return { ...product, images: images.length ? images : (product.image_url ? [product.image_url] : []) };
+      });
       const template = repaired.html.trim() || readStorefrontHtml(store) || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
       const rendered = renderTemplate(template, store, liveProducts);
       return res.status(200).json({
@@ -516,7 +522,12 @@ export default async function handler(req, res) {
         .single();
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
       const { data: products } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
-      const liveProducts = (products || []).map((product) => ({ ...product, images: product.image_url ? [product.image_url] : [] }));
+      const { data: productMedia, error: productMediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
+      if (productMediaError) throw productMediaError;
+      const liveProducts = (products || []).map((product) => {
+        const images = (productMedia || []).filter((image) => image.product_id === product.id).map((image) => image.url).filter(Boolean).slice(0, 7);
+        return { ...product, images: images.length ? images : (product.image_url ? [product.image_url] : []) };
+      });
       const storedHtml = readStorefrontHtml(store);
       // NO default template fallback. If the founder hasn't pasted an
       // HTML template yet, we serve a clear "no template yet" page so
