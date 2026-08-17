@@ -66,7 +66,6 @@
       ? 'Hi ' + storeName() + '! I want to order ' + product.name + ' (' + money(product.price) + ')'
         + (extra.size ? ' in size ' + extra.size : '')
         + (extra.color ? ', colour ' + extra.color : '')
-        + (extra.customerPhone ? '.\nMy phone: ' + extra.customerPhone : '')
         + '.\nFulfilment: ' + (extra.fulfilment || 'Delivery')
         + (extra.note ? '\nCustomer note: ' + extra.note : '')
         + '\nPlease confirm availability.'
