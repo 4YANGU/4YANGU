@@ -361,12 +361,12 @@ function ProductPageDetails({ product, config, design, onClose, onOrder }: { pro
       '.sj-product-page-grid .sj-popup-close svg{width:18px;height:18px}',
       '.sj-product-page-grid .sj-popup-close:hover{background:#fff}',
       '.sj-product-page-grid .sj-modal-media{display:flex;flex-direction:column}',
-      '.sj-product-page-grid .sj-modal-media>img{flex:1 1 auto;min-height:0;height:auto}',
+      '.sj-product-page-grid .sj-modal-media>img{flex:1 1 auto;min-height:0;height:auto;object-fit:contain;background:#edf1f6}',
       '.sj-product-page-grid .sj-modal-thumbnails{position:static;z-index:auto;left:auto;right:auto;bottom:auto;display:flex;gap:9px;flex-wrap:wrap;padding:12px 14px;background:transparent}',
-      '.sj-product-page-grid .sj-modal-thumbnails button{width:58px;height:58px;padding:2px;border:2px solid #dfe5ee;border-radius:12px;background:#fff;opacity:1;cursor:pointer}',
+      '.sj-product-page-grid .sj-modal-thumbnails button{width:64px;height:64px;padding:2px;border:2px solid #dfe5ee;border-radius:12px;background:#fff;opacity:1;cursor:pointer}',
       '.sj-product-page-grid .sj-modal-thumbnails button.active{border-color:var(--sj-accent,#17261f);box-shadow:0 0 0 2px var(--sj-accent,#17261f)}',
       '.sj-product-page-detail .sj-variant-title,.sj-product-page-detail .sj-fulfilment-title{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin:0 0 10px;color:var(--sj-ink)}',
-      '@media(min-width:900px){.sj-product-page-grid .sj-modal-media{min-height:0;height:min(680px,66vh)}.sj-product-page-grid{max-width:1080px}}',
+      '@media(min-width:900px){.sj-product-page-grid .sj-modal-media{min-height:0;height:min(720px,72vh)}.sj-product-page-grid{max-width:1280px}}',
     ].join('') }} />
     <button className="sj-product-back" onClick={onClose}><ArrowLeft /> Back to all products</button>
     <motion.div className="sj-product-page-grid" style={{ background: String(safeCss(dialog.background) || '#FFFFFF'), borderRadius: safeCss(dialog.radius), boxShadow: String(safeCss(dialog.box_shadow) || '') }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: Number(design.animations?.product_modal?.duration_seconds || .5), ease: design.animations?.product_modal?.easing || [0.16, 1, 0.3, 1] }}>
