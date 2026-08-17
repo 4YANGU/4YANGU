@@ -40,7 +40,10 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
     if (!response.ok) { const payload = await response.json().catch(() => ({})); window.alert(payload.error || 'We could not confirm this order. Please try again.'); return; }
     const design = data.store.design_json as Record<string, any>;
     const template = design?.commerce_rules?.whatsapp_message_template || design?.sections?.find?.((section: any) => section?.product_page)?.product_page?.whatsapp_message_template;
-    const fallback = `Hi ${data.store.name}! I want to order ${product.name} (${formatPrice(product.price)})${size ? ` in size ${size}` : ''}${color ? `, colour ${color}` : ''}.\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\n${orderNote}` : ''}\nPlease confirm availability.`;
+    const noteLines = String(orderNote || '').split('\n').map((line) => line.trim()).filter(Boolean);
+    const addressLine = noteLines.find((line) => /^Delivery address:/i.test(line)) || '';
+    const customerNote = noteLines.filter((line) => !/^Delivery address:/i.test(line)).map((line) => line.replace(/^Customer note:\s*/i, '').trim()).filter(Boolean).join('\n');
+    const fallback = `Hi ${data.store.name}! I want to order ${product.name} (${formatPrice(product.price)})${size ? ` in size ${size}` : ''}${color ? `, colour ${color}` : ''}.\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${addressLine ? `\n${addressLine}` : ''}${customerNote ? `\nCustomer note: ${customerNote}` : ''}\nPlease confirm availability.`;
     const templated = typeof template === 'string' ? template
       .replaceAll('{product_name}', product.name)
       .replaceAll('{product_price}', formatPrice(product.price))
@@ -48,7 +51,7 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
       .replaceAll('{selected_colour}', color || 'not selected')
       .replaceAll('{fulfilment_method}', fulfilment || 'Delivery')
       .replaceAll('{order_note}', orderNote || 'None') : fallback;
-  const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${orderNote ? `\n${orderNote}` : ''}` : `${templated}\nMy phone: ${customerPhone || ''}`;
+    const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${addressLine ? `\n${addressLine}` : ''}${customerNote ? `\nCustomer note: ${customerNote}` : ''}` : `${templated}\nMy phone: ${customerPhone || ''}`;
     const phone = data.store.whatsapp.replace(/\D/g, '');
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.location.assign(url);

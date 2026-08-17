@@ -67,7 +67,8 @@
         + (extra.size ? ' in size ' + extra.size : '')
         + (extra.color ? ', colour ' + extra.color : '')
         + '.\nFulfilment: ' + (extra.fulfilment || 'Delivery')
-        + (extra.note ? '\nCustomer note: ' + extra.note : '')
+        + (extra.address && String(extra.fulfilment || 'Delivery') === 'Delivery' ? '\nDelivery address: ' + extra.address : '')
+        + (extra.noteText ? '\nCustomer note: ' + extra.noteText : '')
         + '\nPlease confirm availability.'
       : 'Hi ' + storeName() + '! I am interested in something from your store.';
     return 'https://wa.me/' + phoneDigits() + '?text=' + encodeURIComponent(text);
@@ -120,6 +121,8 @@
       size: chosenOption('size'),
       fulfilment: chosenOption('fulfilment') || 'Walk in Store',
       note: [addressText ? 'Delivery address: ' + addressText : '', noteText].filter(Boolean).join('\n'),
+      address: addressText,
+      noteText: noteText,
       customerPhone: customerPhone ? customerPhone.value.trim() : '',
     };
   }
