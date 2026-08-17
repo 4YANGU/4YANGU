@@ -704,8 +704,10 @@
 
   function productFromEvent(target) {
     var card = target.closest && target.closest('.product-card, [data-id], [data-product-id]');
+    console.log('STY-DEBUG card:', card);
     if (!card) return null;
     var found = byId[String(card.getAttribute('data-id') || card.getAttribute('data-product-id') || '')];
+    console.log('STY-DEBUG found:', found, 'byId keys:', Object.keys(byId));
     if (found && rawPrice(found.price) > 0) return found;
     if (found) {
       var fallback = rawPrice(card.getAttribute('data-price-value') || card.getAttribute('data-price'));
@@ -714,6 +716,7 @@
     }
     var cards = Array.prototype.slice.call(document.querySelectorAll('[data-sty-live="1"] .product-card, #productGrid .product-card, [data-product-grid] .product-card'));
     var index = cards.indexOf(card);
+    console.log('STY-DEBUG fallback index:', index, 'cards.length:', cards.length);
     return index >= 0 ? visibleProducts()[index] || null : null;
   }
 
