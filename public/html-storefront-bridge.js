@@ -696,7 +696,7 @@
     var url = orderUrl(lastProduct, extras);
     closePhoneStep();
     closePopup();
-    window.location.assign(url);
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   function rebuildOrder() {
