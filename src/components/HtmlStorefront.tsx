@@ -50,7 +50,7 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
         className="html-storefront-frame"
         title={`${store.name} storefront`}
         src={src}
-        sandbox="allow-scripts allow-popups"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
         referrerPolicy="no-referrer-when-downgrade"
       />
     </div>
