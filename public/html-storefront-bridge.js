@@ -628,6 +628,11 @@
     popup.style.setProperty('visibility', 'visible', 'important');
     popup.style.setProperty('pointer-events', 'auto', 'important');
     popup.style.setProperty('z-index', '90', 'important');
+    popup.style.setProperty('position', 'fixed', 'important');
+    popup.style.setProperty('top', '0', 'important');
+    popup.style.setProperty('left', '0', 'important');
+    popup.style.setProperty('width', '100%', 'important');
+    popup.style.setProperty('height', '100%', 'important');
     var panel = popup.querySelector('.dialog, .modal-panel, #modalContent');
     if (panel) {
       panel.style.setProperty('opacity', '1', 'important');
