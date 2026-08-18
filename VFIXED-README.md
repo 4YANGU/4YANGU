@@ -9,7 +9,7 @@ This is the **fixed** build of the StoYangu app. Fixed in this pack:
 
 Vercel turns **every file inside `api/`** into a Serverless Function. The
 previous pack shipped 14 files there, so Hobby rejected it. This pack ships
-**exactly 10 functions**, with room to add 2 more before hitting the limit:
+**exactly 6 functions**, with room to add 2 more before hitting the limit:
 
 - Removed two unused helper files from `api/` (`db-client.js`, `db-wake.js`).
   All routes use `lib/db-client.js` / `lib/db-wake.js` instead — nothing
@@ -20,8 +20,11 @@ previous pack shipped 14 files there, so Hobby rejected it. This pack ships
   `/api/track`, `/api/applications`, `/api/cron` and `/api/notifications`
   into the combined functions (`?fn=...`). No frontend code changed.
 
-Final function list (10): `batch`, `dashboard`, `engage`, `media`, `orders`,
-`products`, `seo`, `storefront`, `stores`, `subscriptions`.
+Final function list (6): `batch`, `engage`, `ops`, `seo`, `storefront`, `stores`.
+
+  - `ops` combines products + orders + media + subscriptions
+  - `stores` now also serves the old /api/dashboard via rewrite
+  - All public URLs stay exactly the same via vercel.json rewrites.
 
 ## The install problem that was fixed
 

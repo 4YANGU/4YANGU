@@ -1,6 +1,42 @@
 {
   "rewrites": [
     {
+      "source": "/api/track",
+      "destination": "/api/engage?fn=track"
+    },
+    {
+      "source": "/api/applications",
+      "destination": "/api/engage?fn=applications"
+    },
+    {
+      "source": "/api/cron",
+      "destination": "/api/batch?fn=cron"
+    },
+    {
+      "source": "/api/notifications",
+      "destination": "/api/batch?fn=notifications"
+    },
+    {
+      "source": "/api/products",
+      "destination": "/api/ops?fn=products"
+    },
+    {
+      "source": "/api/orders",
+      "destination": "/api/ops?fn=orders"
+    },
+    {
+      "source": "/api/media",
+      "destination": "/api/ops?fn=media"
+    },
+    {
+      "source": "/api/subscriptions",
+      "destination": "/api/ops?fn=subscriptions"
+    },
+    {
+      "source": "/api/dashboard",
+      "destination": "/api/stores?fn=dashboard"
+    },
+    {
       "source": "/:path*",
       "has": [
         {
@@ -96,14 +132,6 @@
         {
           "key": "Permissions-Policy",
           "value": "camera=(self), microphone=(), geolocation=()"
-        },
-        {
-          "key": "Cross-Origin-Opener-Policy",
-          "value": "same-origin-allow-popups"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "SAMEORIGIN"
         },
         {
           "key": "Strict-Transport-Security",
