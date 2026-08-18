@@ -32,6 +32,9 @@ async function authProfile(req) {
   if (!token) return null;
   const { data: { user } } = await supabase.auth.getUser(token);
   if (!user) return null;
+  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
+  const productionHost = host === 'stoyangu.com' || host === 'www.stoyangu.com' || host.endsWith('.stoyangu.com');
+  if (productionHost && String(user.email || '').toLowerCase() === 'founder-demo@stoyangu.com') return null;
   const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
   return data ? { ...data, user } : null;
 }
@@ -138,6 +141,10 @@ export default async function handler(req, res) {
             const { error: clearError } = await supabase.from('orders').delete().eq('store_id', id);
             if (clearError) throw clearError;
           }
+          // Clear the store's latest-update/notification cards too, so a store
+          // never shows an update for a day that technically never happened.
+          const { error: clearNotesError } = await supabase.from('notifications').delete().eq('store_id', id);
+          if (clearNotesError) throw clearNotesError;
           const { data, error } = await supabase.from('stores').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id).select().single();
           if (error) throw error;
           return res.status(200).json({ ...data, archived_orders: ordersToArchive || [] });

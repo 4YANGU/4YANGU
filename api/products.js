@@ -3,6 +3,9 @@ import supabase from '../lib/db-client.js';
 async function profileFor(req) {
   const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) return null;
   const { data: { user } } = await supabase.auth.getUser(token); if (!user) return null;
+  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
+  const productionHost = host === 'stoyangu.com' || host === 'www.stoyangu.com' || host.endsWith('.stoyangu.com');
+  if (productionHost && String(user.email || '').toLowerCase() === 'founder-demo@stoyangu.com') return null;
   const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single(); return data;
 }
 const cleanList = (value) => Array.isArray(value) ? [...new Set(value.map((item) => String(item).trim().slice(0, 50)).filter(Boolean))].slice(0, 40) : [];
