@@ -1,4 +1,11 @@
 {
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "PASTE_YOUR_SUPABASE_PROJECT_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "PASTE_YOUR_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY": "PASTE_YOUR_SUPABASE_SERVICE_ROLE_KEY",
+    "VITE_SUPABASE_URL": "PASTE_YOUR_SUPABASE_PROJECT_URL",
+    "VITE_SUPABASE_ANON_KEY": "PASTE_YOUR_SUPABASE_ANON_KEY"
+  },
   "rewrites": [
     {
       "source": "/:path*",
@@ -83,32 +90,6 @@
   ],
   "headers": [
     {
-      "source": "/sw.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        },
-        {
-          "key": "Service-Worker-Allowed",
-          "value": "/"
-        }
-      ]
-    },
-    {
-      "source": "/manifest.webmanifest",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        },
-        {
-          "key": "Content-Type",
-          "value": "application/manifest+json"
-        }
-      ]
-    },
-    {
       "source": "/(.*)",
       "headers": [
         {
@@ -124,14 +105,6 @@
           "value": "camera=(self), microphone=(), geolocation=()"
         },
         {
-          "key": "Cross-Origin-Opener-Policy",
-          "value": "same-origin-allow-popups"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "SAMEORIGIN"
-        },
-        {
           "key": "Strict-Transport-Security",
           "value": "max-age=31536000; includeSubDomains"
         },
@@ -141,7 +114,5 @@
         }
       ]
     }
-  ],
-  "name": "f4bams",
-  "version": 2
+  ]
 }
