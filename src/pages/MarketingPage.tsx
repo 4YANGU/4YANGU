@@ -18,6 +18,7 @@ const marketingSchema = [
 export default function MarketingPage() {
   const [applyOpen, setApplyOpen] = useState(false);
   const [name, setName] = useState('');
+  const [business, setBusiness] = useState('');
   const [phone, setPhone] = useState('+254');
   const [tiktok, setTiktok] = useState('');
   const [message, setMessage] = useState('');
@@ -35,15 +36,17 @@ export default function MarketingPage() {
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setMessage('');
     if (name.trim().length < 2) return setMessage('Please add your full name.');
-    if (!/^\+?[0-9\s-]{9,16}$/.test(phone)) return setMessage('Please add a valid phone number.');
+    if (business.trim().length < 2) return setMessage('Please add your business or store name.');
+    if (!/^\+?[0-9\s-]{9,16}$/.test(phone)) return setMessage('Please add a valid WhatsApp number.');
     const handle = tiktok.trim().replace(/^@/, '');
-    if (handle && !/^[A-Za-z0-9._-]{2,30}$/.test(handle)) return setMessage('That TikTok username looks off — letters, numbers, dots and underscores only.');
+    if (!handle) return setMessage('Please add your TikTok username — we need it to build your perfect store based on your business.');
+    if (!/^[A-Za-z0-9._-]{2,30}$/.test(handle)) return setMessage('That TikTok username looks off — letters, numbers, dots and underscores only.');
     setSending(true);
     try {
-      const response = await fetch('/api/applications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone, tiktok: handle }) });
+      const response = await fetch('/api/applications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, business, phone, tiktok: handle }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      setMessage('Asante! Tumepata details zako. We will call you soon.'); setName(''); setPhone('+254'); setTiktok('');
+      setMessage('Asante! Tumepata details zako. We will call you soon.'); setName(''); setBusiness(''); setPhone('+254'); setTiktok('');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Please try again.'); }
     finally { setSending(false); }
   };
@@ -135,6 +138,6 @@ export default function MarketingPage() {
       <section className="final-cta"><div><span className="eyebrow light">Your next sale can start here</span><h2>Biashara yako.<br />Store yako.</h2></div><button className="button-cream" onClick={() => setApplyOpen(true)}>Nipee store yangu <ArrowRight /></button></section>
     </main>
     <footer className="marketing-footer"><BrandLogo /><p>We help small sellers put every product in one beautiful place.</p><div><a href="mailto:info@stoyangu.com"><Mail /> info@stoyangu.com</a><a href="https://wa.me/254793533683"><MessageCircle /> 0793533683</a></div><small>© {new Date().getFullYear()} StoYangu. My Store, My Hope.</small></footer>
-    {applyOpen && <Modal title="Apply for a free store" onClose={() => setApplyOpen(false)}><form className="form-stack" onSubmit={submit}><p className="form-intro">Add your name and phone number. Tutakupigia, that is all.</p><label>Your name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Amina Hassan" autoFocus /></label><label>Phone number<input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+254 7..." /></label><label>TikTok username <span className="optional-hint">(optional — helps us prepare your demo store)</span><input value={tiktok} onChange={(event) => setTiktok(event.target.value)} placeholder="@yourhandle" inputMode="text" autoComplete="off" /></label>{message && <div className={message.startsWith('Asante') ? 'form-success' : 'form-error'}>{message}</div>}<button className="button-primary full" disabled={sending}>{sending ? 'Sending…' : 'Send my application'} <ArrowRight /></button></form></Modal>}
+    {applyOpen && <Modal title="Apply in one minute" onClose={() => setApplyOpen(false)}><form className="form-stack" onSubmit={submit}><p className="form-intro">Tell us about you and your business. We reply quickly.</p><label>Your name <b className="req-star">*</b><input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Amina Hassan" autoFocus /></label><label>Business / store name <b className="req-star">*</b><input value={business} onChange={(event) => setBusiness(event.target.value)} placeholder="e.g. Beston Kicks" /></label><label>WhatsApp number <b className="req-star">*</b><input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+254 7..." /></label><label>TikTok username <b className="req-star">*</b><input value={tiktok} onChange={(event) => setTiktok(event.target.value)} placeholder="@yourhandle" inputMode="text" autoComplete="off" /><small className="field-hint">This is so we can build your perfect store based on your business.</small></label>{message && <div className={message.startsWith('Asante') ? 'form-success' : 'form-error'}>{message}</div>}<button className="button-primary full" disabled={sending}>{sending ? 'Sending…' : 'Send my application'} <ArrowRight /></button></form></Modal>}
   </div>;
 }
