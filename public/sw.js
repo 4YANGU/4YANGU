@@ -1,7 +1,4 @@
-// Vfixed: bumped cache generation so every client drops the old broken caches
-// (the ones that referenced icon files that no longer existed) and re-installs
-// a clean, fully-installable app shell.
-const CACHE = 'stoyangu-app-vfixed-1';
+const CACHE = 'stoyangu-app-v11';
 const SHELL = '/';
 
 // ---- Install: precache the app shell + core brand assets ----
@@ -29,20 +26,23 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache sensitive account/dashboard API calls.
+  // Never cache or intercept sensitive account/dashboard API calls.
   if (url.pathname.startsWith('/api/profile') || url.pathname.startsWith('/api/dashboard')) return;
 
-  // App navigations: network-first, fall back to the cached shell so the app
-  // still opens (and stays installable) when offline.
+  // App navigations: network-first. Each successful page is cached under its
+  // OWN address, and any offline navigation falls back to that page or the
+  // cached app shell — this keeps the installed app opening like a real app.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => null);
+          if (response.ok && response.type === 'basic') {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => null);
+          }
           return response;
         })
-        .catch(() => caches.match(SHELL))
+        .catch(() => caches.match(request).then((cached) => cached || caches.match(SHELL)))
     );
     return;
   }
