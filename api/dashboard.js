@@ -13,7 +13,7 @@ const addPlan = (store, orders) => {
   const activeOrders = (orders || []).filter((order) => order.status !== 'cancelled');
   const period = currentPeriod(store);
   const periodOrders = activeOrders.filter((order) => { const created = new Date(order.created_at).getTime(); return created >= period.startsAt && created < period.endsAt; }).length;
-  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: periodOrders > 5 ? 'PRO' : 'FREE', upkeep_due: periodOrders > 5 ? 999 : 0, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
+  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: periodOrders > 7 ? 'PRO' : 'FREE', upkeep_due: periodOrders > 7 ? 999 : 0, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
 };
 
 export default async function handler(req, res) {

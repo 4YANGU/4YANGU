@@ -67,7 +67,7 @@
         + (extra.size ? ' in size ' + extra.size : '')
         + (extra.color ? ', colour ' + extra.color : '')
         + '.\nFulfilment: ' + (extra.fulfilment || 'Delivery')
-        + (extra.address && String(extra.fulfilment || 'Delivery') === 'Delivery' ? '\nDelivery address: ' + extra.address : '')
+        + (extra.address && String(extra.fulfilment || 'Delivery') === 'Delivery' ? '\nAddress: ' + extra.address : '')
         + (extra.noteText ? '\nCustomer note: ' + extra.noteText : '')
         + '\nPlease confirm availability.'
       : 'Hi ' + storeName() + '! I am interested in something from your store.';
@@ -607,7 +607,7 @@
     var groups = [
       { kind: 'color', title: 'Colour' },
       { kind: 'size', title: 'Size' },
-      { kind: 'fulfilment', title: 'Delivery' }
+      { kind: 'fulfilment', title: 'Ikufikie aje?' }
     ];
     groups.forEach(function (group) {
       var host = findChoiceHost(group.kind);

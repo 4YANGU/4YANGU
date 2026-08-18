@@ -21,3 +21,19 @@
 .sanitize-report ol{margin:8px 0 0;padding-left:18px}
 .sanitize-report li{font-size:.74rem;line-height:1.5;margin:4px 0;color:#355443}
 .sanitize-report-actions{display:flex;gap:10px;margin-top:14px;justify-content:flex-end}
+.stika-button{display:inline-flex;align-items:center;gap:.4rem;border:1px solid #dce2dd;background:#fff;border-radius:9px;padding:.5rem .75rem;font-size:.68rem;font-weight:800;color:#3d4a44;cursor:pointer}
+.stika-button svg{width:14px;height:14px}
+.stika-button:disabled{opacity:.6;cursor:default}
+.archive-list{display:grid;gap:14px}
+.archive-entry{border:1px solid #e3e7e2;border-radius:14px;padding:14px 16px;display:grid;gap:10px}
+.archive-entry>div{display:flex;flex-direction:column;gap:2px}
+.archive-entry strong{font-size:.9rem;color:#17261f}
+.archive-entry small{font-size:.68rem;color:#77847c}
+.archive-entry .secondary-button{width:max-content}
+.archive-details summary{font-size:.7rem;font-weight:800;color:#3d6b4f;cursor:pointer}
+.archive-orders{display:grid;gap:8px;margin-top:8px;max-height:280px;overflow-y:auto}
+.archive-order{border-top:1px solid #eef1ec;padding-top:8px;display:grid;gap:2px}
+.archive-order strong{font-size:.78rem}
+.archive-order span{font-size:.68rem;color:#5d6b63}
+.archive-order small{font-size:.62rem;color:#8b968f}
+.archive-empty{font-size:.78rem;color:#77847c;line-height:1.6}

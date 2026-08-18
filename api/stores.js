@@ -125,8 +125,44 @@ export default async function handler(req, res) {
       }
       if (req.body.action === 'billing') {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-        const active = Boolean(req.body.is_active); const changes = active ? { is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() } : { is_active: false, updated_at: new Date().toISOString() };
-        const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+        const { data: existing, error: existingError } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (existingError || !existing) return res.status(404).json({ error: 'Store not found.' });
+        const active = Boolean(req.body.is_active);
+        if (!active) {
+          // Turning OFF: archive every order safely, then clear the live orders.
+          const { data: ordersToArchive, error: ordersError } = await supabase.from('orders').select('*').eq('store_id', id).order('created_at', { ascending: false });
+          if (ordersError) throw ordersError;
+          if (ordersToArchive?.length) {
+            const { error: archiveError } = await supabase.from('order_archives').insert({ store_id: id, store_name: existing.name, orders: ordersToArchive, order_count: ordersToArchive.length });
+            if (archiveError) throw archiveError;
+            const { error: clearError } = await supabase.from('orders').delete().eq('store_id', id);
+            if (clearError) throw clearError;
+          }
+          const { data, error } = await supabase.from('stores').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+          if (error) throw error;
+          return res.status(200).json({ ...data, archived_orders: ordersToArchive || [] });
+        }
+        // Turning ON: optionally restore the most recent archived orders.
+        if (req.body.restore_orders === true) {
+          const { data: latestArchive, error: archiveFetchError } = await supabase.from('order_archives').select('*').eq('store_id', id).order('archived_at', { ascending: false }).limit(1).maybeSingle();
+          if (archiveFetchError) throw archiveFetchError;
+          if (latestArchive?.orders?.length) {
+            const rows = latestArchive.orders.map((order) => { const { id: _dropId, ...rest } = order; return rest; });
+            const { error: restoreError } = await supabase.from('orders').upsert(rows, { onConflict: 'store_id,order_key' });
+            if (restoreError) throw restoreError;
+            const { error: consumedError } = await supabase.from('order_archives').delete().eq('id', latestArchive.id);
+            if (consumedError) throw consumedError;
+          }
+        }
+        const { data, error } = await supabase.from('stores').update({ is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
+        if (error) throw error;
+        return res.status(200).json(data);
+      }
+      if (req.body.action === 'archived-orders') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data, error } = await supabase.from('order_archives').select('*').eq('store_id', id).order('archived_at', { ascending: false });
+        if (error) throw error;
+        return res.status(200).json(data || []);
       }
       if (req.body.action === 'design') {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
