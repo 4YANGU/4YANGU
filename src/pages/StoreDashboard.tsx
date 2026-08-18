@@ -51,11 +51,6 @@ export default function StoreDashboard() {
   const [installOpen, setInstallOpen] = useState(false);
   const [activePage, setActivePage] = useState<'overview' | 'products'>('overview');
   const [linkCopied, setLinkCopied] = useState(false);
-  // Vfixed: one persistent "is the app installed" flag for the whole page. It combines
-  // (a) actually running as an installed app, (b) the local record written the moment
-  // an install completes, and (c) the server-side installation record — so refreshing
-  // the manage page never brings the "Install app" button back after a real install.
-  const [appInstalled, setAppInstalled] = useState(() => isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1');
   const load = useCallback(async () => {
     setError('');
     try {
@@ -73,23 +68,10 @@ export default function StoreDashboard() {
     if (isStandaloneApp()) {
       localStorage.setItem('stoyangu-installed', '1');
       markAppInstalled();
-      setAppInstalled(true);
     }
-    // Vfixed: also trust the platform's installation record. Even on a brand-new
-    // browser session with an empty localStorage, a store whose app is already
-    // installed will not be asked to install again after a refresh.
-    apiFetch<{ installation?: { installed?: boolean } | null }>('/api/subscriptions')
-      .then((config) => {
-        if (config.installation?.installed) {
-          localStorage.setItem('stoyangu-installed', '1');
-          setAppInstalled(true);
-        }
-      })
-      .catch(() => undefined);
     const installed = () => {
       localStorage.setItem('stoyangu-installed', '1');
       markAppInstalled();
-      setAppInstalled(true);
       enableStoreNotifications().catch((reason) => console.warn('Notification setup will continue from the dashboard reminder:', reason));
     };
     window.addEventListener('appinstalled', installed);
@@ -125,10 +107,10 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
   const cycleLabel = cycleStart && cycleEnd ? `Day ${cycleDay} of 30 · ${cycleStart.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })} – ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : 'Current 30-day cycle';
-  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'owner' && !appInstalled && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><span className="owner-cycle-dates">{cycleLabel}</span><div className="owner-store-link-row"><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a><button onClick={copyStoreLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button><StickerDownload slug={store.slug} /></div></header><main className="owner-main">
+  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'owner' && !isStandaloneApp() && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><span className="owner-cycle-dates">{cycleLabel}</span><div className="owner-store-link-row"><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a><button onClick={copyStoreLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button><StickerDownload slug={store.slug} /></div></header><main className="owner-main">
     <nav className="manage-page-tabs" aria-label="Manage store pages"><button className={activePage === 'overview' ? 'active' : ''} onClick={() => setActivePage('overview')}>Home</button><button className={activePage === 'products' ? 'active' : ''} onClick={() => setActivePage('products')}>Products</button></nav>
     {error && <div className="dashboard-error">{error}</div>}
-    {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} installed={appInstalled} onInstalled={() => setAppInstalled(true)} onDismiss={() => setInstallOpen(false)} />}
+    {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}
     <section className="analytics-grid two"><article className="metric-card owner-metric"><div className="metric-icon"><Users /></div><span>Store visitors</span><strong>{store.visitor_total.toLocaleString()}</strong><small>+{store.visitor_today} Today</small></article><article className={`metric-card owner-metric green ${upkeep.upkeep_plan === 'PRO' ? 'pro-plan' : ''}`}><div className="metric-icon"><MessageCircle /></div><span>Orders · last 30 days</span><strong>{upkeepOrders}</strong><small className="order-plan-pill">{upkeep.upkeep_plan === 'PRO' ? 'PRO · KES 999 upkeep' : 'FREE · KES 0 upkeep'}</small></article></section>
     {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
@@ -138,7 +120,7 @@ export default function StoreDashboard() {
   </main>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} categories={store.categories || []} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}</div>;
 }
 
-function InstallAppCard({ forceOpen, installed, onInstalled, onDismiss }: { forceOpen: boolean; installed: boolean; onInstalled: () => void; onDismiss: () => void }) {
+function InstallAppCard({ forceOpen, onDismiss }: { forceOpen: boolean; onDismiss: () => void }) {
   const [promptEvent, setPromptEvent] = useState<{ prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> } | null>(() => (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
   const [done, setDone] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -152,7 +134,7 @@ function InstallAppCard({ forceOpen, installed, onInstalled, onDismiss }: { forc
     return () => window.removeEventListener('stoyangu-install-ready', ready);
   }, []);
   const close = () => { sessionStorage.setItem('stoyangu-install-dismissed', '1'); setHidden(true); onDismiss(); };
-  if (hidden || installed || isStandaloneApp()) return null;
+  if (hidden || isStandaloneApp()) return null;
   const actionable = Boolean(promptEvent) || iOS || onPhone;
   if (!forceOpen && (!actionable || sessionStorage.getItem('stoyangu-install-dismissed') === '1')) return null;
   const install = async () => {
@@ -164,7 +146,6 @@ function InstallAppCard({ forceOpen, installed, onInstalled, onDismiss }: { forc
       if (choice?.outcome === 'accepted') {
         localStorage.setItem('stoyangu-installed', '1');
         markAppInstalled();
-        onInstalled();
         setDone(true);
       } else {
         setManual(true);
