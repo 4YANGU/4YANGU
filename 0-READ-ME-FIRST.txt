@@ -1,51 +1,49 @@
 ============================================================
-  STOYANGU — READ THIS FIRST (fixes the Vercel 12-function error)
+  STOYANGU VWUEH PACK — READ THIS FIRST
 ============================================================
 
-WHY VERCEL KEEPS REFUSING YOUR DEPLOYS
---------------------------------------
-Vercel turns EVERY .js file inside the api/ folder into one
-Serverless Function. The Hobby plan allows a maximum of 12.
+NEW IN THIS PACK
+----------------
+The founder dashboard's "Custom app notification" sender is FIXED.
+It used to call /api/custom-notifications, an endpoint that never
+existed, so every send failed with "Something went wrong". The
+logic now lives inside api/notifications.js — NO new Serverless
+Function was added, so the Hobby-plan limit is still respected.
+See VWUEH-README.md for details.
 
-Right now your repo's api/ folder has 16 files, because 4 extra
-files were added by an earlier update pack and never removed:
-
-    api/batch.js        <-- must not exist
-    api/engage.js       <-- must not exist
-    api/db-client.js    <-- must not exist
-    api/db-wake.js      <-- must not exist
-
-A zip cannot delete files from your repo. That is why applying
-zip after zip kept failing: the 4 extra files stayed put.
-
-THE FIX — CHOOSE ONE OF THESE (A is automatic)
+THE VERCEL 12-FUNCTION LIMIT — STILL IMPORTANT
 ----------------------------------------------
+Vercel turns every file in api/ into one Serverless Function, and
+the Hobby plan stops at 12. If your repo's api/ folder still
+contains any of these 4 files, delete them ONCE (a zip cannot
+delete files from a Git repo):
 
-A) DO NOTHING EXTRA — let the automatic cleaner do it.
-   This pack contains .github/workflows/api-cleanup.yml.
-   Once that file is in your repo, every push automatically
-   deletes the 4 extra files and Vercel deploys the clean state
-   a moment later. If the cleaner itself fails, open your repo on
-   GitHub -> Settings -> Actions -> General -> Workflow permissions
-   -> choose "Read and write permissions" -> Save, then push again.
+    api/batch.js
+    api/engage.js
+    api/db-client.js
+    api/db-wake.js
 
-B) DELETE THEM BY HAND (takes 1 minute, works everywhere).
-   On GitHub, open each of these 4 files and tap Delete:
-       api/batch.js
-       api/engage.js
-       api/db-client.js
-       api/db-wake.js
-   Commit each deletion. Deploy. Done.
-
-C) IF AN AI TOOL / APP BUILDER EDITS YOUR CODE:
-   Tell it exactly this:
+OPTION 1 — If an AI tool / app builder manages your code, tell it:
    "Delete the files api/batch.js, api/engage.js, api/db-client.js
-   and api/db-wake.js from the project, and never recreate them.
+   and api/db-wake.js, and never create files inside the api
+   folder again. Database helpers belong in the lib folder only.
    The api folder must contain exactly 12 files."
+
+OPTION 2 — Delete them yourself on GitHub (phone or computer):
+   1. Open github.com/4YANGU/4YANGU and tap the api folder.
+   2. Tap batch.js, tap the ... menu, tap "Delete file", commit.
+   3. Repeat for engage.js, db-client.js and db-wake.js.
+   4. Vercel deploys automatically and it will succeed.
+
+OPTION 3 — Fresh start (cleanest if the junk keeps coming back):
+   1. On GitHub create a brand-new repository (e.g. "stoyangu").
+   2. Upload the contents of this zip into it.
+   3. In Vercel: Add New -> Project -> import that new repo.
+   4. Re-add your 5 Supabase environment variables and your domain.
 
 HOW YOU KNOW IT IS FIXED
 ------------------------
-The api/ folder must contain EXACTLY these 12 files:
+api/ must contain EXACTLY these 12 files — count them:
 
    applications.js   cron.js          media.js       orders.js
    products.js       seo.js           storefront.js  stores.js
@@ -53,16 +51,18 @@ The api/ folder must contain EXACTLY these 12 files:
 
 12 files = 12 functions = Vercel Hobby plan deploys with no issues.
 
-EVERYTHING ELSE IN THIS PACK
-----------------------------
-- The original 12 api routes, byte-for-byte (the arrangement your
-  site has always deployed with).
-- vercel.json with routes/headers/schedules only and NO env block
+WHAT THIS PACK CONTAINS
+-----------------------
+- The original 12 api routes, with the custom-notification fix
+  inside notifications.js.
+- vercel.json with routes/headers/schedules only — NO env block
   (your Supabase keys stay in the Vercel dashboard, as always).
 - The install fix: restored app icons (public/favicon-192.png,
   public/icon-maskable-512.png), bumped service-worker cache, and
-  persistent installed-state — so StoYangu fully installs into the
-  phone's app list and the "Install app" button never reappears
-  after a refresh on the manage-my-store page.
+  persistent installed-state — StoYangu fully installs into the
+  phone's app list, and the "Install app" button never reappears
+  after refreshing the manage-my-store page.
 - Demo founder login: tap "Open founder demo" — no password.
 - Owner test login: WhatsApp 0793 825 499 / password BestonDemo123!
+- (.github/workflows/api-cleanup.yml is included too: if your flow
+  keeps hidden folders, it auto-deletes the 4 files on every push.)

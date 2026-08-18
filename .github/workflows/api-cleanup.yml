@@ -1,11 +1,5 @@
 name: Keep Vercel Hobby-safe (max 12 functions)
 
-# StoYangu auto-cleanup
-# Vercel's Hobby plan refuses deployments with more than 12 Serverless
-# Functions, and every .js file inside api/ becomes one function.
-# This workflow runs on every push and deletes the extra api files that
-# keep re-appearing, so the next Vercel deploy always sees exactly 12.
-
 on:
   push:
     branches:
@@ -19,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Remove extra api files (Hobby plan limit is 12 functions)
         run: |
           set -e
@@ -27,18 +20,14 @@ jobs:
           for f in api/batch.js api/engage.js api/db-client.js api/db-wake.js; do
             if [ -f "$f" ]; then
               git rm -q "$f"
-              echo "removed $f"
               CHANGED=1
             fi
           done
-          COUNT=$(ls api/*.js 2>/dev/null | wc -l)
-          echo "api/ now contains $COUNT functions"
           if [ "$CHANGED" = "1" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git commit -m "Remove extra api files so Vercel Hobby plan can deploy (max 12 functions)"
             git push
-            echo "Cleanup committed. Vercel will deploy the clean state automatically."
           else
-            echo "api/ is already clean - nothing to remove."
+            echo "api/ is already clean."
           fi
