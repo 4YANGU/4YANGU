@@ -1,28 +1,5 @@
 {
-  "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "PASTE_YOUR_SUPABASE_PROJECT_URL",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "PASTE_YOUR_SUPABASE_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY": "PASTE_YOUR_SUPABASE_SERVICE_ROLE_KEY",
-    "VITE_SUPABASE_URL": "PASTE_YOUR_SUPABASE_PROJECT_URL",
-    "VITE_SUPABASE_ANON_KEY": "PASTE_YOUR_SUPABASE_ANON_KEY"
-  },
   "rewrites": [
-    {
-      "source": "/api/track",
-      "destination": "/api/engage?fn=track"
-    },
-    {
-      "source": "/api/applications",
-      "destination": "/api/engage?fn=applications"
-    },
-    {
-      "source": "/api/cron",
-      "destination": "/api/batch?fn=cron"
-    },
-    {
-      "source": "/api/notifications",
-      "destination": "/api/batch?fn=notifications"
-    },
     {
       "source": "/:path*",
       "has": [
@@ -119,6 +96,14 @@
         {
           "key": "Permissions-Policy",
           "value": "camera=(self), microphone=(), geolocation=()"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
         },
         {
           "key": "Strict-Transport-Security",
