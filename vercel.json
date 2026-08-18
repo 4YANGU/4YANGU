@@ -8,6 +8,22 @@
   },
   "rewrites": [
     {
+      "source": "/api/track",
+      "destination": "/api/engage?fn=track"
+    },
+    {
+      "source": "/api/applications",
+      "destination": "/api/engage?fn=applications"
+    },
+    {
+      "source": "/api/cron",
+      "destination": "/api/batch?fn=cron"
+    },
+    {
+      "source": "/api/notifications",
+      "destination": "/api/batch?fn=notifications"
+    },
+    {
       "source": "/:path*",
       "has": [
         {

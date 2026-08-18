@@ -1,9 +1,29 @@
 # StoYangu — Vfixed Pack
 
-This is the **fixed** build of the StoYangu app. The issue fixed in this pack
-is the **PWA / "Install app"** problem.
+This is the **fixed** build of the StoYangu app. Fixed in this pack:
+1. The **PWA / "Install app"** problem (see below).
+2. The **Vercel Hobby-plan deploy failure** — "No more than 12 Serverless
+   Functions can be added to a Deployment on the Hobby plan."
 
-## The problem that was fixed
+## Vercel Hobby-plan fix (12-function limit)
+
+Vercel turns **every file inside `api/`** into a Serverless Function. The
+previous pack shipped 14 files there, so Hobby rejected it. This pack ships
+**exactly 10 functions**, with room to add 2 more before hitting the limit:
+
+- Removed two unused helper files from `api/` (`db-client.js`, `db-wake.js`).
+  All routes use `lib/db-client.js` / `lib/db-wake.js` instead — nothing
+  changes functionally, the two phantom functions simply disappear.
+- Merged `/api/track` + `/api/applications` into ONE function: `api/engage.js`.
+- Merged `/api/cron` + `/api/notifications` into ONE function: `api/batch.js`.
+- **All public URLs stay exactly the same** — `vercel.json` rewrites route
+  `/api/track`, `/api/applications`, `/api/cron` and `/api/notifications`
+  into the combined functions (`?fn=...`). No frontend code changed.
+
+Final function list (10): `batch`, `dashboard`, `engage`, `media`, `orders`,
+`products`, `seo`, `storefront`, `stores`, `subscriptions`.
+
+## The install problem that was fixed
 
 When a store owner tapped **Install app**, the phone only offered to add a
 *home-screen shortcut* instead of installing StoYangu as a **real app** that
