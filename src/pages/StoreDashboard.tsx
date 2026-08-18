@@ -49,7 +49,6 @@ export default function StoreDashboard() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
-  const [appInstalled, setAppInstalled] = useState(() => localStorage.getItem('stoyangu-installed') === '1');
   const [activePage, setActivePage] = useState<'overview' | 'products'>('overview');
   const [linkCopied, setLinkCopied] = useState(false);
   const load = useCallback(async () => {
@@ -108,10 +107,10 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
   const cycleLabel = cycleStart && cycleEnd ? `Day ${cycleDay} of 30 · ${cycleStart.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })} – ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : 'Current 30-day cycle';
-  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'owner' && !isStandaloneApp() && !appInstalled && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><span className="owner-cycle-dates">{cycleLabel}</span><div className="owner-store-link-row"><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a><button onClick={copyStoreLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button><StickerDownload slug={store.slug} /></div></header><main className="owner-main">
+  return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'owner' && !isStandaloneApp() && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><span className="owner-cycle-dates">{cycleLabel}</span><div className="owner-store-link-row"><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a><button onClick={copyStoreLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button><StickerDownload slug={store.slug} /></div></header><main className="owner-main">
     <nav className="manage-page-tabs" aria-label="Manage store pages"><button className={activePage === 'overview' ? 'active' : ''} onClick={() => setActivePage('overview')}>Home</button><button className={activePage === 'products' ? 'active' : ''} onClick={() => setActivePage('products')}>Products</button></nav>
     {error && <div className="dashboard-error">{error}</div>}
-    {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} onDismiss={() => setInstallOpen(false)} onInstalled={() => { localStorage.setItem('stoyangu-installed', '1'); setAppInstalled(true); }} />}
+    {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}
     <section className="analytics-grid two"><article className="metric-card owner-metric"><div className="metric-icon"><Users /></div><span>Store visitors</span><strong>{store.visitor_total.toLocaleString()}</strong><small>+{store.visitor_today} Today</small></article><article className={`metric-card owner-metric green ${upkeep.upkeep_plan === 'PRO' ? 'pro-plan' : ''}`}><div className="metric-icon"><MessageCircle /></div><span>Orders · last 30 days</span><strong>{upkeepOrders}</strong><small className="order-plan-pill">{upkeep.upkeep_plan === 'PRO' ? 'PRO · KES 999 upkeep' : 'FREE · KES 0 upkeep'}</small></article></section>
     {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
@@ -121,38 +120,20 @@ export default function StoreDashboard() {
   </main>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} categories={store.categories || []} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}</div>;
 }
 
-function InstallAppCard({ forceOpen, onDismiss, onInstalled }: { forceOpen: boolean; onDismiss: () => void; onInstalled?: () => void }) {
+function InstallAppCard({ forceOpen, onDismiss }: { forceOpen: boolean; onDismiss: () => void }) {
   const [promptEvent, setPromptEvent] = useState<{ prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> } | null>(() => (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
   const [done, setDone] = useState(false);
-  // The card stays hidden forever once the app has been installed — this is
-  // read from localStorage so it survives refreshes and new browser sessions.
-  const [hidden, setHidden] = useState(() => localStorage.getItem('stoyangu-installed') === '1');
+  const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState(false);
   const iOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) || ((navigator as any).platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
   const onPhone = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
   useEffect(() => {
     const ready = () => setPromptEvent((window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
-    const installedNow = () => { localStorage.setItem('stoyangu-installed', '1'); setDone(true); onInstalled?.(); };
     window.addEventListener('stoyangu-install-ready', ready);
-    window.addEventListener('stoyangu-app-installed', installedNow);
-    window.addEventListener('appinstalled', installedNow);
-    // Double-check the platform record too: if this account already recorded
-    // an installation on any device, the card stays hidden even when the
-    // phone's localStorage was cleared.
-    apiFetch<{ installation?: { installed?: boolean } }>('/api/subscriptions')
-      .then((config) => { if (config.installation?.installed) { localStorage.setItem('stoyangu-installed', '1'); setHidden(true); onInstalled?.(); } })
-      .catch(() => undefined);
-    return () => { window.removeEventListener('stoyangu-install-ready', ready); window.removeEventListener('stoyangu-app-installed', installedNow); window.removeEventListener('appinstalled', installedNow); };
+    return () => window.removeEventListener('stoyangu-install-ready', ready);
   }, []);
   const close = () => { sessionStorage.setItem('stoyangu-install-dismissed', '1'); setHidden(true); onDismiss(); };
-  // After a successful install the card celebrates for a few seconds, then
-  // hides itself. From then on localStorage keeps it hidden on every refresh.
-  useEffect(() => {
-    if (!done) return undefined;
-    const timer = window.setTimeout(() => { setHidden(true); onDismiss(); }, 6000);
-    return () => window.clearTimeout(timer);
-  }, [done]);
   if (hidden || isStandaloneApp()) return null;
   const actionable = Boolean(promptEvent) || iOS || onPhone;
   if (!forceOpen && (!actionable || sessionStorage.getItem('stoyangu-install-dismissed') === '1')) return null;
@@ -166,7 +147,6 @@ function InstallAppCard({ forceOpen, onDismiss, onInstalled }: { forceOpen: bool
         localStorage.setItem('stoyangu-installed', '1');
         markAppInstalled();
         setDone(true);
-        onInstalled?.();
       } else {
         setManual(true);
       }

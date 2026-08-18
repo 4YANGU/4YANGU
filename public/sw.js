@@ -1,4 +1,4 @@
-const CACHE = 'stoyangu-app-v11';
+const CACHE = 'stoyangu-app-v10';
 const SHELL = '/';
 
 // ---- Install: precache the app shell + core brand assets ----
@@ -26,23 +26,20 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache or intercept sensitive account/dashboard API calls.
+  // Never cache sensitive account/dashboard API calls.
   if (url.pathname.startsWith('/api/profile') || url.pathname.startsWith('/api/dashboard')) return;
 
-  // App navigations: network-first. Each successful page is cached under its
-  // OWN address, and any offline navigation falls back to that page or the
-  // cached app shell — this keeps the installed app opening like a real app.
+  // App navigations: network-first, fall back to the cached shell so the app
+  // still opens (and stays installable) when offline.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok && response.type === 'basic') {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => null);
-          }
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => null);
           return response;
         })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match(SHELL)))
+        .catch(() => caches.match(SHELL))
     );
     return;
   }
