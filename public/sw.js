@@ -1,4 +1,7 @@
-const CACHE = 'stoyangu-app-v10';
+// Vfixed: bumped cache generation so every client drops the old broken caches
+// (the ones that referenced icon files that no longer existed) and re-installs
+// a clean, fully-installable app shell.
+const CACHE = 'stoyangu-app-vfixed-1';
 const SHELL = '/';
 
 // ---- Install: precache the app shell + core brand assets ----
