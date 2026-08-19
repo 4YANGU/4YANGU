@@ -760,7 +760,16 @@
     var url = orderUrl(lastProduct, extras);
     closePhoneStep();
     closePopup();
-    window.open(url, '_blank', 'noopener,noreferrer');
+    // Wame fix: after the async order confirmation there is no user gesture
+    // left, so phones silently block window.open from this sandboxed iframe —
+    // the order reached the owner but WhatsApp never opened at all. If the
+    // popup is blocked, ask the parent page to navigate instead: top-level
+    // navigation is always allowed and works on every phone.
+    var opened = null;
+    try { opened = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { opened = null; }
+    if (!opened) {
+      try { window.parent.postMessage({ type: 'stoyangu-open-whatsapp', url: url }, '*'); } catch (e) {}
+    }
   }
 
   function rebuildOrder() {
