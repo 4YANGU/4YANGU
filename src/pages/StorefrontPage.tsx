@@ -53,7 +53,22 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
       .replaceAll('{fulfilment_method}', fulfilment || 'Delivery')
       .replaceAll('{order_note}', orderNote || 'None') : fallback;
     const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${addressOut ? `\n${addressOut}` : ''}${customerNote ? `\nCustomer note: ${customerNote}` : ''}` : `${templated}\nMy phone: ${customerPhone || ''}`;
-    const phone = data.store.whatsapp.replace(/\D/g, '');
+    // Wozaa fix: never open a broken wa.me link. If the store's number looks
+    // unusable (e.g. the customer's browser is holding a stale copy from before
+    // the founder changed the number), refetch the freshest store record once
+    // and use that number instead.
+    let phone = String(data.store.whatsapp || '').replace(/\D/g, '');
+    if (phone.length < 9) {
+      try {
+        const freshResponse = await fetch(`/api/stores?storefront=1&fresh=1&slug=${encodeURIComponent(slug)}`, { cache: 'no-store' });
+        const freshPayload = await freshResponse.json().catch(() => ({}));
+        if (freshResponse.ok && freshPayload?.store) {
+          phone = String(freshPayload.store.whatsapp || '').replace(/\D/g, '');
+          try { setData(freshPayload); sessionStorage.setItem(`stoyangu-store-${slug}`, JSON.stringify(freshPayload)); } catch {}
+        }
+      } catch {}
+    }
+    if (phone.length < 9) { window.alert('Your order has been sent to the store, but the store\'s WhatsApp number looks incomplete. The owner will see your order and contact you.'); return; }
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.location.assign(url);
   }, [data?.store, slug]);

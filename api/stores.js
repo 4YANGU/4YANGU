@@ -45,7 +45,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   try {
     if (req.method === 'GET' && (req.query?.slug || req.query?.featured)) {
-      res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
+      // Wozaa fix: keep the storefront JSON almost never-stale. A long CDN cache
+      // (it used to be s-maxage=30 + stale-while-revalidate=300) meant that after
+      // the founder changed the store's WhatsApp number, customers kept receiving
+      // the OLD number for minutes and the wa.me order link stopped working.
+      res.setHeader('Cache-Control', req.query?.fresh ? 'no-store, max-age=0' : 'public, s-maxage=10');
       let result;
       if (req.query.slug) {
         const requestedSlug = slugify(req.query.slug);

@@ -131,10 +131,32 @@ export default function StickerDownload({ slug }: { slug: string }) {
     setBusy(true);
     try {
       const dataUrl = await renderSticker(domain);
-      const anchor = document.createElement('a');
-      anchor.href = dataUrl;
-      anchor.download = `chegi-sticker-${slug}.png`;
-      anchor.click();
+      // Wozaa fix: iOS Safari ignores the download attribute on data/blob URLs,
+      // so on iPhone the sticker could never be saved. Convert to a real File
+      // and use the native share sheet ("Save Image" is one tap), with
+      // per-browser fallbacks below.
+      const blob = await (await fetch(dataUrl)).blob();
+      const fileName = `chegi-sticker-${slug}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+      if (typeof nav.canShare === 'function' && nav.canShare({ files: [file] })) {
+        try { await nav.share({ files: [file], title: 'StoYangu sticker' }); return; }
+        catch (shareError) { if ((shareError as Error)?.name === 'AbortError') return; /* owner closed the sheet */ }
+      }
+      const url = URL.createObjectURL(blob);
+      const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || ((navigator as unknown as { platform?: string }).platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (iOS) {
+        // Older iOS without file sharing: open the image in a tab so it can be
+        // saved with a long-press.
+        window.open(url, '_blank', 'noopener');
+        window.alert('Long-press the sticker image, then choose "Add to Photos" or "Save Image".');
+      } else {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
     } catch (reason) {
       console.error('Sticker render failed:', reason);
     } finally {
