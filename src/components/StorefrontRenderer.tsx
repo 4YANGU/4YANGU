@@ -352,6 +352,19 @@ function ProductPageDetails({ product, config, design, onClose, onOrder }: { pro
   const [phoneStepOpen, setPhoneStepOpen] = useState(false);
   const media = product.images?.length ? product.images.slice(0, 7) : [product.image_url].filter(Boolean);
   const [activeImage, setActiveImage] = useState(media[0] || '/stoyangu-logo.png');
+  // Damn fix (snappy photos): warm the browser cache with EVERY gallery photo
+  // the instant the product view opens, and decode them ahead of time, so
+  // switching photos never waits on the network.
+  useEffect(() => {
+    media.forEach((url, index) => {
+      const loader = new Image();
+      if (index === 0) (loader as unknown as { fetchPriority: string }).fetchPriority = 'high';
+      loader.decoding = 'async';
+      loader.src = url;
+      loader.decode?.().catch(() => undefined);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.id]);
   const dialog = isObj(config.dialog) ? config.dialog : {};
 const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery address: ${deliveryAddress}` : '', orderNote ? `Customer note: ${orderNote}` : ''].filter(Boolean).join('\n');
   return <section className="sj-product-page-detail" aria-label={product.name}>
@@ -361,6 +374,11 @@ const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery addr
       '.sj-product-page-grid .sj-popup-close svg{width:18px;height:18px}',
       '.sj-product-page-grid .sj-popup-close:hover{background:#fff}',
       '.sj-product-page-grid .sj-modal-media{display:flex;flex-direction:column;position:relative}',
+      '.sj-product-page-grid .sj-photo-stack{position:relative;flex:1 1 auto;min-height:0;width:100%}',
+      '.sj-product-page-grid .sj-photo-sizer{position:relative;width:100%;height:auto;visibility:hidden;object-fit:contain;pointer-events:none}',
+      '.sj-product-page-grid .sj-photo-layer{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#edf1f6;opacity:0;transition:opacity .18s ease}',
+      '.sj-product-page-grid .sj-photo-layer.active{opacity:1}',
+      '@media(min-width:900px){.sj-product-page-grid .sj-photo-sizer{display:none}}',
       '.sj-product-page-grid .sj-photo-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:4;width:44px;height:44px;border:0;border-radius:50%;background:rgba(255,255,255,.94);color:#17261f;display:grid;place-items:center;cursor:pointer;box-shadow:0 10px 26px rgba(8,18,28,.28)}',
       '.sj-product-page-grid .sj-photo-nav svg{width:20px;height:20px}',
       '.sj-product-page-grid .sj-photo-nav.prev{left:14px}',
@@ -375,7 +393,7 @@ const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery addr
     <button className="sj-product-back" onClick={onClose}><ArrowLeft /> Back to all products</button>
     <motion.div className="sj-product-page-grid" style={{ background: String(safeCss(dialog.background) || '#FFFFFF'), borderRadius: safeCss(dialog.radius), boxShadow: String(safeCss(dialog.box_shadow) || '') }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: Number(design.animations?.product_modal?.duration_seconds || .5), ease: design.animations?.product_modal?.easing || [0.16, 1, 0.3, 1] }}>
       <button type="button" className="sj-popup-close" onClick={onClose} aria-label="Close product view"><X /></button>
-      <div className="sj-modal-media" style={mergedStyle(design, config.media_panel)}><AnimatePresence mode="wait"><motion.img key={activeImage} src={activeImage} alt={product.name} initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: .35 }} /></AnimatePresence>{media.length > 1 && <><button type="button" className="sj-photo-nav prev" aria-label="Previous photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) - 1 + media.length) % media.length])}><ChevronLeft /></button><button type="button" className="sj-photo-nav next" aria-label="Next photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) + 1) % media.length])}><ChevronRight /></button></>}{media.length > 1 && <div className="sj-modal-thumbnails">{media.map((image, index) => <button key={image} className={activeImage === image ? 'active' : ''} onClick={() => setActiveImage(image)} aria-label={`Show product photo ${index + 1}`}><img src={image} alt="" /></button>)}</div>}</div>
+      <div className="sj-modal-media" style={mergedStyle(design, config.media_panel)}><div className="sj-photo-stack"><img className="sj-photo-sizer" src={activeImage} alt="" aria-hidden="true" />{media.map((image, index) => <img key={image} className={`sj-photo-layer${image === activeImage ? ' active' : ''}`} src={image} alt={image === activeImage ? product.name : ''} decoding="async" fetchPriority={index === 0 ? 'high' : 'auto'} />)}</div>{media.length > 1 && <><button type="button" className="sj-photo-nav prev" aria-label="Previous photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) - 1 + media.length) % media.length])}><ChevronLeft /></button><button type="button" className="sj-photo-nav next" aria-label="Next photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) + 1) % media.length])}><ChevronRight /></button></>}{media.length > 1 && <div className="sj-modal-thumbnails">{media.map((image, index) => <button key={image} className={activeImage === image ? 'active' : ''} onClick={() => setActiveImage(image)} aria-label={`Show product photo ${index + 1}`}><img src={image} alt="" loading="lazy" decoding="async" /></button>)}</div>}</div>
       <div className="sj-modal-content" style={mergedStyle(design, config.content_panel)}><span className="sj-modal-category">{product.category}{config.category_suffix ? ` / ${config.category_suffix}` : ''}</span><h2>{product.name}</h2><strong className="sj-modal-price">{formatMoney(product.price)}</strong>
         {product.sizes?.length > 0 && config.size_selector?.visible !== false && <fieldset className="sj-variant"><div><span className="sj-variant-title">{String(config.size_selector?.label || 'Size')}</span><small>{String(config.size_selector?.helper || '')}</small></div><div>{product.sizes.map((item) => <button type="button" className={size === item ? 'selected' : ''} key={item} onClick={() => setSize(item)} aria-pressed={size === item}>{item}</button>)}</div></fieldset>}
         {product.colors?.length > 0 && config.colour_selector?.visible !== false && <fieldset className="sj-variant colours"><div><span className="sj-variant-title">{String(config.colour_selector?.label || 'Colour')}</span><small>{colour || String(config.colour_selector?.helper || '')}</small></div><div>{product.colors.map((item) => <button type="button" className={colour === item ? 'selected' : ''} key={item} style={{ background: colourValue(item) }} onClick={() => setColour(item)} aria-label={`Choose ${item}`} aria-pressed={colour === item}>{colour === item && <Check />}</button>)}</div></fieldset>}
@@ -396,7 +414,12 @@ function ProductsSection({ section, design, products, selectedCategory, setSelec
   const configured = array(section.filter_labels).map(String);
   const filters = ['All', ...configured.filter((item) => !/^all/i.test(item) && liveCategories.some((category) => category.toLowerCase() === item.toLowerCase())), ...liveCategories.filter((item) => !configured.some((labelValue) => labelValue.toLowerCase() === item.toLowerCase()))];
   const visible = selectedCategory === 'All' ? products : products.filter((product) => product.category.toLowerCase() === selectedCategory.toLowerCase());
-  const openProduct = (product: Product) => { onView(product.id); onSelectProduct(product); };
+  const openProduct = (product: Product) => {
+    // Damn fix (snappy photos): start fetching every photo the moment the card
+    // is tapped, giving the images a head start before the view even opens.
+    (product.images?.length ? product.images.slice(0, 7) : [product.image_url].filter(Boolean)).forEach((url, index) => { const loader = new Image(); if (index === 0) (loader as unknown as { fetchPriority: string }).fetchPriority = 'high'; loader.decoding = 'async'; loader.src = String(url); });
+    onView(product.id); onSelectProduct(product);
+  };
   return <section id={idSafe(section.id || 'products')} className="sj-section sj-products" style={mergedStyle(design, section.layout, section.style)}>
     <Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading center"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Products')}</h2>{section.intro && <p>{String(section.intro)}</p>}</Reveal>
     {filters.length > 1 && <div className="sj-product-filters" role="tablist" aria-label="Product categories">{filters.map((filter) => <button role="tab" aria-selected={selectedCategory === filter} className={selectedCategory === filter ? 'active' : ''} key={filter} onClick={() => setSelectedCategory(filter)}>{filter === 'All' ? String(configured.find((item) => /^all/i.test(item)) || 'All') : filter}</button>)}</div>}
