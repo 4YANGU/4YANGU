@@ -1,19 +1,17 @@
 import supabase from '../lib/db-client.js';
 import { storeOrders } from '../lib/order-fallback.js';
+import { billingPeriod, managementLocked } from '../lib/billing.js';
 
-const PERIOD_MS = 30 * 86400000;
-const currentPeriod = (store, now = Date.now()) => {
-  const started = new Date(store.billing_started_at || store.created_at || now).getTime();
-  const anchor = Number.isFinite(started) ? started : now;
-  const periodNumber = Math.max(0, Math.floor((now - anchor) / PERIOD_MS));
-  const startsAt = anchor + periodNumber * PERIOD_MS;
-  return { startsAt, endsAt: startsAt + PERIOD_MS };
-};
 const addPlan = (store, orders) => {
   const activeOrders = (orders || []).filter((order) => order.status !== 'cancelled');
-  const period = currentPeriod(store);
+  const period = billingPeriod(store);
   const periodOrders = activeOrders.filter((order) => { const created = new Date(order.created_at).getTime(); return created >= period.startsAt && created < period.endsAt; }).length;
-  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: periodOrders > 7 ? 'PRO' : 'FREE', upkeep_due: periodOrders > 7 ? 999 : 0, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
+  // KES 300 model: the first 30-day period is a completely free trial. Every
+  // period after that costs KES 300, which the owner pays on day 30 to
+  // continue for the upcoming month. Order counts no longer change the price.
+  // Non-payment: the storefront stays visible, product management locks.
+  const inFreeTrial = period.periodNumber === 0;
+  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: inFreeTrial ? 'TRIAL' : 'PAID', upkeep_due: inFreeTrial ? 0 : 300, upkeep_paid: !inFreeTrial && !managementLocked(store), management_locked: managementLocked(store), upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
 };
 
 export default async function handler(req, res) {

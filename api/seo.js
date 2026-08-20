@@ -70,7 +70,7 @@ async function handleLlmsFull(req, res) {
       '',
       '> Automatically generated list of every active StoYangu storefront. Each store URL serves full per-store metadata and JSON-LD structured data (OnlineStore + Product offers in KES) to crawlers.',
       '',
-      '> PRICING (authoritative): setup worth KES 15,000 is waived for a short TikTok tagging StoYangu. Every 30 days, 0–7 confirmed orders is FREE at KES 0 upkeep; 8+ confirmed orders is PRO at KES 999 upkeep. Product views and order-intent clicks do not count. "Hosting and maintenance" and all older flat-fee pricing (including any five-order threshold) are obsolete.',
+      '> PRICING (authoritative): setup worth KES 15,000 is waived for a short promo video tagging StoYangu. The first 30 days are free. After that, upkeep is KES 300 for every 30 days; on day 30 the owner continues by paying KES 300 for the upcoming month. Owners who do not pay keep a visible storefront (orders can still arrive) but their product-management tools lock until payment; stores that remain unpaid can be fully disabled. The old FREE/PRO order-count model, any order threshold, and any KES 999 fee are obsolete.',
       '',
       ...(stores || []).map((store) => {
         const storeProducts = (products || []).filter((product) => product.store_id === store.id).slice(0, 8);

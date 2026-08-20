@@ -1,4 +1,16 @@
 import supabase from '../lib/db-client.js';
+import { managementLocked } from '../lib/billing.js';
+
+// KES 300 model: once a store's free first 30 days are over, product changes
+// require the current period to be paid. The storefront itself stays visible
+// to customers; only the owner's product management is locked.
+async function storeLockedForOwner(profile, storeId) {
+  if (profile.role === 'founder') return false;
+  const { data: store } = await supabase.from('stores').select('*').eq('id', storeId).single();
+  if (!store) return false;
+  return managementLocked(store);
+}
+const LOCKED_MESSAGE = 'Your free 30 days have ended. Pay KES 300 to continue managing products for the next 30 days. Your store is still visible to customers — contact StoYangu on WhatsApp 0793 533 683 to pay.';
 
 async function profileFor(req) {
   const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) return null;
@@ -41,6 +53,7 @@ export default async function handler(req, res) {
     }
     if (req.method === 'POST') {
       const body = req.body || {}; const storeId = Number(body.store_id); if (!storeId || profile.role !== 'founder' && profile.store_id !== storeId) return res.status(403).json({ error: 'You cannot add products to this store.' });
+      if (await storeLockedForOwner(profile, storeId)) return res.status(402).json({ error: LOCKED_MESSAGE });
       const images = cleanImages(body.images, body.image_url); if (images.length > 7) return res.status(400).json({ error: 'A product can have a maximum of 7 photos.' });
       const name = String(body.name || '').trim().slice(0, 120); const price = Number(body.price); const image = images[0] || ''; const category = String(body.category || 'General').trim().slice(0, 80);
       if (name.length < 2 || category.length < 2 || !Number.isFinite(price) || price <= 0 || !image) return res.status(400).json({ error: 'Photo, product name, category and a valid price are required.' });
@@ -54,6 +67,7 @@ export default async function handler(req, res) {
     const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Product is required.' });
     const { data: existing } = await supabase.from('products').select('*').eq('id', id).single(); if (!existing) return res.status(404).json({ error: 'Product not found.' });
     if (profile.role !== 'founder' && profile.store_id !== existing.store_id) return res.status(403).json({ error: 'You cannot change this product.' });
+    if (await storeLockedForOwner(profile, existing.store_id)) return res.status(402).json({ error: LOCKED_MESSAGE });
     if (req.method === 'PUT') {
       const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 120); const price = Number(body.price); const category = String(body.category || 'General').trim().slice(0, 80); if (name.length < 2 || category.length < 2 || !Number.isFinite(price) || price <= 0) return res.status(400).json({ error: 'Product name, category and a valid price are required.' });
       const images = cleanImages(body.images, body.image_url || existing.image_url); if (!images.length || images.length > 7) return res.status(400).json({ error: 'Keep between 1 and 7 product photos.' });
