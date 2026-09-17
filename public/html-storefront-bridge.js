@@ -348,32 +348,10 @@
     return cats;
   }
 
+  // FIX (youga): logo painting REMOVED. The founder's uploaded HTML already
+  // contains the logo, so the bridge must never overwrite or inject one.
   function paintLogo() {
-    var logo = store && store.logo_url;
-    if (!logo) return;
-    var placed = false;
-    document.querySelectorAll('img[data-store-logo], header img, #navbar img, .logo img, .store-logo, .sty-brand-logo').forEach(function (img) {
-      if (img.tagName === 'IMG') {
-        img.src = logo;
-        img.alt = storeName();
-        img.classList.add('sty-brand-logo');
-        placed = true;
-      }
-    });
-    var brand = document.querySelector('.sty-brand, [data-store-nav] > a, header a, #navbar a');
-    if (brand && logo) {
-      var existing = brand.querySelector('img');
-      if (existing) {
-        existing.src = logo;
-        existing.alt = storeName();
-      } else if (!placed) {
-        var img = document.createElement('img');
-        img.src = logo;
-        img.alt = storeName();
-        img.className = 'sty-brand-logo';
-        brand.insertBefore(img, brand.firstChild);
-      }
-    }
+    return;
   }
 
   function ensureSection(id, candidates) {

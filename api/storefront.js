@@ -36,6 +36,7 @@
 import supabase from '../lib/db-client.js';
 import { selfHostStorefrontAssets, scanStorefrontWarnings, repairLocalImagePaths } from '../lib/html-assets.js';
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
+import { buildThemeStylesheet } from '../lib/html-theme.js';
 
 // ---------------------------------------------------------------------------
 // Intake — accepts the pasted template as supplied (scripts, styles and all)
@@ -120,6 +121,173 @@ const STY_DEFAULT_CARD = '<article class="product-card sty-card" data-id="" data
   + '<div class="sty-body"><span class="product-category sty-cat"></span>'
   + '<h3 class="product-name"></h3><p class="product-price"></p>'
   + '<button type="button" class="sty-view" data-view-product="">View product</button></div></article>';
+
+// FIX (stoyangu-600): Phase 0 — hostile-input gate. Runs FIRST at save AND
+// render-idempotent repair. Detects the three paste classes and neutralises
+// the two hostile ones with a GUARANTEED-CORRECT rebuild, before any other
+// pipeline step sees the HTML:
+//
+//  Class A — SPA shell (root div + module script, no styled sections):
+//    Rebuilt as a clean shell page (doctype/head/body, CSP-safe, no module
+//    scripts) preserving title + inbound sockets. Renders the branded calm
+//    empty state instead of a sad face.
+//
+//  Class B — Tailwind-runtime design (CDN script + utility classes + inline
+//    demo script that injects fake cards / hijacks clicks / crashes when
+//    `tailwind` is undefined):
+//    The mirrored Play CDN script can never be trusted (CSP + sandbox +
+//    dead-mirror risk). It is removed and replaced by buildThemeStylesheet()
+//    compiled CSS generated from the template's own tailwind.config — every
+//    utility class the design uses becomes a REAL CSS rule, so the page
+//    renders pixel-identical with ZERO runtime dependency. The hostile
+//    inline demo script is removed entirely and replaced by a tiny footer
+//    that only smooth-scrolls [data-sty-scroll] anchors — no fake cards,
+//    no click hijacking, no window.onload override, no tailwind reference.
+//    All on* attributes are stripped (CSP blocks them anyway) and genuine
+//    nav anchors are converted to data-sty-scroll so navigation survives.
+//
+//  Class C — genuine self-contained design: untouched, straight through.
+// ---------------------------------------------------------------------------
+const STY_SMOOTH_SCROLL_JS = `(function(){document.addEventListener('click',function(e){var t=e.target&&e.target.closest?e.target.closest('[data-sty-scroll]'):null;if(!t)return;var id=t.getAttribute('data-sty-scroll');var el=id&&document.getElementById(id);if(!el)return;e.preventDefault();var y=el.getBoundingClientRect().top+window.scrollY-80;window.scrollTo({top:y,behavior:'smooth'});});})();`;
+
+function looksLikeSpaShell(html) {
+  const text = String(html || '');
+  const hasRoot = /<div\b[^>]*\bid\s*=\s*["']root["'][^>]*>\s*<\/(div|main)\s*>/i.test(text)
+    || /<div\b[^>]*\bid\s*=\s*["'](root|app)["'][^>]*>\s*<\//i.test(text);
+  if (!hasRoot) return false;
+  if (/<script\b[^>]*\btype\s*=\s*["']module["']/i.test(text)) return true;
+  if (/\/src\/main\.(t|j)sx?/i.test(text)) return true;
+  return false;
+}
+
+function looksLikeTailwindRuntime(html) {
+  const text = String(html || '');
+  if (!/cdn\.tailwindcss\.com|tailwind\.config|tailwind\s*\.\s*config/i.test(text)) return false;
+  const hits = text.match(/\bclass\s*=\s*["'][^"']*\b(?:flex|grid|min-h-screen|bg-|text-|md:|lg:|sm:|xl:|px-|py-|gap-|rounded-|backdrop-blur)/gi) || [];
+  return hits.length >= 3;
+}
+
+function stripOnAttributes(html, tagNames) {
+  const tags = tagNames.join('|');
+  const re = new RegExp(`(<(?:${tags})\\b[^>]*?)\\s+on[a-z]+\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)([^>]*>)`, 'gi');
+  let out = String(html || '');
+  let guard = 0;
+  while (guard++ < 6 && re.test(out)) {
+    out = out.replace(re, '$1$2');
+    re.lastIndex = 0;
+  }
+  return out;
+}
+
+function convertNavOnclicks(html) {
+  // onclick="smoothScrollTo('products'); return false;"  →  data-sty-scroll="products"
+  // onclick="filterCategory(this)" → dropped (bridge owns filters now)
+  // onclick="submitFakeForm()" / alert(...) → dropped (demo behaviour)
+  let out = String(html || '');
+  out = out.replace(/\s+onclick\s*=\s*(?:"([^"]*)"|'([^']*)')/gi, (whole, dq, sq) => {
+    const code = String(dq || sq || '');
+    const scroll = code.match(/smoothScrollTo\s*\(\s*['"]([a-z0-9_-]+)['"]/i);
+    if (scroll) return ` data-sty-scroll="${scroll[1]}"`;
+    return '';
+  });
+  return out;
+}
+
+function removeInlineDemoScripts(html) {
+  // Remove ONLY inline (no-src) scripts that contain hostile demo behaviour.
+  // Genuine design scripts (no demo markers) are preserved untouched.
+  const HOSTILE = /(createDemoCards|filterCategory|submitFakeForm|initializeTailwind|tailwind\.config\s*=|picsum\.photos|showToast|stopImmediatePropagation|window\.onload\s*=\s*initialize)/i;
+  let removed = 0;
+  const out = String(html || '').replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script\s*>/gi, (whole, code) => {
+    if (HOSTILE.test(String(code || ''))) { removed++; return ''; }
+    return whole;
+  });
+  return { html: out, removed };
+}
+
+function removeTailwindCdnScripts(html) {
+  let removed = 0;
+  const out = String(html || '').replace(/<script\b[^>]*\bsrc\s*=\s*["'][^"']*cdn\.tailwindcss\.com[^"']*["'][^>]*>\s*<\/script\s*>/gi, () => { removed++; return ''; });
+  return { html: out, removed };
+}
+
+function removeMirroredTailwindScripts(html) {
+  // Save-time mirroring rewrites the CDN URL to a storage URL; catch the
+  // mirrored copy too (a storage-hosted .js that IS the Play CDN is
+  // identified by adjacency: it sits where the CDN script was — first
+  // script in <head> with no other attributes). Only remove when the page
+  // is a confirmed Tailwind-runtime design (caller guarantees this).
+  let out = String(html || '');
+  let removed = 0;
+  out = out.replace(/(<head\b[^>]*>[\s\S]{0,2000}?)<script\b[^>]*\bsrc\s*=\s*["']([^"']+\.js(?:\?[^"']*)?)["'][^>]*>\s*<\/script\s*>/i, (whole, headPart, src) => {
+    if (/cdn\.tailwindcss\.com/i.test(src)) { removed++; return headPart; }
+    // Mirrored copy: storage URL, first script in head, page needs compiled CSS.
+    if (/\/storefront-assets\/\d+\/[a-z0-9]+\.js/i.test(src)) { removed++; return headPart; }
+    return whole;
+  });
+  return { html: out, removed };
+}
+
+function buildShellPage(title, store) {
+  const safe = escapeAttr(title || (store?.name ? `${store.name} — Shop online` : 'StoYangu store'));
+  return `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>${safe}</title>\n<style>\n*{box-sizing:border-box}\nbody{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f8f5ef;color:#101f30}\n.sty-shell-hero{padding:56px 22px;text-align:center;background:linear-gradient(135deg,#0b1826,#1c3a5e);color:#f3ecdd}\n.sty-shell-hero h1{margin:0 0 8px;font-size:30px}\n.sty-shell-hero p{margin:0;opacity:.8}\n</style>\n</head>\n<body>\n<header class="sty-header"></header>\n<section id="home" class="sty-shell-hero"><h1>${safe}</h1><p>New products are coming soon.</p></section>\n<section id="products"></section>\n<section id="contact"></section>\n</body>\n</html>`;
+}
+
+// Phase-0 gate. Returns { html, notes, gated } where gated is
+// 'spa' | 'tailwind' | null. Idempotent: already-gated HTML passes through
+// unchanged on re-render (markers are detected, never duplicated).
+function gateHostileInput(html, store) {
+  const notes = [];
+  let out = String(html || '');
+  if (!out.trim()) return { html: out, notes, gated: null };
+  if (/data-sty-gated\s*=\s*["']1["']/i.test(out)) return { html: out, notes, gated: 'done' };
+
+  // --- Class A: SPA shell ---
+  if (looksLikeSpaShell(out)) {
+    const titleMatch = out.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
+    const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim().slice(0, 120) : '';
+    // Preserve any sockets the shell already carries.
+    const keepFilters = /id\s*=\s*["']filters["']/i.test(out);
+    const keepGrid = /id\s*=\s*["']productGrid["']/i.test(out) || /data-product-grid/i.test(out);
+    out = buildShellPage(title, store);
+    if (keepFilters) out = out.replace('<section id="products">', '<section id="products"><div id="filters" data-category-filters></div>');
+    if (keepGrid) out = out.replace('<section id="products">', '<section id="products"><div id="productGrid" data-product-grid data-sty-live="1"></div>');
+    out = out.replace(/<body([^>]*)>/i, '<body$1 data-sty-gated="1">');
+    notes.push('Detected a pasted app shell (empty root + module script) instead of a storefront design — rebuilt as a clean page so the store renders instead of a blank screen. Paste a real single-file storefront design to replace it.');
+    return { html: out, notes, gated: 'spa' };
+  }
+
+  // --- Class B: Tailwind-runtime design ---
+  if (looksLikeTailwindRuntime(out)) {
+    const css = buildThemeStylesheet(out);
+    let scriptsRemoved = 0;
+    const inline = removeInlineDemoScripts(out);
+    out = inline.html;
+    scriptsRemoved += inline.removed;
+    const cdn = removeTailwindCdnScripts(out);
+    out = cdn.html;
+    scriptsRemoved += cdn.removed;
+    const mirrored = removeMirroredTailwindScripts(out);
+    out = mirrored.html;
+    scriptsRemoved += mirrored.removed;
+    out = convertNavOnclicks(out);
+    out = stripOnAttributes(out, ['a', 'button', 'div', 'span', 'img', 'input', 'select', 'textarea', 'form', 'nav', 'header', 'section', 'article', 'li']);
+    // Inject the compiled CSS (real rules for every utility class used).
+    const tag = `<style id="stoyangu-compiled-theme">\n${css}\n</style>`;
+    out = /<\/head\s*>/i.test(out)
+      ? out.replace(/<\/head\s*>/i, `${tag}\n</head>`)
+      : `${tag}\n${out}`;
+    // Inject the tiny smooth-scroll footer (replaces the removed demo script).
+    const footer = `<script data-sty-gated="1">${STY_SMOOTH_SCROLL_JS}</script>`;
+    out = /<\/body\s*>/i.test(out)
+      ? out.replace(/<\/body\s*>/i, `${footer}\n</body>`)
+      : `${out}\n${footer}`;
+    notes.push(`Detected a Tailwind-runtime design (CDN script + ${scriptsRemoved} demo script${scriptsRemoved === 1 ? '' : 's'} that injected fake products). The CDN was replaced by compiled CSS generated from the design's own colours, and the demo script by a tiny scroll helper — the design now renders identically with no runtime dependency.`);
+    return { html: out, notes, gated: 'tailwind' };
+  }
+
+  return { html: out, notes, gated: null };
+}
 
 // Remove every balanced block whose OPENING tag matches openRe (group 1 must
 // be the tag name). Nested same-name tags are counted, so a card containing
@@ -401,19 +569,14 @@ function promoteHiddenTemplate(html, templateCards) {
   return { html: out, authoritative };
 }
 
-// Make sure the document always has a store-logo socket, nav anchors and a
-// live product socket.
+// FIX (youga): logo injection REMOVED. The founder uploads HTML that already
+// contains the logo, so the app must never force-install one. This helper is
+// kept as a no-op so older call sites keep working; it also strips any
+// previously force-installed empty logo socket the app itself added.
 function ensureHeaderSocket(html, store) {
   let out = String(html || '');
-  if (/data-store-logo/i.test(out)) return out;
-  const logoImg = `<img data-store-logo alt="${escapeAttr(store?.name ? `${store.name} logo` : 'Store logo')}" src="">`;
-  if (/<header\b[^>]*>/i.test(out)) {
-    out = out.replace(/(<header\b[^>]*>)/i, `$1${logoImg}`);
-  } else if (/<body\b[^>]*>/i.test(out)) {
-    out = out.replace(/(<body\b[^>]*>)/i, `$1<header class="sty-header">${logoImg}</header>`);
-  } else {
-    out = `<header class="sty-header">${logoImg}</header>${out}`;
-  }
+  out = out.replace(/<img\b[^>]*\bdata-store-logo\b[^>]*>/gi, '');
+  out = out.replace(/<header\b[^>]*\bclass\s*=\s*["']sty-header["'][^>]*>\s*<\/header\s*>/gi, '');
   return out;
 }
 
@@ -456,8 +619,13 @@ function ensureProductSocket(html) {
 // Returns the repaired html plus human-readable notes for the save report.
 function applyStructuralRepair(html, store) {
   const notes = [];
-  const wasFragment = !(/^\s*<!doctype\s+html/i.test(String(html || '')) || (/<html[\s>]/i.test(String(html || '')) && /<head[\s>]/i.test(String(html || '')) && /<body[\s>]/i.test(String(html || ''))));
-  let out = normalizeHtmlDocument(html, store);
+  // FIX (stoyangu-600) Phase 0 runs FIRST: hostile pastes (SPA shells,
+  // Tailwind-runtime designs) are neutralised before any other step.
+  const gate = gateHostileInput(html, store);
+  let out = gate.html;
+  notes.push(...gate.notes);
+  const wasFragment = !(/^\s*<!doctype\s+html/i.test(String(out || '')) || (/<html[\s>]/i.test(String(out || '')) && /<head[\s>]/i.test(String(out || '')) && /<body[\s>]/i.test(String(out || ''))));
+  out = normalizeHtmlDocument(out, store);
   if (wasFragment) {
     notes.push('Promoted a fragment to a complete page (doctype, head, viewport) — your styles and markup were carried over untouched.');
   } else if (!isSelfContainedVisualDesign(out)) {
@@ -503,15 +671,10 @@ function formatPrice(value) {
 }
 
 function applyStoreLogo(html, store) {
-  const logo = String(store?.logo_url || '').trim();
-  if (!logo) return html;
-  let out = html;
-  out = out.replace(/(<img\b[^>]*\b(?:data-store-logo|class=["'][^"']*\b(?:logo|store-logo|brand-logo)\b[^"']*["'])[^>]*\bsrc\s*=\s*["'])[^"']*(["'])/gi, `$1${logo}$2`);
-  out = out.replace(/(<img\b[^>]*\bsrc\s*=\s*["'])[^"']*(["'][^>]*\b(?:data-store-logo|alt=["'][^"']*logo))/gi, `$1${logo}$2`);
-  if (!/data-store-logo/.test(out) && /<header[\s\S]{0,1200}?<img\b[^>]*src=/i.test(out)) {
-    out = out.replace(/(<header[\s\S]{0,1200}?<img\b[^>]*\bsrc\s*=\s*["'])[^"']*(["'])/i, `$1${logo}$2`);
-  }
-  return out;
+  // FIX (youga): logo injection REMOVED. The founder's uploaded HTML already
+  // contains the logo, so the app must never overwrite any <img> src with
+  // the stored logo_url. Pass-through only.
+  return String(html || '');
 }
 
 // Build one server-rendered card for the static first paint, cloned from the
@@ -1081,7 +1244,7 @@ Push the work far beyond an ordinary template: the finished storefront must be a
 
 NAVIGATION:
 - Build one sticky header with a premium, high-class layout that stays visible while scrolling.
-- Include the store logo exactly as <img data-store-logo alt="Store logo" src=""> — StoYangu fills in the real logo automatically, so leave its src empty. Size it large enough to read as a real brand mark (about 64-96px tall on desktop).
+- Include the store's own logo image directly in the header with a real src (the founder supplies it inside this HTML). The app never adds or replaces the logo. Size it large enough to read as a real brand mark (about 64-96px tall on desktop).
 - Write the store's FULL name in beautiful, elegant typography — the complete name, never abbreviated, never initials only, never cut off with an ellipsis (let it wrap or use a fluid responsive font-size so the whole name always reads cleanly).
 - The header shows exactly three menu links: Home, Products, Contact (linking to #home, #products and #contact), styled nicely with refined pill or underline styling, generous spacing and a smooth hover state.
 - MOBILE layout: logo on the left; directly beside it, the full store name on the first line and the three menu links neatly underneath on the second line, with deliberate polished spacing.
