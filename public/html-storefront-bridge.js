@@ -66,9 +66,9 @@
       ? 'Hi ' + storeName() + '! I want to order ' + product.name + ' (' + money(product.price) + ')'
         + (extra.size ? ' in size ' + extra.size : '')
         + (extra.color ? ', colour ' + extra.color : '')
-        + (extra.customerPhone ? '.\nMy phone: ' + extra.customerPhone : '')
         + '.\nFulfilment: ' + (extra.fulfilment || 'Delivery')
-        + (extra.note ? '\nCustomer note: ' + extra.note : '')
+        + (extra.address && String(extra.fulfilment || 'Delivery') === 'Delivery' ? '\nAddress: ' + extra.address : '')
+        + (extra.noteText ? '\nCustomer note: ' + extra.noteText : '')
         + '\nPlease confirm availability.'
       : 'Hi ' + storeName() + '! I am interested in something from your store.';
     return 'https://wa.me/' + phoneDigits() + '?text=' + encodeURIComponent(text);
@@ -121,6 +121,8 @@
       size: chosenOption('size'),
       fulfilment: chosenOption('fulfilment') || 'Walk in Store',
       note: [addressText ? 'Delivery address: ' + addressText : '', noteText].filter(Boolean).join('\n'),
+      address: addressText,
+      noteText: noteText,
       customerPhone: customerPhone ? customerPhone.value.trim() : '',
     };
   }
@@ -202,9 +204,9 @@
       + '#cartBtn,#cartDrawer,#cartOverlay,#toast,.cart-drawer,#featuredGrid{display:none!important}'
       + 'html{scroll-padding-top:84px}'
       + '.product-popup:not(.open),#productModal:not(.open),.modal-backdrop:not(.open){display:none!important}'
-      + '.product-popup.open,#productModal.open,.modal-backdrop.open{display:flex!important;align-items:flex-start!important;justify-content:center!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;inset:0!important;padding:64px 12px 28px!important;box-sizing:border-box}'
-      + '.product-popup.open .dialog,.product-popup.open .modal-panel,#productModal.open .dialog,#productModal.open .modal-panel{width:min(560px,100%)!important;max-height:none!important;margin:0 auto 24px!important;transform:none!important}'
-      + '.sty-close,[data-close-popup],#closeModal{position:fixed!important;top:max(10px,env(safe-area-inset-top))!important;right:max(10px,env(safe-area-inset-right))!important;z-index:98!important}'
+      + '.product-popup.open,#productModal.open,.modal-backdrop.open{display:flex!important;align-items:center!important;justify-content:center!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;inset:0!important;padding:22px 14px!important;box-sizing:border-box;background:rgba(5,15,25,.62)}'
+      + '.product-popup.open .dialog,.product-popup.open .modal-panel,#productModal.open .dialog,#productModal.open .modal-panel{position:relative!important;width:min(560px,100%)!important;max-height:calc(100vh - 44px)!important;margin:auto!important;transform:none!important;overflow-y:auto!important;overscroll-behavior:contain}'
+      + '.sty-close,[data-close-popup],#closeModal{position:absolute!important;top:12px!important;right:12px!important;z-index:40!important;width:40px!important;height:40px!important;border:0!important;border-radius:50%!important;background:#fff!important;color:#17261f!important;font-size:22px!important;line-height:1!important;display:grid!important;place-items:center!important;cursor:pointer!important;box-shadow:0 8px 25px rgba(0,0,0,.22)!important}'
       + '.sty-close--duplicate{display:none!important}'
       + '.sty-brand-logo{height:36px;width:auto;max-width:120px;object-fit:contain;display:block}'
       + 'header.sty-sticky-nav,#navbar.sty-sticky-nav,.sty-sticky-nav{position:sticky!important;top:0!important;z-index:60!important}'
@@ -214,7 +216,7 @@
       + '.sty-phone-field{display:grid;gap:6px;margin:12px 0;font:700 11px/1.4 system-ui}.sty-phone-field input{width:100%;box-sizing:border-box;min-height:44px;border:1px solid rgba(100,110,105,.3);border-radius:11px;padding:0 12px;background:#fff;color:#17261f;font:600 13px system-ui}.sty-phone-field input:focus{outline:2px solid #5a966e;outline-offset:1px}.sty-phone-field small{font-size:9px;font-weight:500;opacity:.7}.sty-phone-field.has-error input{border-color:#c84d45}.sty-phone-field.has-error small{color:#b13e37;opacity:1}'
       + '.sty-phone-step{position:fixed;inset:0;z-index:240;background:rgba(5,15,25,.74);backdrop-filter:blur(10px);display:none;place-items:center;padding:18px}.sty-phone-step.open{display:grid}.sty-phone-card{position:relative;width:min(430px,100%);box-sizing:border-box;padding:28px;border-radius:24px;background:#fff;color:#17261f;box-shadow:0 35px 100px rgba(0,0,0,.34);font-family:system-ui}.sty-phone-card h3{margin:0 0 7px;font-size:24px;letter-spacing:-.04em}.sty-phone-card>p{margin:0 0 18px;color:#6d7b73;font-size:12px;line-height:1.5}.sty-phone-close{position:absolute;right:13px;top:13px;width:34px;height:34px;border:1px solid #dce3df;border-radius:50%;background:#fff}.sty-phone-confirm{width:100%;min-height:49px;border:0;border-radius:13px;background:#1fa75a;color:#fff;font-size:12px;font-weight:900}.sty-phone-kicker{display:block;margin-bottom:7px;color:#5a966e;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}'
       + '.sty-delivery-address{display:grid;gap:5px;margin-top:10px;font:800 10px/1.4 system-ui}.sty-delivery-address textarea,[data-note]{width:100%;box-sizing:border-box;min-height:64px;margin-top:6px;border:1px solid rgba(100,110,105,.3);border-radius:11px;padding:10px;background:#fff;color:#17261f;font:500 12px/1.45 system-ui;resize:vertical}'
-      + '[data-stoyangu-order-popup="1"]{font-family:system-ui;color:#17261f}[data-stoyangu-order-popup="1"] .dialog{width:min(920px,100%)!important;display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.9fr);overflow:hidden;border-radius:24px;background:#fff;box-shadow:0 35px 100px rgba(0,0,0,.35)}[data-stoyangu-order-popup="1"] .popup-image{width:100%;height:100%;min-height:560px;object-fit:cover;background:#eef1ed}[data-stoyangu-order-popup="1"] .content{padding:34px;display:flex;flex-direction:column}[data-stoyangu-order-popup="1"] h3{margin:0;font-size:30px;letter-spacing:-.045em}[data-stoyangu-order-popup="1"] .popup-price{margin:8px 0 18px;color:#2f7147;font-size:17px;font-weight:900}[data-stoyangu-order-popup="1"] [data-color-options],[data-stoyangu-order-popup="1"] [data-size-options],[data-stoyangu-order-popup="1"] [data-fulfilment-options]{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0}[data-stoyangu-order-popup="1"] .sty-pill{min-height:38px;border:1px solid #dce3df;border-radius:999px;background:#fff;color:#17261f;padding:0 12px;font-size:10px;font-weight:900}[data-stoyangu-order-popup="1"] .sty-pill.active{background:#17261f;color:#fff;border-color:#17261f}[data-stoyangu-order-popup="1"] [data-sty-option="color"]{width:32px;min-width:32px;padding:0;border:3px solid #fff;box-shadow:0 0 0 1px #dce3df;font-size:0}[data-stoyangu-order-popup="1"] .order{display:flex;align-items:center;justify-content:center;min-height:50px;margin-top:13px;border-radius:13px;background:#19A45B!important;color:#fff!important;text-decoration:none;font-size:12px;font-weight:900}[data-stoyangu-order-popup="1"] .sty-close{position:fixed;z-index:250;width:40px;height:40px;border:0;border-radius:50%;background:#fff;color:#17261f;font-size:22px;box-shadow:0 8px 25px rgba(0,0,0,.18)}@media(max-width:720px){[data-stoyangu-order-popup="1"] .dialog{grid-template-columns:1fr}[data-stoyangu-order-popup="1"] .popup-image{min-height:310px;height:42vh}[data-stoyangu-order-popup="1"] .content{padding:22px}}'
+      + '[data-stoyangu-order-popup="1"]{font-family:system-ui;color:#17261f}[data-stoyangu-order-popup="1"] .dialog{width:min(1080px,100%)!important;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);overflow:hidden;border-radius:24px;background:#fff;box-shadow:0 35px 100px rgba(0,0,0,.35)}[data-stoyangu-order-popup="1"] .popup-image{width:100%;height:100%;min-height:320px;max-height:640px;object-fit:contain;background:#eef1ed}[data-stoyangu-order-popup="1"] .content{padding:34px;display:flex;flex-direction:column}[data-stoyangu-order-popup="1"] h3{margin:0;font-size:30px;letter-spacing:-.045em}[data-stoyangu-order-popup="1"] .popup-price{margin:8px 0 18px;color:#2f7147;font-size:17px;font-weight:900}[data-stoyangu-order-popup="1"] [data-color-options],[data-stoyangu-order-popup="1"] [data-size-options],[data-stoyangu-order-popup="1"] [data-fulfilment-options]{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0}[data-stoyangu-order-popup="1"] .sty-pill{min-height:38px;border:1px solid #dce3df;border-radius:999px;background:#fff;color:#17261f;padding:0 12px;font-size:10px;font-weight:900}[data-stoyangu-order-popup="1"] .sty-pill.active{background:#17261f;color:#fff;border-color:#17261f}[data-stoyangu-order-popup="1"] [data-sty-option="color"]{width:32px;min-width:32px;padding:0;border:3px solid #fff;box-shadow:0 0 0 1px #dce3df;font-size:0}[data-stoyangu-order-popup="1"] .order{display:flex;align-items:center;justify-content:center;min-height:50px;margin-top:13px;border-radius:13px;background:#19A45B!important;color:#fff!important;text-decoration:none;font-size:12px;font-weight:900}[data-stoyangu-order-popup="1"] .sty-media{display:flex;flex-direction:column;min-width:0;position:relative}[data-stoyangu-order-popup="1"] .sty-media .popup-image{flex:1;max-height:none}[data-stoyangu-order-popup="1"] .sty-thumbs{display:flex;gap:8px;flex-wrap:wrap;padding:12px 14px 6px}[data-stoyangu-order-popup="1"] .dialog>.sty-thumbs{grid-column:1}[data-stoyangu-order-popup="1"] .sty-thumbs button{width:64px;height:64px;padding:0;border:2px solid #e2e8e3;border-radius:12px;background:#fff;cursor:pointer;overflow:hidden}[data-stoyangu-order-popup="1"] .sty-thumbs button img{width:100%;height:100%;object-fit:cover;display:block}[data-stoyangu-order-popup="1"] .sty-thumbs button.active{border-color:#17261f;box-shadow:0 0 0 2px #17261f}[data-stoyangu-order-popup="1"] .sty-photo-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:4;width:42px;height:42px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.94);color:#17261f;font-size:24px;line-height:1;display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.25)}[data-stoyangu-order-popup="1"] .sty-photo-nav.prev{left:12px}[data-stoyangu-order-popup="1"] .sty-photo-nav.next{right:12px}[data-stoyangu-order-popup="1"] .sty-photo-nav[hidden]{display:none!important}[data-stoyangu-order-popup="1"] .sty-option-title{display:block;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:#3d4a44;margin:16px 0 0}@media(max-width:720px){[data-stoyangu-order-popup="1"] .dialog{grid-template-columns:1fr}[data-stoyangu-order-popup="1"] .popup-image{min-height:310px;height:42vh}[data-stoyangu-order-popup="1"] .content{padding:22px}}'
       + '.sty-empty{padding:28px;text-align:center}';
     document.head.appendChild(style);
   }
@@ -230,10 +232,14 @@
       document.querySelectorAll('.product-popup, #productModal, .modal-backdrop, [data-product-popup]').forEach(function (legacyPopup) { legacyPopup.style.setProperty('display', 'none', 'important'); legacyPopup.setAttribute('aria-hidden', 'true'); });
       popup = document.createElement('div');
       popup.className = 'product-popup';
-      popup.innerHTML = '<button type="button" class="sty-close" data-close-popup="1" aria-label="Close">×</button>'
-        + '<div class="dialog">'
-        + '<img class="popup-image" alt="" data-popup-image />'
+      popup.innerHTML = '<div class="dialog">'
+        + '<button type="button" class="sty-close" data-close-popup="1" aria-label="Close">×</button>'
+        + '<div class="sty-media">'
+        + '<img class="popup-image" alt="" decoding="async" data-popup-image />'
+        + '<button type="button" class="sty-photo-nav prev" data-photo-prev aria-label="Previous photo">&#8249;</button>'
+        + '<button type="button" class="sty-photo-nav next" data-photo-next aria-label="Next photo">&#8250;</button>'
         + '<div class="sty-thumbs" data-thumbs></div>'
+        + '</div>'
         + '<div class="content">'
         + '<h3 data-popup-name>Product</h3>'
         + '<p class="popup-price" data-popup-price></p>'
@@ -267,6 +273,29 @@
       }
     });
     if (designedClose) designedClose.setAttribute('data-close-popup', '1');
+    if (!popup.querySelector('[data-close-popup]')) {
+      var closeFallback = document.createElement('button');
+      closeFallback.type = 'button';
+      closeFallback.className = 'sty-close';
+      closeFallback.setAttribute('data-close-popup', '1');
+      closeFallback.setAttribute('aria-label', 'Close');
+      closeFallback.textContent = '×';
+      var dialogHostForClose = popup.querySelector('.dialog, .modal-panel, #modalContent');
+      (dialogHostForClose || popup).insertBefore(closeFallback, (dialogHostForClose || popup).firstChild);
+    }
+    if (!popup.querySelector('[data-photo-prev]')) {
+      var mediaImg = popup.querySelector('[data-popup-image], .popup-image');
+      if (mediaImg && mediaImg.parentNode) {
+        var navHost = mediaImg.parentNode;
+        if (window.getComputedStyle(navHost).position === 'static') navHost.style.position = 'relative';
+        var prevNav = document.createElement('button');
+        prevNav.type = 'button'; prevNav.className = 'sty-photo-nav prev'; prevNav.setAttribute('data-photo-prev', '1'); prevNav.setAttribute('aria-label', 'Previous photo'); prevNav.innerHTML = '&#8249;';
+        var nextNav = document.createElement('button');
+        nextNav.type = 'button'; nextNav.className = 'sty-photo-nav next'; nextNav.setAttribute('data-photo-next', '1'); nextNav.setAttribute('aria-label', 'Next photo'); nextNav.innerHTML = '&#8250;';
+        navHost.insertBefore(nextNav, mediaImg.nextSibling);
+        navHost.insertBefore(prevNav, mediaImg.nextSibling);
+      }
+    }
     var orderButton = popup.querySelector('[data-whatsapp], a.order');
     if (orderButton) {
       orderButton.textContent = 'Order via WhatsApp';
@@ -477,7 +506,7 @@
   function defaultCard(product) {
     var card = document.createElement('article');
     card.className = 'product-card sty-card';
-    card.innerHTML = '<img alt=""><div class="sty-body"><span class="sty-cat"></span><p class="product-name"></p><p class="product-price"></p><button type="button" class="sty-view" data-view-product="1">View product</button></div>';
+    card.innerHTML = '<img alt="" decoding="async"><div class="sty-body"><span class="sty-cat"></span><p class="product-name"></p><p class="product-price"></p><button type="button" class="sty-view" data-view-product="1">View product</button></div>';
     return fillCard(card, product);
   }
 
@@ -539,7 +568,7 @@
     }
     if (photos.length < 2) { thumbs.innerHTML = ''; return; }
     thumbs.innerHTML = photos.map(function (url) {
-      return '<button type="button" data-thumb="' + esc(url) + '" class="' + (url === activeImage ? 'active' : '') + '"><img src="' + esc(url) + '" alt=""></button>';
+      return '<button type="button" data-thumb="' + esc(url) + '" class="' + (url === activeImage ? 'active' : '') + '"><img src="' + esc(url) + '" alt="" loading="lazy" decoding="async"></button>';
     }).join('');
   }
 
@@ -571,6 +600,37 @@
           node.setAttribute('data-popup-price', value);
         }
       });
+    });
+  }
+
+  function ensureOptionTitles() {
+    var groups = [
+      { kind: 'color', title: 'Colour' },
+      { kind: 'size', title: 'Size' },
+      { kind: 'fulfilment', title: 'Ikufikie aje?' }
+    ];
+    groups.forEach(function (group) {
+      var host = findChoiceHost(group.kind);
+      if (!host) return;
+      var hasOptions = Boolean(host.querySelector('[data-sty-option], button, [role="button"]'));
+      var prev = host.previousElementSibling;
+      var existingTitle = prev && prev.classList && prev.classList.contains('sty-option-title') ? prev : null;
+      if (!hasOptions) {
+        host.style.display = 'none';
+        if (existingTitle) existingTitle.style.display = 'none';
+        return;
+      }
+      host.style.display = '';
+      if (existingTitle) { existingTitle.style.display = ''; return; }
+      var ownText = String(host.textContent || '').replace(/\s+/g, ' ').trim();
+      if (/^(colour|color|size|delivery|fulfilment|how would)/i.test(ownText)) return;
+      var prevText = prev ? String(prev.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      var prevIsLabel = Boolean(prev) && Boolean(prevText) && !prev.querySelector('[data-sty-option], button') && !(prev.hasAttribute && prev.hasAttribute('data-popup-price')) && !/popup-price|product-price/i.test(String(prev.className || ''));
+      if (prevIsLabel) return;
+      var heading = document.createElement('span');
+      heading.className = 'sty-option-title';
+      heading.textContent = group.title;
+      host.insertAdjacentElement('beforebegin', heading);
     });
   }
 
@@ -610,6 +670,8 @@
     var noteEl = popup.querySelector('[data-note]') || popup.querySelector('textarea:not([data-delivery-address])');
     if (noteEl) noteEl.value = '';
     renderThumbs(product);
+    ensureOptionTitles();
+    popup.querySelectorAll('[data-photo-prev], [data-photo-next]').forEach(function (btn) { btn.hidden = photos.length < 2; });
     rebuildOrder();
   }
 
@@ -628,12 +690,19 @@
     popup.style.setProperty('visibility', 'visible', 'important');
     popup.style.setProperty('pointer-events', 'auto', 'important');
     popup.style.setProperty('z-index', '90', 'important');
+    popup.style.setProperty('position', 'fixed', 'important');
+    popup.style.setProperty('top', '0', 'important');
+    popup.style.setProperty('left', '0', 'important');
+    popup.style.setProperty('width', '100%', 'important');
+    popup.style.setProperty('height', '100%', 'important');
     var panel = popup.querySelector('.dialog, .modal-panel, #modalContent');
     if (panel) {
       panel.style.setProperty('opacity', '1', 'important');
       panel.style.setProperty('transform', 'none', 'important');
       panel.style.setProperty('visibility', 'visible', 'important');
+      panel.scrollTop = 0;
     }
+    popup.scrollTop = 0;
     document.body.style.overflow = 'hidden';
   }
 
@@ -649,7 +718,7 @@
     if (phoneStep && document.body.contains(phoneStep)) return phoneStep;
     phoneStep = document.createElement('div');
     phoneStep.className = 'sty-phone-step';
-    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Click send on the next page and we will reply to you on WhatsApp.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm &amp; Send Order via WhatsApp</button></div>';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Press confirm, WhatsApp will open with your order ready — Then hit send and we will reply to you shortly.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm</button></div>';
     document.body.appendChild(phoneStep);
     return phoneStep;
   }
@@ -684,14 +753,23 @@
       var result = await submitOrderToParent({ product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey });
       if (!result.ok) throw new Error(result.error || 'order-not-saved');
     } catch (error) {
-      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm & Send Order via WhatsApp'; }
+      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm'; }
       window.alert('We could not confirm this order. Please check your connection and try again.');
       return;
     }
     var url = orderUrl(lastProduct, extras);
     closePhoneStep();
     closePopup();
-    window.location.assign(url);
+    // Wame fix: after the async order confirmation there is no user gesture
+    // left, so phones silently block window.open from this sandboxed iframe —
+    // the order reached the owner but WhatsApp never opened at all. If the
+    // popup is blocked, ask the parent page to navigate instead: top-level
+    // navigation is always allowed and works on every phone.
+    var opened = null;
+    try { opened = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { opened = null; }
+    if (!opened) {
+      try { window.parent.postMessage({ type: 'stoyangu-open-whatsapp', url: url }, '*'); } catch (e) {}
+    }
   }
 
   function rebuildOrder() {
@@ -735,6 +813,24 @@
           if (addressWrap) addressWrap.style.display = String(choice.getAttribute('data-value') || choice.textContent).trim() === 'Delivery' ? 'grid' : 'none';
         }
         rebuildOrder();
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      var photoNav = t.closest('[data-photo-prev], [data-photo-next]');
+      if (photoNav && popup && popup.contains(photoNav) && lastProduct) {
+        var navPhotos = photosOf(lastProduct);
+        if (navPhotos.length > 1) {
+          var currentIdx = navPhotos.indexOf(activeImage);
+          if (currentIdx === -1) currentIdx = 0;
+          var nextIdx = photoNav.hasAttribute('data-photo-next') ? (currentIdx + 1) % navPhotos.length : (currentIdx - 1 + navPhotos.length) % navPhotos.length;
+          activeImage = navPhotos[nextIdx];
+          var navImg = popup.querySelector('[data-popup-image], .popup-image');
+          if (navImg) navImg.src = activeImage;
+          popup.querySelectorAll('[data-thumb]').forEach(function (btn) {
+            btn.classList.toggle('active', btn.getAttribute('data-thumb') === activeImage);
+          });
+        }
         event.preventDefault();
         event.stopPropagation();
         return;
