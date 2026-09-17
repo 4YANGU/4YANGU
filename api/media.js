@@ -46,24 +46,23 @@ async function handleProfile(req, res) {
   return res.status(200).json(data);
 }
 
-function sniffImageSignature(buffer, requestedType) {
-  const signatures = {
-    jpeg: buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff,
-    png: buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a',
-    webp: buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP',
-    gif: ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString()),
-    heic: buffer.subarray(4, 8).toString() === 'ftyp',
-    avif: buffer.subarray(4, 8).toString() === 'ftyp' && ['avif', 'avis'].includes(buffer.subarray(8, 12).toString()),
-    bmp: buffer.subarray(0, 2).toString() === 'BM',
-  };
-  const type = String(requestedType || '').toLowerCase();
-  if (type.includes('jpeg') || type.includes('jpg')) return signatures.jpeg;
-  if (type.includes('png')) return signatures.png;
-  if (type.includes('webp')) return signatures.webp;
-  if (type.includes('gif')) return signatures.gif;
-  if (type.includes('avif')) return signatures.avif;
-  if (type.includes('bmp')) return signatures.bmp;
-  return signatures.heic;
+function detectImageType(buffer) {
+  // Reads the file's real magic bytes and returns the true image type,
+  // regardless of what the client claimed. iPhones routinely convert photos
+  // during upload (HEIC→JPEG) and some browsers mislabel re-encoded images;
+  // the bytes are the only trustworthy source.
+  if (buffer.length < 12) return '';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'image/jpeg';
+  if (buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') return 'image/png';
+  if (buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
+  if (['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString())) return 'image/gif';
+  if (buffer.subarray(4, 8).toString() === 'ftyp') {
+    const brand = buffer.subarray(8, 12).toString();
+    if (['avif', 'avis'].includes(brand)) return 'image/avif';
+    return 'image/heic';
+  }
+  if (buffer[0] === 0x42 && buffer[1] === 0x4d) return 'image/bmp';
+  return '';
 }
 
 function imageExtension(requestedType) {
@@ -89,11 +88,15 @@ async function handleUpload(req, res) {
 
   const buffer = Buffer.from(fileBase64, 'base64');
   if (!buffer.length || buffer.length > MAX_BYTES) return res.status(400).json({ error: 'Invalid or oversized image.' });
-  if (!sniffImageSignature(buffer, contentType)) return res.status(400).json({ error: 'That file does not contain a valid image.' });
-
-  const extension = imageExtension(contentType);
+  // iPhone fix: trust the actual bytes over the declared content type. iOS
+  // converts photos during upload and Safari mislabels re-encoded images, so
+  // validating the bytes against the client's claim rejected genuine photos.
+  const detectedType = detectImageType(buffer);
+  if (!detectedType) return res.status(400).json({ error: ALLOWED_IMAGE_TYPES.test(String(contentType || '')) ? 'That file does not contain a valid image.' : 'Please upload a JPG, PNG, WebP, GIF, HEIC, AVIF or BMP photo.' });
+  const effectiveType = detectedType;
+  const extension = imageExtension(effectiveType);
   const path = `${scope}/${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
-  const { error: uploadError } = await supabase.storage.from('stoyangu-media').upload(path, buffer, { contentType, upsert: false });
+  const { error: uploadError } = await supabase.storage.from('stoyangu-media').upload(path, buffer, { contentType: effectiveType, upsert: false });
   if (uploadError) {
     console.error('Upload error:', uploadError);
     return res.status(500).json({ error: 'Could not upload that image.' });

@@ -27,8 +27,10 @@ export type Store = {
   orders_today: number;
   actual_orders_total?: number;
   orders_this_period?: number;
-  upkeep_plan?: 'FREE' | 'PRO';
-  upkeep_due?: 0 | 999;
+  upkeep_plan?: 'TRIAL' | 'PAID';
+  upkeep_due?: 0 | 300;
+  upkeep_paid?: boolean;
+  management_locked?: boolean;
   upkeep_period_starts_at?: string;
   upkeep_period_ends_at?: string;
   metrics_date: string;

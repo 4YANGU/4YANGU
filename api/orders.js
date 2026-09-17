@@ -35,7 +35,16 @@ async function resolveStore(slug) {
 
 async function sendInstantOrderPush(storeId, order, product) {
   if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:info@stoyangu.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+  try {
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:info@stoyangu.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+  } catch (vapidError) {
+    // Wame fix: invalid VAPID keys used to throw here on EVERY order, which
+    // turned the whole order request into a 500 after the order was already
+    // saved — customers never reached WhatsApp. Push now simply stays off
+    // until the keys are fixed.
+    console.error('VAPID keys are invalid - order push disabled until they are corrected:', vapidError.message);
+    return;
+  }
   const { data: subscriptions } = await supabase.from('push_subscriptions').select('*').eq('store_id', storeId);
   const variant = [order.color, order.size].filter(Boolean).join(' · ');
   const body = `${variant || 'Confirmed order'}\nCustomer: ${order.customer_phone}`;
@@ -86,19 +95,31 @@ export default async function handler(req, res) {
       let order = inserted.data;
       let fallbackUsed = false;
       if (inserted.error) {
-        if (!missingOrdersTable(inserted.error)) throw inserted.error;
+        // Wame fix: use the event-log fallback for ANY insert failure, not only
+        // a missing table, so a confirmed order is never lost to a database hiccup.
+        console.error('Orders table insert failed, using event-log fallback:', inserted.error.message || inserted.error);
         order = await saveFallbackOrder(supabase, values);
         fallbackUsed = true;
       }
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
-      if (!fallbackUsed) { const sessionId = `order-${order.id}`; await supabase.from('store_events').insert({ store_id: store.id, product_id: product.id, event_type: 'order', session_id: sessionId }); }
+      // Wame fix: everything below is a side effect. The order is already saved,
+      // so none of it may ever turn the customer's response into a 500 — that is
+      // what used to stop WhatsApp from opening after a successful order.
+      if (!fallbackUsed) {
+        try { const sessionId = `order-${order.id}`; await supabase.from('store_events').insert({ store_id: store.id, product_id: product.id, event_type: 'order', session_id: sessionId }); }
+        catch (eventError) { console.error('Order event tracking failed (order is safe):', eventError.message); }
+      }
       const storeIsToday = store.metrics_date === today;
       const productIsToday = product.metrics_date === today;
-      await Promise.all([
-        supabase.from('stores').update({ orders_total: Number(store.orders_total || 0) + 1, orders_today: (storeIsToday ? Number(store.orders_today || 0) : 0) + 1, metrics_date: today }).eq('id', store.id),
-        supabase.from('products').update({ orders_total: Number(product.orders_total || 0) + 1, orders_today: (productIsToday ? Number(product.orders_today || 0) : 0) + 1, metrics_date: today }).eq('id', product.id),
-      ]);
-      await sendInstantOrderPush(store.id, order, product);
+      try {
+        await Promise.all([
+          supabase.from('stores').update({ orders_total: Number(store.orders_total || 0) + 1, orders_today: (storeIsToday ? Number(store.orders_today || 0) : 0) + 1, metrics_date: today }).eq('id', store.id),
+          supabase.from('products').update({ orders_total: Number(product.orders_total || 0) + 1, orders_today: (productIsToday ? Number(product.orders_today || 0) : 0) + 1, metrics_date: today }).eq('id', product.id),
+        ]);
+      } catch (metricsError) { console.error('Order metrics update failed (order is safe):', metricsError.message); }
+      try {
+        await sendInstantOrderPush(store.id, order, product);
+      } catch (pushError) { console.error('Instant order push failed (order is safe):', pushError.message); }
       return res.status(201).json({ order });
     }
 

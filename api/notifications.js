@@ -1,4 +1,5 @@
 import supabase from '../lib/db-client.js';
+import webpush from 'web-push';
 
 async function founder(req) {
   const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) return null;
@@ -15,6 +16,70 @@ const makeBody = (store, products) => {
   return `Today: ${store.visitor_today || 0} store visits and ${store.orders_today || 0} confirmed orders.\n\nToday's champion product: ${winner ? `${winner.name} (${winner.orders_today || 0} orders, ${winner.views_today || 0} views)` : 'No product activity yet.'}\n\nNeeds a look: ${needs ? `${needs.name}, ${needs.views_today || 0} views and ${needs.orders_today || 0} orders. Try checking the photo or price.` : 'Keep sharing your products to build more activity.'}\n\nReminder: Mention your store link in your videos so customers always know where to shop.`;
 };
 const marker = (store) => `=== STORE ${store.id}: ${store.name} ===`;
+
+// =========================================================================
+//  Custom app notification (vwueh fix)
+//  The founder dashboard's "Send a short update to every installed owner or
+//  only the accounts you choose" panel used to call /api/custom-notifications,
+//  an endpoint that never existed — every send failed with "Something went
+//  wrong". The logic now lives here, inside the existing notifications
+//  function, so no extra Serverless Function is needed (Hobby-plan safe).
+//  Frontend call: POST /api/notifications { action:'custom', title, body, store_ids }
+// =========================================================================
+async function sendCustomNotification(req, res, profile) {
+  const title = String(req.body?.title || '').trim().slice(0, 120);
+  const body = String(req.body?.body || '').trim().slice(0, 1200);
+  if (!title || !body) return res.status(400).json({ error: 'Add a custom notification title and message.' });
+  const requestedIds = Array.isArray(req.body?.store_ids) ? req.body.store_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0) : [];
+
+  // Recipient stores: the chosen accounts, or every active store for "All installed owners".
+  let recipientStores = [];
+  if (requestedIds.length) {
+    const { data, error } = await supabase.from('stores').select('id,name').in('id', requestedIds);
+    if (error) throw error;
+    recipientStores = data || [];
+  } else {
+    const { data, error } = await supabase.from('stores').select('id,name').eq('is_active', true);
+    if (error) throw error;
+    recipientStores = data || [];
+  }
+  if (!recipientStores.length) return res.status(404).json({ error: 'No recipient store accounts were found.' });
+  const recipientIds = recipientStores.map((store) => store.id);
+
+  // How many installed-owner accounts this reaches (for the response summary).
+  const { data: installations, error: installationError } = await supabase.from('pwa_installations').select('id,store_id').eq('installed', true).in('store_id', recipientIds);
+  if (installationError) throw installationError;
+  const installedRecipients = installations?.length || 0;
+
+  // 1. Dashboard delivery: every recipient store gets a "Message from StoYangu"
+  //    card on its manage page (owners see it even without push allowed).
+  const batchKey = `custom-${new Date().toISOString().slice(0, 10)}-${Date.now()}`;
+  const nowIso = new Date().toISOString();
+  const cardRows = recipientStores.map((store) => ({ store_id: store.id, batch_key: batchKey, store_name: store.name, title, body, edited_body: '', status: 'sent', sent_at: nowIso }));
+  const { error: cardError } = await supabase.from('notifications').insert(cardRows);
+  if (cardError) throw cardError;
+
+  // 2. Push delivery: ping every device subscribed through the installed app.
+  //    Push needs the one-time VAPID keys (see SETUP-GUIDE). When they are not
+  //    configured yet, dashboard delivery above still works, so we skip gently.
+  let sent = 0; let failed = 0;
+  const pushConfigured = Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  if (pushConfigured) {
+    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:info@stoyangu.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+    const { data: subscriptions, error: subscriptionError } = await supabase.from('push_subscriptions').select('*').in('store_id', recipientIds);
+    if (subscriptionError) throw subscriptionError;
+    for (const subscription of subscriptions || []) {
+      try {
+        await webpush.sendNotification(subscription.subscription, JSON.stringify({ title, body, url: '/owner', tag: batchKey }));
+        sent++;
+      } catch (pushError) {
+        failed++;
+        if (pushError.statusCode === 404 || pushError.statusCode === 410) await supabase.from('push_subscriptions').delete().eq('id', subscription.id);
+      }
+    }
+  }
+  return res.status(200).json({ sent, failed, installedRecipients, storesReached: recipientStores.length, pushConfigured });
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -40,6 +105,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ batchKey, combinedText });
     }
     if (req.method === 'POST') {
+      // Custom app notification — dispatched before the daily-review logic.
+      if (req.body?.action === 'custom') return await sendCustomNotification(req, res, profile);
       const batchKey = String(req.body?.batchKey || '').slice(0, 20); const combined = String(req.body?.combinedText || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(batchKey) || !combined) return res.status(400).json({ error: 'A generated daily review is required.' });
       if (combined.length > 2000000) return res.status(400).json({ error: 'The combined review is too large to send safely.' });
       const { data: drafts } = await supabase.from('notifications').select('*').eq('batch_key', batchKey); if (!drafts?.length) return res.status(404).json({ error: 'Daily review not found.' });

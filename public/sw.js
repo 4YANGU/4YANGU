@@ -1,7 +1,7 @@
 // Vfixed: bumped cache generation so every client drops the old broken caches
 // (the ones that referenced icon files that no longer existed) and re-installs
 // a clean, fully-installable app shell.
-const CACHE = 'stoyangu-app-v500-1';
+const CACHE = 'stoyangu-app-vfixed-1';
 const SHELL = '/';
 
 // ---- Install: precache the app shell + core brand assets ----
@@ -32,28 +32,17 @@ self.addEventListener('fetch', (event) => {
   // Never cache sensitive account/dashboard API calls.
   if (url.pathname.startsWith('/api/profile') || url.pathname.startsWith('/api/dashboard')) return;
 
-  // FIX (stoyangu-500): storefront iframes navigate to /api/storefront?...
-  // Those subframe navigations must NEVER be cached as the app shell (they
-  // used to poison the '/' cache entry, so the app could later boot the
-  // wrong document). Only top-level document navigations touch the shell.
-  if (request.mode === 'navigate' && (request.destination === 'iframe' || url.pathname.startsWith('/api/'))) {
-    event.respondWith(fetch(request));
-    return;
-  }
-
   // App navigations: network-first, fall back to the cached shell so the app
   // still opens (and stays installable) when offline.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          if (response.ok && request.destination === 'document') {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => null);
-          }
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => null);
           return response;
         })
-        .catch(() => caches.match(SHELL).then((cached) => cached || Response.error()))
+        .catch(() => caches.match(SHELL))
     );
     return;
   }
@@ -90,7 +79,7 @@ self.addEventListener('fetch', (event) => {
       caches.match(request).then((cached) => cached || fetch(request).then((response) => {
         if (response.ok) { const copy = response.clone(); caches.open(CACHE).then((cache) => cache.put(request, copy)); }
         return response;
-      })).catch(() => Response.error())
+      }))
     );
   }
 });

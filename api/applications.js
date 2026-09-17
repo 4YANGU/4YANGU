@@ -36,11 +36,14 @@ export default async function handler(req, res) {
       if (!(await withinRateLimit(req))) return res.status(429).json({ error: 'Too many applications from this connection. Please try again later.' });
       if (req.body?.website) return res.status(201).json({ ok: true });
       const name = String(req.body?.name || '').trim().slice(0, 100);
+      const business = String(req.body?.business || '').trim().slice(0, 100);
       const phone = String(req.body?.phone || '').trim().slice(0, 24);
       const tiktok = String(req.body?.tiktok || '').trim().replace(/^@/, '').slice(0, 30);
-      if (name.length < 2 || !/^\+?[0-9\s-]{9,16}$/.test(phone)) return res.status(400).json({ error: 'Please add a valid name and phone number.' });
-      if (tiktok && !/^[A-Za-z0-9._-]{2,30}$/.test(tiktok)) return res.status(400).json({ error: 'Please add a valid TikTok username.' });
-      const applicationName = tiktok ? `${name} · TikTok: @${tiktok}` : name;
+      if (name.length < 2 || !/^\+?[0-9\s-]{9,16}$/.test(phone)) return res.status(400).json({ error: 'Please add a valid name and WhatsApp number.' });
+      if (business.length < 2) return res.status(400).json({ error: 'Please add your business or store name.' });
+      if (!tiktok) return res.status(400).json({ error: 'Please add your TikTok username — we need it to build your perfect store based on your business.' });
+      if (!/^[A-Za-z0-9._-]{2,30}$/.test(tiktok)) return res.status(400).json({ error: 'Please add a valid TikTok username.' });
+      const applicationName = `${name} · ${business} · TikTok: @${tiktok}`;
       const { data, error } = await supabase.from('applications').insert({ name: applicationName.slice(0, 150), phone, status: 'new' }).select().single();
       if (error) throw error;
       return res.status(201).json(data);

@@ -49,3 +49,5 @@
 .calm-note{color:#71807a;font-size:.72rem;line-height:1.6;margin:.5rem 0 0;text-align:center}
 @keyframes bubblefloat{50%{transform:translateY(-4px) rotate(-.5deg)}}
 @media(max-width:720px){.comments-grid{grid-template-columns:1fr}}
+.form-stack label .req-star{color:#d9534f;font-weight:800;margin-left:2px}
+.form-stack label .field-hint{display:block;margin-top:6px;font-size:.72rem;line-height:1.45;color:#5a6a62;font-weight:600}

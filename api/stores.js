@@ -1,6 +1,7 @@
 import supabase from '../lib/db-client.js';
 import { selfHostStorefrontAssets, scanStorefrontWarnings } from '../lib/html-assets.js';
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
+import { billingPeriod } from '../lib/billing.js';
 
 const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
 const normalizePhone = (value) => {
@@ -32,6 +33,9 @@ async function authProfile(req) {
   if (!token) return null;
   const { data: { user } } = await supabase.auth.getUser(token);
   if (!user) return null;
+  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
+  const productionHost = host === 'stoyangu.com' || host === 'www.stoyangu.com' || host.endsWith('.stoyangu.com');
+  if (productionHost && String(user.email || '').toLowerCase() === 'founder-demo@stoyangu.com') return null;
   const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
   return data ? { ...data, user } : null;
 }
@@ -42,7 +46,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   try {
     if (req.method === 'GET' && (req.query?.slug || req.query?.featured)) {
-      res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=300');
+      // Wozaa fix: keep the storefront JSON almost never-stale. A long CDN cache
+      // (it used to be s-maxage=30 + stale-while-revalidate=300) meant that after
+      // the founder changed the store's WhatsApp number, customers kept receiving
+      // the OLD number for minutes and the wa.me order link stopped working.
+      res.setHeader('Cache-Control', req.query?.fresh ? 'no-store, max-age=0' : 'public, s-maxage=10');
       let result;
       if (req.query.slug) {
         const requestedSlug = slugify(req.query.slug);
@@ -125,8 +133,59 @@ export default async function handler(req, res) {
       }
       if (req.body.action === 'billing') {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-        const active = Boolean(req.body.is_active); const changes = active ? { is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() } : { is_active: false, updated_at: new Date().toISOString() };
-        const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+        const { data: existing, error: existingError } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (existingError || !existing) return res.status(404).json({ error: 'Store not found.' });
+        const active = Boolean(req.body.is_active);
+        if (!active) {
+          // Turning OFF: archive every order safely, then clear the live orders.
+          const { data: ordersToArchive, error: ordersError } = await supabase.from('orders').select('*').eq('store_id', id).order('created_at', { ascending: false });
+          if (ordersError) throw ordersError;
+          if (ordersToArchive?.length) {
+            const { error: archiveError } = await supabase.from('order_archives').insert({ store_id: id, store_name: existing.name, orders: ordersToArchive, order_count: ordersToArchive.length });
+            if (archiveError) throw archiveError;
+            const { error: clearError } = await supabase.from('orders').delete().eq('store_id', id);
+            if (clearError) throw clearError;
+          }
+          // Clear the store's latest-update/notification cards too, so a store
+          // never shows an update for a day that technically never happened.
+          const { error: clearNotesError } = await supabase.from('notifications').delete().eq('store_id', id);
+          if (clearNotesError) throw clearNotesError;
+          const { data, error } = await supabase.from('stores').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+          if (error) throw error;
+          return res.status(200).json({ ...data, archived_orders: ordersToArchive || [] });
+        }
+        // Turning ON: optionally restore the most recent archived orders.
+        if (req.body.restore_orders === true) {
+          const { data: latestArchive, error: archiveFetchError } = await supabase.from('order_archives').select('*').eq('store_id', id).order('archived_at', { ascending: false }).limit(1).maybeSingle();
+          if (archiveFetchError) throw archiveFetchError;
+          if (latestArchive?.orders?.length) {
+            const rows = latestArchive.orders.map((order) => { const { id: _dropId, ...rest } = order; return rest; });
+            const { error: restoreError } = await supabase.from('orders').upsert(rows, { onConflict: 'store_id,order_key' });
+            if (restoreError) throw restoreError;
+            const { error: consumedError } = await supabase.from('order_archives').delete().eq('id', latestArchive.id);
+            if (consumedError) throw consumedError;
+          }
+        }
+        const { data, error } = await supabase.from('stores').update({ is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
+        if (error) throw error;
+        return res.status(200).json(data);
+      }
+      if (req.body.action === 'paid') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data: existing, error: existingError } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (existingError || !existing) return res.status(404).json({ error: 'Store not found.' });
+        // KES 300 model: one payment covers the current 30-day period and
+        // unlocks the owner's product management immediately.
+        const period = billingPeriod(existing);
+        const { data, error } = await supabase.from('stores').update({ billing_paid_until: new Date(period.endsAt).toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
+        if (error) throw error;
+        return res.status(200).json(data);
+      }
+      if (req.body.action === 'archived-orders') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data, error } = await supabase.from('order_archives').select('*').eq('store_id', id).order('archived_at', { ascending: false });
+        if (error) throw error;
+        return res.status(200).json(data || []);
       }
       if (req.body.action === 'design') {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });

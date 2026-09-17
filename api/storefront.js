@@ -18,19 +18,10 @@
 //  don't need a Postgres migration. The save call merges the new HTML into
 //  the existing design_json object — all the other design fields are kept.
 //
-//  FIX (stoyangu-500): every template — old or new — is now NORMALIZED before
-//  it is saved and again (idempotently) on every render. The AI's own markup,
-//  CSS and scripts are NEVER touched — only the broken structure around them
-//  is repaired: naked <body>-only fragments are promoted to complete
-//  documents (missing doctype / viewport / charset are added, never
-//  re-authored), stale AI "live" scaffolding and visible sample-card columns
-//  are removed, old data-store-live-grid mounts are converted to real live
-//  sockets, one authoritative hidden card template is guaranteed, and the
-//  render-time CSP allowlists the asset/CDN hosts real AI output uses
-//  (Tailwind CDNs, https images/fonts/styles, Maps/YouTube embeds) so a page
-//  can never again ship half-styled because a stylesheet, font or photo was
-//  blocked. Live products are additionally server-painted into the socket,
-//  so first paint is never an empty grid.
+//  Security: the pasted HTML is auto-fixed (off-domain images, dangerous
+//  scripts, javascript: links, etc. are all neutralised in place). The
+//  endpoint only rejects what it genuinely cannot make safe (off-domain
+//  iframe src, base href, object data).
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
@@ -38,17 +29,16 @@ import { selfHostStorefrontAssets, scanStorefrontWarnings, repairLocalImagePaths
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
 
 // ---------------------------------------------------------------------------
-// Intake — accepts the pasted template as supplied (scripts, styles and all)
-// and returns it plus a notes array. Nothing visual is ever altered here;
-// structural repair happens in applyStructuralRepair() below.
+// Security + repair — strips / neutralises anything dangerous in place
+// and returns the safe HTML plus a notes array describing what changed.
 // ---------------------------------------------------------------------------
 function preserveRawHtml(rawHtml) {
   const html = String(rawHtml || '').trim();
   if (!html) return { ok: false, errors: ['Template is empty. Paste your HTML and try again.'], html: '', notes: [], summary: {} };
   if (Buffer.byteLength(html, 'utf8') > 1_500_000) return { ok: false, errors: ['Template is larger than 1,465 KB.'], html, notes: [], summary: {} };
-  return { ok: true, errors: [], html, notes: ['Your design was kept exactly as supplied — markup, styling and behaviour untouched.'], summary: {} };
+  return { ok: true, errors: [], html, notes: ['Visual test mode: HTML sanitisation is disabled and the supplied markup was kept unchanged.'], summary: {} };
 }
-const rawHtmlHeadline = () => 'Saved — design kept exactly as supplied; broken structure auto-repaired.';
+const rawHtmlHeadline = () => 'Visual test mode — HTML kept unchanged.';
 
 // Structural validation
 // ---------------------------------------------------------------------------
@@ -64,431 +54,10 @@ function findPopupBlock(html) {
 function structureCheck(html) {
   const warnings = [];
   const card = findProductCardBlock(html);
-  const templateCard = /<template\b[^>]*\bid\s*=\s*["']stoyangu-card-template["'][\s\S]*?\bproduct-card\b/i.test(html);
   const popup = findPopupBlock(html);
-  if (!card && !templateCard) warnings.push('No product-card design found — a clean default card was added so live products still render beautifully.');
-  if (!popup) warnings.push('No product popup block — the universal order popup opens after View Product instead.');
-  return { ok: true, errors: [], warnings, card: card || (templateCard ? '<template-card>' : null), popup };
-}
-
-// ---------------------------------------------------------------------------
-// FIX (stoyangu-500): structural normalization.
-//
-// Root causes of the "new websites look distorted" issue:
-//  1. New templates arrived as <body>-only fragments (no doctype/head/body).
-//     Nothing promoted them to documents, so the browser rendered raw markup
-//     with no styling context — sometimes in quirks mode.
-//  2. Render-time CSP blocked the exact hosts real AI output uses: Tailwind
-//     Play CDN scripts, jsdelivr stylesheets, Google/outside fonts, and any
-//     decorative photo that failed to mirror — each blocked asset removed a
-//     layer of the design until only naked markup was left.
-//  3. AI "live" scaffolding — data-store-live-grid sections, visible sample
-//     .product-card columns, fallback corrals, demo toolbars — was never
-//     stripped, so stale sample content rendered beside empty live areas.
-//  4. Templates with no [data-product-grid]/#productGrid socket and no hidden
-//     card template gave the live grid nothing to clone — products never
-//     painted, leaving a visibly broken empty section.
-//  5. Full documents missing only a doctype or viewport rendered zoomed-out
-//     or in quirks mode on phones.
-//
-// normalizeHtmlDocument() guarantees a complete document; stripLiveScaffolding()
-// removes AI scaffolding; promoteHiddenTemplate() guarantees the live grid
-// always has a clean card template; ensureProductSocket() guarantees the
-// mount; and the render CSP allowlists real-world AI asset hosts. The AI's
-// own CSS is NEVER modified — a small runtime stylesheet only guarantees
-// sockets/cards can never be invisible.
-// ---------------------------------------------------------------------------
-
-const STY_RUNTIME_CSS = [
-  '/* StoYangu runtime: guarantees live sockets/cards can never be invisible. Never overrides AI styling. */',
-  '#productGrid,[data-product-grid],[data-sty-live]{display:grid;gap:clamp(12px,2.5vw,24px);grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));align-items:stretch}',
-  '#productGrid:empty::after{content:"New products are coming soon.";display:block;grid-column:1/-1;padding:28px;text-align:center;color:inherit;opacity:.65}',
-  '#productGrid .product-card,[data-product-grid] .product-card,#productGrid .sty-card,[data-sty-live] .sty-card{visibility:visible!important;opacity:1!important;transform:none!important;min-width:0}',
-  '#productGrid img,[data-product-grid] img{max-width:100%;height:auto}',
-  '#productGrid .product-card img,[data-product-grid] .product-card img{aspect-ratio:1/1;object-fit:cover;width:100%;display:block}',
-  '#filters:empty,[data-category-filters]:empty{display:none!important}',
-  '[data-sty-legacy-hidden]{display:none!important}',
-  '.sty-legacy-popup{display:none!important}',
-].join('\n');
-
-const STY_PRODUCT_PH = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640"><rect width="100%" height="100%" fill="#ece5d8"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="#8a8475" font-family="system-ui">product photo</text></svg>',
-);
-
-const STY_DEFAULT_CARD = '<article class="product-card sty-card" data-id="" data-name="" data-category="" data-price="" data-image="">'
-  + '<img src="' + STY_PRODUCT_PH + '" alt="" data-ph="1">'
-  + '<div class="sty-body"><span class="product-category sty-cat"></span>'
-  + '<h3 class="product-name"></h3><p class="product-price"></p>'
-  + '<button type="button" class="sty-view" data-view-product="">View product</button></div></article>';
-
-// Remove every balanced block whose OPENING tag matches openRe (group 1 must
-// be the tag name). Nested same-name tags are counted, so a card containing
-// inner divs is removed whole instead of truncated mid-markup. keepTest, when
-// given, preserves blocks whose content matches (used to protect the designed
-// live socket from scaffolding patterns). Returns { html, removed }.
-function removeBalancedMatches(html, openRe, keepTest) {
-  const source = String(html || '');
-  const blocks = [];
-  const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-  openRe.lastIndex = 0;
-  let m;
-  while ((m = openRe.exec(source))) {
-    const tag = String(m[1] || '').toLowerCase();
-    if (!tag) continue;
-    const start = m.index;
-    if (blocks.some((b) => start > b.start && start < b.end)) continue;
-    if (/\/\s*>$/.test(m[0]) || VOID_TAGS.has(tag)) {
-      blocks.push({ start, end: start + m[0].length });
-      continue;
-    }
-    let depth = 1;
-    const inner = new RegExp(`<\\/?${tag}(?![a-z0-9])[^>]*>`, 'gi');
-    inner.lastIndex = start + m[0].length;
-    let im;
-    let end = -1;
-    let guard = 0;
-    while ((im = inner.exec(source))) {
-      if (++guard > 5000) break;
-      const token = im[0];
-      if (token[1] === '/') depth--;
-      else if (!/\/\s*>$/.test(token)) depth++;
-      if (depth === 0) { end = im.index + token.length; break; }
-    }
-    if (end === -1) end = Math.min(source.length, start + 20000);
-    blocks.push({ start, end });
-  }
-  blocks.sort((a, b) => b.start - a.start);
-  let out = source;
-  const removed = [];
-  for (const b of blocks) {
-    const slice = out.slice(b.start, b.end);
-    if (keepTest && keepTest(slice)) continue;
-    removed.unshift(slice);
-    out = out.slice(0, b.start) + out.slice(b.end);
-  }
-  return { html: out, removed };
-}
-
-// Strip data-* layout hooks (which strand unstyled hooks) from a card
-// fragment, but keep functional ones the live grid relies on.
-function cleanAttrs(fragment) {
-  return String(fragment || '').replace(/<([a-z][a-z0-9]*)\b([^>]*)>/gi, (whole, tag, attrs) => {
-    let next = String(attrs || '');
-    next = next.replace(/\sdata-(?!view-product\b|thumb\b|ph\b|sty-static\b)[a-z0-9_-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '');
-    next = next.replace(/\s(?:width|height)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    return `<${tag}${next}>`;
-  });
-}
-
-// Guarantee a data-* attribute exists exactly once on the fragment's root tag.
-function ensureAttr(fragment, name, value) {
-  const pattern = new RegExp(`\\s${name}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)`, 'i');
-  const cleaned = String(fragment || '').replace(new RegExp(`(<[a-z][a-z0-9]*\\b[^>]*?)${pattern.source}([^>]*>)`, 'i'), '$1$2');
-  return cleaned.replace(/<([a-z][a-z0-9]*)\b([^>]*)>/i, `<$1$2 ${name}="${escapeAttr(value)}">`);
-}
-
-// Normalize ONE AI card fragment into a live-grid-safe hidden card template:
-// exactly one root with class product-card + data-id/name/category/price/image,
-// exactly one <img> with a data: placeholder src, name/category/price slots and
-// exactly one <button data-view-product>.
-function normalizeCardTemplate(fragment) {
-  let card = cleanAttrs(fragment);
-  card = card.replace(/(<img\b[^>]*?)(\/?)>/i, (whole, head) => {
-    let tag = head.replace(/\ssrc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, '');
-    tag = tag.replace(/\ssrcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, '');
-    return `${tag} src="${STY_PRODUCT_PH}" data-ph="1">`;
-  });
-  if (!/<img\b/i.test(card)) {
-    card = card.replace(/(<([a-z][a-z0-9]*)\b[^>]*>)/i, `$1<img src="${STY_PRODUCT_PH}" alt="" data-ph="1">`);
-  }
-  // Flatten nested {{…}} sample tokens the AI sometimes leaves behind.
-  card = card.replace(/\{\{[^}]{1,80}\}\}/g, '');
-  card = ensureAttr(card, 'data-id', '');
-  card = ensureAttr(card, 'data-name', '');
-  card = ensureAttr(card, 'data-category', '');
-  card = ensureAttr(card, 'data-price', '');
-  card = ensureAttr(card, 'data-image', '');
-  if (!/class\s*=\s*["'][^"']*\bproduct-card\b/i.test(card)) {
-    card = card.replace(/<([a-z][a-z0-9]*)\b([^>]*)>/i, '<$1 class="product-card sty-card"$2>');
-  }
-  if (!/class\s*=\s*["'][^"']*\bproduct-name\b/i.test(card)) {
-    card = card.replace(/(<button\b[^>]*data-view-product[^>]*>)/i, '<h3 class="product-name"></h3>$1');
-  }
-  if (!/class\s*=\s*["'][^"']*\bproduct-price\b/i.test(card)) {
-    card = card.replace(/(<button\b[^>]*data-view-product[^>]*>)/i, '<p class="product-price"></p>$1');
-  }
-  const buttons = card.match(/<button\b[^>]*data-view-product[^>]*>[\s\S]*?<\/button\s*>/gi) || [];
-  if (!buttons.length) {
-    card = card.replace(/(<\/[a-z][a-z0-9]*>\s*)$/i, '<button type="button" class="sty-view" data-view-product="">View product</button>$1');
-  } else if (buttons.length > 1) {
-    let kept = false;
-    card = card.replace(/<button\b[^>]*data-view-product[^>]*>[\s\S]*?<\/button\s*>/gi, (match) => {
-      if (!kept) { kept = true; return '<button type="button" class="sty-view" data-view-product="">View product</button>'; }
-      return '';
-    });
-  } else {
-    card = card.replace(/<button\b[^>]*data-view-product[^>]*>[\s\S]*?<\/button\s*>/gi, '<button type="button" class="sty-view" data-view-product="">View product</button>');
-  }
-  return card;
-}
-
-function isSelfContainedVisualDesign(html) {
-  const text = String(html || '');
-  return /<style\b[^>]*>[\s\S]{40,}<\/style\s*>/i.test(text)
-    || /<link\b[^>]*rel=["']stylesheet["']/i.test(text);
-}
-
-const IFRAME_ALLOW_HOST = /^(?:www\.|)(?:maps\.google\.com|google\.com|youtube\.com|youtu\.be)$/i;
-
-// Keep Maps/YouTube embeds (explicitly allowed by the render CSP); drop every
-// other iframe so a blocked embed can never render as a broken box.
-function filterIframes(html) {
-  return String(html || '').replace(/<iframe\b[^>]*>(?:[\s\S]*?<\/iframe\s*>)?|<iframe\b[^>]*\/?>/gi, (tag) => {
-    const src = (/src\s*=\s*["']([^"']+)["']/i.exec(tag) || [])[1] || '';
-    try {
-      const host = new URL(src.startsWith('//') ? `https:${src}` : src).hostname.toLowerCase();
-      if (IFRAME_ALLOW_HOST.test(host)) return tag;
-    } catch { /* unparseable src — drop it */ }
-    return '';
-  });
-}
-
-// Cap remote decorative images at a phone-safe size. Unsplash (imgix) and
-// Pexels both honor width params; founders paste full-resolution links
-// (often 5000px+) and phones OOM decoding dozens of them — the classic
-// intermittent "sad face" renderer crash. Applied before mirroring so the
-// stored file is small, and idempotently at render for older saves.
-function constrainRemoteImages(html) {
-  let out = String(html || '');
-  out = out.replace(/https:\/\/(?:images\.unsplash\.com|plus\.unsplash\.com)\/[^\s"'<>)]+/gi, (url) => {
-    try {
-      const u = new URL(url);
-      if (!u.searchParams.get('w')) u.searchParams.set('w', '1280');
-      if (!u.searchParams.get('q')) u.searchParams.set('q', '70');
-      if (!u.searchParams.get('auto')) u.searchParams.set('auto', 'format');
-      if (!u.searchParams.get('fit')) u.searchParams.set('fit', 'max');
-      return u.toString();
-    } catch { return url; }
-  });
-  out = out.replace(/https:\/\/images\.pexels\.com\/[^\s"'<>)]+/gi, (url) => {
-    try {
-      const u = new URL(url);
-      if (!u.searchParams.get('w')) u.searchParams.set('w', '1280');
-      if (!u.searchParams.get('auto')) u.searchParams.set('auto', 'compress');
-      if (!u.searchParams.get('cs')) u.searchParams.set('cs', 'tinysrgb');
-      return u.toString();
-    } catch { return url; }
-  });
-  return out;
-}
-
-// Guarantee a complete HTML document. AI scripts, styles and markup pass
-// through untouched; only page-breaking shell problems are repaired:
-// missing doctype (quirks mode), missing viewport/charset (zoomed-out
-// phones), hijackable <base>, meta refresh, blocked iframes, and
-// brace-mangled layout shells. Body-only fragments are promoted to full
-// documents with their own <style>/<link>/<title> hoisted into the new head.
-function normalizeHtmlDocument(html, store) {
-  let out = String(html || '').trim();
-  if (!out) return out;
-  out = out.replace(/<base\b[^>]*>/gi, '');
-  out = out.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '');
-  out = filterIframes(out);
-  // Unwrap brace-mangled shells (literal junk no framework emits) that would
-  // otherwise trap the page in a dead layout.
-  out = out.replace(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*(?:^|\s)(?:sm|md|lg|xl|2xl):\(\)[^"']*["'][^>]*>/gi, '');
-  out = out.replace(/<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:max-w|w)-\(\s*[^)]+\)[^"']*["'][^>]*>/gi, '');
-  const hasDoctype = /^\s*<!doctype\s+html/i.test(out);
-  const hasHtml = /<html[\s>]/i.test(out);
-  const hasHead = /<head[\s>]/i.test(out);
-  const hasBody = /<body[\s>]/i.test(out);
-  const ensureHeadMeta = (doc) => {
-    let next = doc;
-    if (!/<meta\b[^>]*charset/i.test(next)) {
-      next = /<head([^>]*)>/i.test(next)
-        ? next.replace(/<head([^>]*)>/i, '<head$1><meta charset="utf-8">')
-        : next;
-    }
-    if (!/name\s*=\s*["']viewport["']/i.test(next)) {
-      next = /<head([^>]*)>/i.test(next)
-        ? next.replace(/<head([^>]*)>/i, '<head$1><meta name="viewport" content="width=device-width,initial-scale=1">')
-        : next;
-    }
-    return next;
-  };
-  if (hasDoctype || (hasHtml && hasHead && hasBody)) {
-    out = ensureHeadMeta(out);
-    return hasDoctype ? out : `<!doctype html>\n${out}`;
-  }
-  // FRAGMENT → full document. Hoist the fragment's own head assets first so
-  // no <style> is ever lost in the promotion.
-  const headBits = [];
-  out = out.replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, (m) => { headBits.push(m); return ''; });
-  out = out.replace(/<link\b[^>]*>/gi, (m) => { headBits.push(m); return ''; });
-  out = out.replace(/<title\b[^>]*>[\s\S]*?<\/title\s*>/gi, (m) => { headBits.push(m); return ''; });
-  const hasTitle = headBits.some((bit) => /^\s*<title[\s>]/i.test(bit));
-  const title = store?.name ? `${String(store.name)} — Shop online` : 'StoYangu store';
-  const inner = out
-    .replace(/^\s*<!doctype[^>]*>\s*/i, '')
-    .replace(/<\/?html[^>]*>/gi, '')
-    .replace(/<\/?head[^>]*>/gi, '')
-    .replace(/<\/?body[^>]*>/gi, '');
-  return `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n${hasTitle ? '' : `<title>${escapeAttr(title)}</title>\n`}${headBits.join('\n')}\n</head>\n<body>\n${inner}\n</body>\n</html>`;
-}
-
-// Strip every kind of AI "live" scaffolding. Old data-store-live-grid mounts
-// are CONVERTED to real live sockets (design preserved); class-based
-// live/fallback corrals are removed unless they contain the designed socket;
-// visible sample cards are extracted (first = authoritative template) and any
-// extras are preserved as static promo banners. Returns the cleaned html plus
-// the visible template cards found and any promo-strip statics.
-function stripLiveScaffolding(html) {
-  let out = String(html || '');
-  // 1. Old-convention live mounts become real live sockets (tag + classes kept).
-  out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*\bdata-store-live-grid\b[^>]*)>/gi, (whole, tag, attrs) => {
-    const extras = /\bid\s*=/i.test(attrs) ? ' data-product-grid data-sty-live="1"' : ' id="productGrid" data-product-grid data-sty-live="1"';
-    return `<${tag}${attrs}${extras}>`;
-  });
-  // 2. Live-grid toolbars and fallback/demo corrals — unless they ARE the
-  //    designed section (i.e. they contain the real socket or filter mount).
-  const hasDesignedSocket = (block) => /(id\s*=\s*["']productGrid["']|data-product-grid|id\s*=\s*["']filters["']|data-category-filters)/i.test(block);
-  for (const pattern of [
-    /<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\blive-(?:toolbar|grid|products)\b[^"']*["'][^>]*>/gi,
-    /<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:fallback-products|demo-products|sample-products|product-fallback)\b[^"']*["'][^>]*>/gi,
-  ]) {
-    out = removeBalancedMatches(out, pattern, hasDesignedSocket).html;
-  }
-  // 3. Visible sample .product-card columns OUTSIDE any <template> (the
-  //    browser shows those; the hidden <template> card is extracted later).
-  const templateHolds = [];
-  out = out.replace(/<template\b[^>]*>[\s\S]*?<\/template\s*>/gi, (match) => {
-    templateHolds.push(match);
-    return `<!--sty-template-hold-${templateHolds.length - 1}-->`;
-  });
-  const cards = removeBalancedMatches(out, /<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>/gi);
-  out = cards.html;
-  const templateCards = cards.removed;
-  templateHolds.forEach((hold, index) => {
-    out = out.split(`<!--sty-template-hold-${index}-->`).join(hold);
-  });
-  // 4. Promo-strip statics (2nd/3rd+ sample columns): normalize into dead
-  //    decorative cards so layout rhythm survives without clickable fakes.
-  const promoStatics = [];
-  while (templateCards.length > 1) {
-    const extra = templateCards.pop();
-    let statik = normalizeCardTemplate(extra)
-      .replace(/\bproduct-card\b/g, 'sty-card')
-      .replace(/\sdata-view-product(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, ' data-sty-static="1"');
-    statik = statik.replace(/(<img\b[^>]*?)(\/?)>/i, (whole, head) => (/src\s*=/i.test(head) ? whole : `${head} src="${STY_PRODUCT_PH}" data-ph="1">`));
-    promoStatics.push(statik);
-  }
-  // 5. Stale map anchors the live page replaces at runtime.
-  out = out.replace(/<a\b[^>]*\bhref\s*=\s*["']#[^"']*["'][^>]*>\s*(?:<img\b[^>]*>)?\s*map\s*<\/a\s*>/gi, '');
-  return { html: out, templateCards, promoStatics };
-}
-
-// Extract the hidden <template id="stoyangu-card-template"> card (if any),
-// normalize it, and re-emit exactly one authoritative hidden template.
-function promoteHiddenTemplate(html, templateCards) {
-  let out = String(html || '');
-  let hiddenTemplateHtml = '';
-  out = out.replace(/<template\b[^>]*\bid\s*=\s*["']stoyangu-card-template["'][^>]*>([\s\S]*?)<\/template\s*>/gi, (whole, inner) => {
-    if (!hiddenTemplateHtml) hiddenTemplateHtml = String(inner || '');
-    return '';
-  });
-  const source = hiddenTemplateHtml.trim() || (templateCards.length ? templateCards[0] : '');
-  const authoritative = source.trim() ? normalizeCardTemplate(source) : STY_DEFAULT_CARD;
-  return { html: out, authoritative };
-}
-
-// Make sure the document always has a store-logo socket, nav anchors and a
-// live product socket.
-function ensureHeaderSocket(html, store) {
-  let out = String(html || '');
-  if (/data-store-logo/i.test(out)) return out;
-  const logoImg = `<img data-store-logo alt="${escapeAttr(store?.name ? `${store.name} logo` : 'Store logo')}" src="">`;
-  if (/<header\b[^>]*>/i.test(out)) {
-    out = out.replace(/(<header\b[^>]*>)/i, `$1${logoImg}`);
-  } else if (/<body\b[^>]*>/i.test(out)) {
-    out = out.replace(/(<body\b[^>]*>)/i, `$1<header class="sty-header">${logoImg}</header>`);
-  } else {
-    out = `<header class="sty-header">${logoImg}</header>${out}`;
-  }
-  return out;
-}
-
-function ensureSectionAnchors(html) {
-  let out = String(html || '');
-  for (const id of ['home', 'products', 'contact']) {
-    if (new RegExp(`id\\s*=\\s*["']${id}["']`, 'i').test(out)) continue;
-    if (id === 'home') {
-      out = out.replace(/(<body\b[^>]*>)/i, `$1<section id="home" data-sty-anchor="1"></section>`);
-    } else if (id === 'products') {
-      out = out.replace(/<\/main\s*>/i, '<section id="products" data-sty-anchor="1"></section></main>');
-      if (!/id\s*=\s*["']products["']/i.test(out)) {
-        out = out.replace(/<\/body\s*>/i, '<section id="products" data-sty-anchor="1"></section></body>');
-      }
-    } else if (id === 'contact') {
-      out = out.replace(/<\/body\s*>/i, '<section id="contact" data-sty-anchor="1"></section></body>');
-    }
-  }
-  return out;
-}
-
-function ensureProductSocket(html) {
-  let out = String(html || '');
-  if (/id\s*=\s*["']productGrid["']/i.test(out) || /data-product-grid/i.test(out)) return out;
-  const socket = '<div id="productGrid" data-product-grid data-sty-live="1" data-sty-server-rendered="1"></div>';
-  const sectionRe = /<([a-z][a-z0-9]*)\b[^>]*\bid\s*=\s*["']products["'][^>]*>([\s\S]*?)<\/\1\s*>/i;
-  if (sectionRe.test(out)) {
-    out = out.replace(sectionRe, (whole, tag, inner) => `<${tag} id="products">${inner}\n${socket}\n</${tag}>`);
-    return out;
-  }
-  if (/<\/main\s*>/i.test(out)) {
-    out = out.replace(/<\/main\s*>/i, `${socket}</main>`);
-    return out;
-  }
-  out = out.replace(/<\/body\s*>/i, `${socket}</body>`);
-  return out;
-}
-
-// Full structural repair used at save time (and idempotently at render).
-// Returns the repaired html plus human-readable notes for the save report.
-function applyStructuralRepair(html, store) {
-  const notes = [];
-  const wasFragment = !(/^\s*<!doctype\s+html/i.test(String(html || '')) || (/<html[\s>]/i.test(String(html || '')) && /<head[\s>]/i.test(String(html || '')) && /<body[\s>]/i.test(String(html || ''))));
-  let out = normalizeHtmlDocument(html, store);
-  if (wasFragment) {
-    notes.push('Promoted a fragment to a complete page (doctype, head, viewport) — your styles and markup were carried over untouched.');
-  } else if (!isSelfContainedVisualDesign(out)) {
-    notes.push('No usable <style> block was found — the layout was wrapped in a complete document so the page can never render naked.');
-  } else {
-    notes.push('Document shell normalized — the supplied CSS and markup were kept exactly as designed.');
-  }
-  const stripped = stripLiveScaffolding(out);
-  out = stripped.html;
-  if (stripped.templateCards.length) {
-    notes.push(`Removed ${stripped.templateCards.length} visible sample product column${stripped.templateCards.length === 1 ? '' : 's'} — live products now fill the grid instead.`);
-  }
-  if (stripped.promoStatics.length) {
-    const strip = `<div class="sty-promo-static" data-sty-static-strip="1">\n${stripped.promoStatics.join('\n')}\n</div>`;
-    if (/id\s*=\s*["']contact["']/i.test(out)) {
-      out = out.replace(/(<([a-z][a-z0-9]*)\b[^>]*\bid\s*=\s*["']contact["'][^>]*>)/i, `${strip}\n$1`);
-    } else {
-      out = out.replace(/<\/body\s*>/i, `${strip}\n</body>`);
-    }
-    notes.push(`Kept ${stripped.promoStatics.length} decorative promo card${stripped.promoStatics.length === 1 ? '' : 's'} as static banners beside Contact.`);
-  }
-  const promoted = promoteHiddenTemplate(out, stripped.templateCards);
-  out = promoted.html;
-  out = ensureHeaderSocket(out, store);
-  out = ensureSectionAnchors(out);
-  out = ensureProductSocket(out);
-  out = /<\/body\s*>/i.test(out)
-    ? out.replace(/<\/body\s*>/i, `<template id="stoyangu-card-template">${promoted.authoritative}</template>\n</body>`)
-    : `${out}\n<template id="stoyangu-card-template">${promoted.authoritative}</template>`;
-  notes.push('Guaranteed one hidden product-card template the live grid clones for every product.');
-  return { html: out, notes };
+  if (!card) warnings.push('No .product-card block — live products will be injected into [data-product-grid], #products, or a WhatsApp button will be added.');
+  if (!popup) warnings.push('No .product-popup block — orders still work through WhatsApp buttons.');
+  return { ok: true, errors: [], warnings, card, popup };
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +69,47 @@ function escapeAttr(value) {
 function formatPrice(value) {
   const num = Number(value || 0);
   return `KSh ${num.toLocaleString('en-KE')}`;
+}
+function buildCard(cardTemplate, product) {
+  const images = Array.isArray(product.images) && product.images.length ? product.images : (product.image_url ? [product.image_url] : []);
+  const primaryImage = images[0] || '';
+  const colors = Array.isArray(product.colors) ? product.colors.filter(Boolean) : [];
+  const sizes = Array.isArray(product.sizes) ? product.sizes.filter(Boolean) : [];
+  let card = cardTemplate;
+  card = card.replace(/(\bdata-id\s*=\s*")[^"]*(")/i, `$1${escapeAttr(product.id)}$2`);
+  card = card.replace(/(\bdata-name\s*=\s*")[^"]*(")/i, `$1${escapeAttr(product.name)}$2`);
+  card = card.replace(/(\bdata-price\s*=\s*")[^"]*(")/i, `$1${escapeAttr(formatPrice(product.price))}$2`);
+  card = card.replace(/(\bdata-image\s*=\s*")[^"]*(")/i, `$1${escapeAttr(primaryImage)}$2`);
+  card = card.replace(/(\bdata-colors\s*=\s*")[^"]*(")/i, `$1${escapeAttr(colors.join('|'))}$2`);
+  card = card.replace(/(\bdata-sizes\s*=\s*")[^"]*(")/i, `$1${escapeAttr(sizes.join('|'))}$2`);
+  card = card.replace(/(\bclass\s*=\s*["'][^"']*\bproduct-name\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z][a-z0-9]*>)/i, (_, open, _mid, close) => `${open}${escapeAttr(product.name)}${close}`);
+  card = card.replace(/(\bclass\s*=\s*["'][^"']*\bproduct-price\b[^"']*["'][^>]*>)([\s\S]*?)(<\/[a-z][a-z0-9]*>)/i, (_, open, _mid, close) => `${open}${escapeAttr(formatPrice(product.price))}${close}`);
+  return card;
+}
+function extractCardTemplate(html) {
+  const match = String(html || '').match(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/i);
+  return match ? match[0] : '';
+}
+
+function fillDesignedCard(template, product) {
+  const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean);
+  const primary = images[0] || '';
+  let card = template || `<article class="product-card"><img alt=""><span class="product-category"></span><p class="product-name"></p><p class="product-price"></p><button type="button" data-view-product>View product</button></article>`;
+  card = card.replace(/\bdata-id="[^"]*"/i, `data-id="${escapeAttr(product.id)}"`);
+  if (!/\bdata-id=/.test(card)) card = card.replace(/<article\b/i, `<article data-id="${escapeAttr(product.id)}"`);
+  card = card.replace(/\bdata-name="[^"]*"/i, `data-name="${escapeAttr(product.name)}"`);
+  card = card.replace(/\bdata-price="[^"]*"/i, `data-price="${escapeAttr(formatPrice(product.price))}"`);
+  card = card.replace(/\bdata-image="[^"]*"/i, `data-image="${escapeAttr(primary)}"`);
+  card = card.replace(/\bdata-category="[^"]*"/i, `data-category="${escapeAttr(product.category || '')}"`);
+  card = card.replace(/\bdata-colors="[^"]*"/i, `data-colors="${escapeAttr((product.colors || []).join('|'))}"`);
+  card = card.replace(/\bdata-sizes="[^"]*"/i, `data-sizes="${escapeAttr((product.sizes || []).join('|'))}"`);
+  card = card.replace(/(<img\b[^>]*\bsrc=")[^"]*(")/i, `$1${escapeAttr(primary)}$2`);
+  if (/<img\b/i.test(card) && !/<img\b[^>]*\bsrc=/i.test(card)) card = card.replace(/<img\b/i, `<img src="${escapeAttr(primary)}"`);
+  card = card.replace(/(<img\b[^>]*\balt=")[^"]*(")/i, `$1${escapeAttr(product.name)}$2`);
+  card = card.replace(/(class="[^"]*product-name[^"]*"[^>]*>)[\s\S]*?(<\/)/i, `$1${escapeAttr(product.name)}$2`);
+  card = card.replace(/(class="[^"]*product-price[^"]*"[^>]*>)[\s\S]*?(<\/)/i, `$1${escapeAttr(formatPrice(product.price))}$2`);
+  card = card.replace(/(class="[^"]*product-category[^"]*"[^>]*>)[\s\S]*?(<\/)/i, `$1${escapeAttr(product.category || '')}$2`);
+  return card;
 }
 
 function applyStoreLogo(html, store) {
@@ -514,73 +124,9 @@ function applyStoreLogo(html, store) {
   return out;
 }
 
-// Build one server-rendered card for the static first paint, cloned from the
-// authoritative hidden template, so first paint already wears the AI's exact
-// card design. The live grid replaces these with interactive clones on boot.
-function buildServerCard(product, cardTemplate) {
-  const images = Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean);
-  const primary = images[0] || STY_PRODUCT_PH;
-  let card = String(cardTemplate || STY_DEFAULT_CARD);
-  card = card.replace(/<([a-z][a-z0-9]*)\b([^>]*)>/i, (whole, tag, attrs) => {
-    let next = String(attrs || '');
-    for (const [name, value] of [
-      ['data-id', String(product.id ?? '')],
-      ['data-name', String(product.name ?? '')],
-      ['data-category', String(product.category ?? '')],
-      ['data-price', formatPrice(product.price)],
-      ['data-price-value', String(Number(product.price || 0))],
-      ['data-image', primary],
-    ]) {
-      const pattern = new RegExp(`\\s${name}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)`, 'i');
-      next = next.replace(pattern, '');
-      next = `${next} ${name}="${escapeAttr(value)}"`;
-    }
-    return `<${tag}${next}>`;
-  });
-  card = card.replace(/(<img\b[^>]*?\bsrc\s*=\s*["'])[^"']*(["'])/i, `$1${escapeAttr(primary)}$2`);
-  card = card.replace(/(<img\b[^>]*?\balt\s*=\s*["'])[^"']*(["'])/i, `$1${escapeAttr(product.name || 'Product')}$2`);
-  card = card.replace(/(class\s*=\s*["'][^"']*\bproduct-name\b[^"']*["'][^>]*>)[\s\S]*?(<\/[a-z][a-z0-9]*>)/i, `$1${escapeAttr(product.name || '')}$2`);
-  card = card.replace(/(class\s*=\s*["'][^"']*\bproduct-price\b[^"']*["'][^>]*>)[\s\S]*?(<\/[a-z][a-z0-9]*>)/i, `$1${escapeAttr(formatPrice(product.price))}$2`);
-  card = card.replace(/(class\s*=\s*["'][^"']*\bproduct-category\b[^"']*["'][^>]*>)[\s\S]*?(<\/[a-z][a-z0-9]*>)/i, `$1${escapeAttr(product.category || '')}$2`);
-  return card;
-}
-
-// Replace the live socket's inner content (balanced close search, so nested
-// same-name tags can't truncate the replacement). Returns null if no socket.
-function replaceSocketInner(html, serverCards) {
-  const source = String(html || '');
-  const openRe = /<([a-z][a-z0-9]*)\b([^>]*\b(?:id\s*=\s*["']productGrid["']|data-product-grid)[^>]*)>/i;
-  const m = source.match(openRe);
-  if (!m || m.index === undefined) return null;
-  const tag = m[1].toLowerCase();
-  const openEnd = m.index + m[0].length;
-  if (['img', 'br', 'hr', 'input', 'link', 'meta'].includes(tag) || /\/\s*>$/.test(m[0])) {
-    return `${source.slice(0, openEnd)}${serverCards}${source.slice(openEnd)}`;
-  }
-  let depth = 1;
-  const inner = new RegExp(`<\\/?${tag}(?![a-z0-9])[^>]*>`, 'gi');
-  inner.lastIndex = openEnd;
-  let im;
-  let guard = 0;
-  while ((im = inner.exec(source))) {
-    if (++guard > 5000) break;
-    if (im[0][1] === '/') depth--;
-    else if (!/\/\s*>$/.test(im[0])) depth++;
-    if (depth === 0) {
-      return `${source.slice(0, openEnd)}${serverCards}${source.slice(im.index)}`;
-    }
-  }
-  return null;
-}
-
 function injectLiveProducts(html, store, products) {
   const list = Array.isArray(products) ? products : [];
-  // Idempotent: render-time input may be an old, never-repaired save, so the
-  // same normalization + scaffolding strip runs here on every render.
-  const repaired = applyStructuralRepair(html, store);
-  let out = repaired.html;
-  const hiddenMatch = out.match(/<template\b[^>]*\bid\s*=\s*["']stoyangu-card-template["'][^>]*>([\s\S]*?)<\/template\s*>/i);
-  const cardTemplate = hiddenMatch ? hiddenMatch[1] : STY_DEFAULT_CARD;
+  const cardTemplate = extractCardTemplate(html);
   const catalog = escapeAttr(JSON.stringify(list.map((product) => ({
     id: product.id,
     name: product.name,
@@ -591,73 +137,38 @@ function injectLiveProducts(html, store, products) {
     image_url: product.image_url || '',
     images: Array.isArray(product.images) && product.images.length ? product.images : [product.image_url].filter(Boolean),
   }))));
-  out = applyStoreLogo(out, store);
+  let out = applyStoreLogo(html, store);
+  out = out.replace(/<article\b[^>]*\bclass\s*=\s*["'][^"']*\bproduct-card\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi, '');
   out = out.replace(/<div\b[^>]*id=["']featuredGrid["'][^>]*>[\s\S]*?<\/div>/i, '<div id="featuredGrid" hidden></div>');
-  // Server first paint: static cards in the AI's exact card design, so first
-  // paint is never an empty grid. The live grid replaces them with
-  // interactive clones on boot; crawlers keep this paint.
-  const serverCards = list.map((product) => buildServerCard(product, cardTemplate)).join('\n')
-    || '<p class="sty-empty">New products are coming soon.</p>';
-  const replaced = replaceSocketInner(out, serverCards);
-  if (replaced !== null) {
-    out = replaced;
+  const cards = list.map((product) => fillDesignedCard(cardTemplate, product)).join('\n');
+  const filled = cards || '<p class="sty-empty">New products are coming soon.</p>';
+  if (/id=["']productGrid["']/.test(out)) {
+    out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*id=["']productGrid["'][^>]*)>[\s\S]*?<\/\1>/i, `<$1$2 data-sty-live="1">${filled}</$1>`);
+  } else if (/data-product-grid/.test(out)) {
+    out = out.replace(/<([a-z][a-z0-9]*)\b([^>]*data-product-grid[^>]*)>[\s\S]*?<\/\1>/i, `<$1$2 data-sty-live="1">${filled}</$1>`);
   } else if (/id=["']products["']/.test(out)) {
-    out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${serverCards}`);
+    out = out.replace(/(<[^>]*id=["']products["'][^>]*>)/i, `$1${filled}`);
   } else if (/id=["']shop["']/.test(out)) {
-    out = out.replace(/(<[^>]*id=["']shop["'][^>]*>)/i, `$1${serverCards}`);
+    out = out.replace(/(<[^>]*id=["']shop["'][^>]*>)/i, `$1${filled}`);
   } else {
-    out = /<\/main>/i.test(out) ? out.replace(/<\/main>/i, `<div id="productGrid" data-product-grid data-sty-live="1">${serverCards}</div></main>`) : `${out}<div id="productGrid" data-product-grid data-sty-live="1">${serverCards}</div>`;
+    out = /<\/main>/i.test(out) ? out.replace(/<\/main>/i, `<div id="productGrid" data-product-grid data-sty-live="1">${filled}</div></main>`) : `${out}<div id="productGrid" data-product-grid data-sty-live="1">${filled}</div>`;
   }
   if (!/id=["']stoyangu-catalog["']/.test(out)) {
-    const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}" data-logo="${escapeAttr(store.logo_url || '')}">${catalog}</template>`;
+    const payload = `<template id="stoyangu-catalog" data-store-slug="${escapeAttr(store.slug)}" data-logo="${escapeAttr(store.logo_url || '')}">${catalog}</template>${cardTemplate ? `<template id="stoyangu-card-template">${cardTemplate}</template>` : ''}`;
     out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, `${payload}</body>`) : out + payload;
   }
   return out;
 }
 
-// Decode images asynchronously and lazy-load everything below the first
-// paint, so a photo-heavy storefront can never spike a phone's memory into
-// a renderer crash ("sad face"). Pure loading hints — zero visual change.
-function enhanceImages(html) {
-  let index = 0;
-  return String(html || '').replace(/<img\b[^>]*>/gi, (tag) => {
-    let next = tag;
-    if (!/\bdecoding\s*=/i.test(next)) next = next.replace(/<img\b/i, '<img decoding="async"');
-    const position = index++;
-    if (position >= 3 && !/\bloading\s*=/i.test(next) && !/\bfetchpriority\s*=\s*["']high["']/i.test(next)) {
-      next = next.replace(/<img\b/i, '<img loading="lazy"');
-    }
-    return next;
-  });
-}
-
-function renderTemplate(templateHtml, store, products, host) {
-  const localRepair = repairLocalImagePaths(constrainRemoteImages(String(templateHtml || '')));
-  let newHtml = enhanceImages(injectLiveProducts(ensureDesignRuntime(localRepair.html), store, products));
+function renderTemplate(templateHtml, store, products) {
+  const localRepair = repairLocalImagePaths(String(templateHtml || ''));
+  let newHtml = injectLiveProducts(ensureDesignRuntime(localRepair.html), store, products);
   const phoneDigits = String(store.whatsapp || '').replace(/\D/g, '');
   let assetOrigin = '';
   try { assetOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').origin; } catch {}
-  // FIX (stoyangu-500): the old CSP blocked the exact hosts real AI output
-  // uses (Tailwind CDNs, https stylesheets/fonts/photos, Maps/YouTube
-  // embeds), which stripped layers off new designs until only naked markup
-  // was left. The storefront still runs in a sandboxed iframe with network
-  // fetch disabled, so allowing asset hosts restores designs without
-  // weakening the security posture that matters.
-  // FIX (stoyangu-500): the storefront iframe is sandboxed WITHOUT
-  // allow-same-origin, so its origin is opaque and CSP 'self' matches
-  // nothing — the live-grid bridge script was silently blocked on every
-  // load. Listing the page's own origin explicitly lets the bridge run
-  // while the sandbox keeps AI scripts fully contained.
-  const pageHost = String(host || '').split(',')[0].trim().split(':')[0].toLowerCase();
-  const pageOrigins = pageHost ? `https://${pageHost} http://${pageHost}` : '';
-  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net ${assetOrigin} ${pageOrigins}; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'none'; frame-src https://maps.google.com https://www.google.com https://www.youtube.com https://youtu.be; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
-  const storeMeta = `${csp}<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}"><meta name="stoyangu-server-products" content="${(products || []).length ? 'static-first-paint' : 'empty'}">`;
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' ${assetOrigin}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com ${assetOrigin}; font-src 'self' data: https://fonts.gstatic.com ${assetOrigin}; img-src 'self' data: blob: ${assetOrigin}; media-src 'self' data: blob: ${assetOrigin}; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
+  const storeMeta = `${csp}<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}">`;
   let stamped = /<head/i.test(newHtml) ? newHtml.replace(/<head([^>]*)>/i, `<head$1>${storeMeta}`) : `<!doctype html><html><head>${storeMeta}</head><body>${newHtml}</body></html>`;
-  if (!/stoyangu-runtime-css/.test(stamped)) {
-    stamped = /<\/head\s*>/i.test(stamped)
-      ? stamped.replace(/<\/head\s*>/i, `<style id="stoyangu-runtime-css">${STY_RUNTIME_CSS}</style></head>`)
-      : `<style id="stoyangu-runtime-css">${STY_RUNTIME_CSS}</style>${stamped}`;
-  }
   if (!/html-storefront-bridge\.js/.test(stamped)) {
     stamped = /<\/body>/i.test(stamped)
       ? stamped.replace(/<\/body>/i, `<script src="/html-storefront-bridge.js" defer></script></body>`)
@@ -670,10 +181,7 @@ function renderTemplate(templateHtml, store, products, host) {
 // Storage helpers — read/write the storefront HTML inside design_json
 // ---------------------------------------------------------------------------
 function readStorefrontHtml(store) {
-  let design = store && typeof store.design_json === 'object' && store.design_json ? store.design_json : {};
-  if (typeof store?.design_json === 'string') {
-    try { design = JSON.parse(store.design_json); } catch { design = {}; }
-  }
+  const design = store && typeof store.design_json === 'object' && store.design_json ? store.design_json : {};
   return String(design.storefront_html || '').trim();
 }
 function withStorefrontHtml(store, html, sourceHtml, warnings) {
@@ -848,8 +356,8 @@ const DEFAULT_TEMPLATE = `<!doctype html>
     popupImage.setAttribute('src', image);
     popupName.textContent = name;
     popupPrice.textContent = price;
-    popupColor.innerHTML = '<option value="">Choose…</option>' + colors.map(function (c) { return '<option>' + c + '</option>'; }).join('');
-    popupSize.innerHTML = '<option value="">Choose…</option>' + sizes.map(function (s) { return '<option>' + s + '</option>'; }).join('');
+    popupColor.innerHTML = '<option value=\"\">Choose…</option>' + colors.map(function (c) { return '<option>' + c + '</option>'; }).join('');
+    popupSize.innerHTML = '<option value=\"\">Choose…</option>' + sizes.map(function (s) { return '<option>' + s + '</option>'; }).join('');
     var message = 'Hi ' + storeName + '! I want to order ' + name + ' (' + price + ').';
     var href = 'https://wa.me/' + phoneDigits + '?text=' + encodeURIComponent(message);
     popupOrder.setAttribute('href', href);
@@ -921,20 +429,17 @@ export default async function handler(req, res) {
       if (!storeId) return res.status(400).json({ error: 'Store is required.' });
       const auth = await authForStoreSave(req, storeId);
       if (!auth.ok) return res.status(403).json({ error: 'You must be signed in as the founder or the owner of this store to save its storefront.' });
-      const { data: storeRow, error: storeErr } = await supabase.from('stores').select('id,name,slug,whatsapp,logo_url,design_json').eq('id', storeId).single();
+      const { data: storeRow, error: storeErr } = await supabase.from('stores').select('id,name,slug,whatsapp,design_json').eq('id', storeId).single();
       if (storeErr || !storeRow) return res.status(404).json({ error: 'Store not found.' });
       const html = String(req.body?.template ?? '');
       const security = preserveRawHtml(html);
       if (!security.ok) return res.status(400).json({ error: 'Could not auto-fix this template.', details: security.errors });
       const visibilityWarnings = scanStorefrontWarnings(security.html);
       if (visibilityWarnings.length) console.warn(`Store ${storeId} HTML visibility warnings:`, visibilityWarnings);
-      const localRepair = repairLocalImagePaths(constrainRemoteImages(security.html));
+      const localRepair = repairLocalImagePaths(security.html);
       if (localRepair.repaired.length) console.warn(`Store ${storeId} local image paths repaired:`, localRepair.repaired);
-      // FIX (stoyangu-500): normalize the document shell + strip AI scaffolding
-      // BEFORE self-hosting, so only the final asset set is mirrored.
-      const repaired = applyStructuralRepair(ensureDesignRuntime(localRepair.html), storeRow);
-      const intercepted = await selfHostStorefrontAssets(repaired.html, storeId);
-      const prepared = intercepted.html;
+      const intercepted = await selfHostStorefrontAssets(localRepair.html, storeId);
+      const prepared = ensureDesignRuntime(intercepted.html);
       const structure = structureCheck(prepared);
       const nextDesign = withStorefrontHtml(storeRow, prepared, html, visibilityWarnings);
       const { data, error } = await supabase
@@ -947,7 +452,7 @@ export default async function handler(req, res) {
         console.error('Save failed:', error);
         return res.status(500).json({ error: `Could not save the template: ${error.message}` });
       }
-      const notes = [...(security.notes || []), ...(repaired.notes || []), ...visibilityWarnings, ...(intercepted.notes || []), ...(structure.warnings || [])];
+      const notes = [...(security.notes || []), ...visibilityWarnings, ...(intercepted.notes || []), ...(structure.warnings || [])];
       return res.status(200).json({
         ok: true,
         store: { id: data.id, name: data.name, slug: data.slug, storefront_html: String(data.design_json?.storefront_html || '').length },
@@ -970,19 +475,15 @@ export default async function handler(req, res) {
       const { data: store, error: storeError } = await supabase.from('stores').select('*').eq('id', storeId).single();
       if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
       const { data: products } = await supabase.from('products').select('*').eq('store_id', storeId).eq('active', true).order('created_at', { ascending: false });
-      const { data: previewMedia, error: previewMediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
+      const previewProducts = (products || []).slice(0, 6);
+      const { data: previewMedia, error: previewMediaError } = previewProducts.length ? await supabase.from('product_images').select('*').in('product_id', previewProducts.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
       if (previewMediaError) throw previewMediaError;
-      const liveProducts = (products || []).map((product) => {
+      const liveProducts = previewProducts.map((product) => {
         const images = (previewMedia || []).filter((image) => image.product_id === product.id).map((image) => image.url).filter(Boolean).slice(0, 7);
         return { ...product, images: images.length ? images : (product.image_url ? [product.image_url] : []) };
       });
-      // FIX (stoyangu-500): preview applies the same normalization + repair as
-      // save, so what you preview is exactly what gets saved.
-      const repairedOverride = repaired.html.trim()
-        ? applyStructuralRepair(ensureDesignRuntime(repaired.html), store).html
-        : '';
-      const template = repairedOverride || readStorefrontHtml(store) || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
-      const rendered = renderTemplate(template, store, liveProducts, String(req.headers.host || ''));
+      const template = repaired.html.trim() || readStorefrontHtml(store) || DEFAULT_TEMPLATE.replace(/{{STORE_NAME}}/g, store.name);
+      const rendered = renderTemplate(template, store, liveProducts);
       return res.status(200).json({
         html: rendered.html,
         warnings: rendered.warnings,
@@ -1044,7 +545,7 @@ export default async function handler(req, res) {
         res.setHeader('Cache-Control', 'no-store, max-age=0');
         return res.status(200).json({ store, products: liveProducts, renderedHtml: empty });
       }
-      const rendered = renderTemplate(storedHtml, store, liveProducts, String(req.headers.host || ''));
+      const rendered = renderTemplate(storedHtml, store, liveProducts);
       if (String(req.query?.format) === 'raw') {
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store, max-age=0');

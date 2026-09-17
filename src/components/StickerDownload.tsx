@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Download } from 'lucide-react';
 import { storeDomain } from '../lib/api';
 
@@ -124,44 +124,49 @@ async function renderSticker(domain: string): Promise<string> {
 
 export default function StickerDownload({ slug }: { slug: string }) {
   const domain = storeDomain(slug);
-  const [dataUrl, setDataUrl] = useState('');
-  const [building, setBuilding] = useState(true);
-  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let live = true;
-    setBuilding(true);
-    setFailed(false);
-    renderSticker(domain)
-      .then((url) => { if (live) setDataUrl(url); })
-      .catch((reason) => { console.error('Sticker render failed:', reason); if (live) setFailed(true); })
-      .finally(() => { if (live) setBuilding(false); });
-    return () => { live = false; };
-  }, [domain]);
-
-  const download = () => {
-    if (!dataUrl) return;
-    const anchor = document.createElement('a');
-    anchor.href = dataUrl;
-    anchor.download = `cheki-sticker-${slug}.png`;
-    anchor.click();
+  const download = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const dataUrl = await renderSticker(domain);
+      // Wozaa fix: iOS Safari ignores the download attribute on data/blob URLs,
+      // so on iPhone the sticker could never be saved. Convert to a real File
+      // and use the native share sheet ("Save Image" is one tap), with
+      // per-browser fallbacks below.
+      const blob = await (await fetch(dataUrl)).blob();
+      const fileName = `chegi-sticker-${slug}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+      if (typeof nav.canShare === 'function' && nav.canShare({ files: [file] })) {
+        try { await nav.share({ files: [file], title: 'StoYangu sticker' }); return; }
+        catch (shareError) { if ((shareError as Error)?.name === 'AbortError') return; /* owner closed the sheet */ }
+      }
+      const url = URL.createObjectURL(blob);
+      const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || ((navigator as unknown as { platform?: string }).platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (iOS) {
+        // Older iOS without file sharing: open the image in a tab so it can be
+        // saved with a long-press.
+        window.open(url, '_blank', 'noopener');
+        window.alert('Long-press the sticker image, then choose "Add to Photos" or "Save Image".');
+      } else {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (reason) {
+      console.error('Sticker render failed:', reason);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <section className="sticker-card">
-      <div className="sticker-preview">
-        {building && <div className="sticker-loading">Building your sticker…</div>}
-        {!building && dataUrl && <img src={dataUrl} alt={`Cheki sticker for ${domain}`} />}
-        {!building && failed && <div className="sticker-loading">Preview unavailable — try refreshing.</div>}
-      </div>
-      <div className="sticker-copy">
-        <span className="eyebrow">Free marketing sticker</span>
-        <h2>Cheki-sticker for your videos</h2>
-        <p>Drop it on any TikTok, Instagram or WhatsApp video — customers instantly see where to shop: <b>{domain}</b>. Download as many times as you want.</p>
-        <button className="button-primary" onClick={download} disabled={building || !dataUrl}>
-          {building ? 'Building sticker…' : 'Download sticker (PNG)'} <Download />
-        </button>
-      </div>
-    </section>
+    <button className="stika-button" onClick={download} disabled={busy}>
+      {busy ? 'Building…' : 'Download Stika'} <Download />
+    </button>
   );
 }
