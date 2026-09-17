@@ -235,7 +235,7 @@
       popup.innerHTML = '<div class="dialog">'
         + '<button type="button" class="sty-close" data-close-popup="1" aria-label="Close">×</button>'
         + '<div class="sty-media">'
-        + '<img class="popup-image" alt="" data-popup-image />'
+        + '<img class="popup-image" alt="" decoding="async" data-popup-image />'
         + '<button type="button" class="sty-photo-nav prev" data-photo-prev aria-label="Previous photo">&#8249;</button>'
         + '<button type="button" class="sty-photo-nav next" data-photo-next aria-label="Next photo">&#8250;</button>'
         + '<div class="sty-thumbs" data-thumbs></div>'
@@ -506,7 +506,7 @@
   function defaultCard(product) {
     var card = document.createElement('article');
     card.className = 'product-card sty-card';
-    card.innerHTML = '<img alt=""><div class="sty-body"><span class="sty-cat"></span><p class="product-name"></p><p class="product-price"></p><button type="button" class="sty-view" data-view-product="1">View product</button></div>';
+    card.innerHTML = '<img alt="" decoding="async"><div class="sty-body"><span class="sty-cat"></span><p class="product-name"></p><p class="product-price"></p><button type="button" class="sty-view" data-view-product="1">View product</button></div>';
     return fillCard(card, product);
   }
 
@@ -568,7 +568,7 @@
     }
     if (photos.length < 2) { thumbs.innerHTML = ''; return; }
     thumbs.innerHTML = photos.map(function (url) {
-      return '<button type="button" data-thumb="' + esc(url) + '" class="' + (url === activeImage ? 'active' : '') + '"><img src="' + esc(url) + '" alt=""></button>';
+      return '<button type="button" data-thumb="' + esc(url) + '" class="' + (url === activeImage ? 'active' : '') + '"><img src="' + esc(url) + '" alt="" loading="lazy" decoding="async"></button>';
     }).join('');
   }
 
@@ -782,10 +782,8 @@
 
   function productFromEvent(target) {
     var card = target.closest && target.closest('.product-card, [data-id], [data-product-id]');
-    console.log('STY-DEBUG card:', card);
     if (!card) return null;
     var found = byId[String(card.getAttribute('data-id') || card.getAttribute('data-product-id') || '')];
-    console.log('STY-DEBUG found:', found, 'byId keys:', Object.keys(byId));
     if (found && rawPrice(found.price) > 0) return found;
     if (found) {
       var fallback = rawPrice(card.getAttribute('data-price-value') || card.getAttribute('data-price'));
@@ -794,7 +792,6 @@
     }
     var cards = Array.prototype.slice.call(document.querySelectorAll('[data-sty-live="1"] .product-card, #productGrid .product-card, [data-product-grid] .product-card'));
     var index = cards.indexOf(card);
-    console.log('STY-DEBUG fallback index:', index, 'cards.length:', cards.length);
     return index >= 0 ? visibleProducts()[index] || null : null;
   }
 
