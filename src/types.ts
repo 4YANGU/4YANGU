@@ -134,6 +134,8 @@ export type SocialThread = {
   last_at: string;
   unread: number;
   resolved: boolean;
+  source_ref: string | null;
+  source_post: { id: number; caption: string; posted_at: string; media_urls: string[] } | null;
   messages: SocialMessage[];
 };
 
