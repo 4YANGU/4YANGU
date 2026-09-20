@@ -37,14 +37,14 @@ export function storeDomain(slug: string) {
   return detectedRootDomain() ? `${slug}.${detectedRootDomain()}` : `${window.location.host}/s/${slug}`;
 }
 
-export async function uploadImage(file: File, scope: 'logos' | 'products' | 'social') {
+export async function uploadImage(file: File, scope: 'logos' | 'products') {
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   const inferredTypes: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', bmp: 'image/bmp' };
   // iPhone fix: iOS sometimes hands photos over with an empty or non-image
   // MIME type — infer the real type from the file extension in that case.
   const needsInference = !file.type || !file.type.startsWith('image/');
   const typedFile = needsInference && inferredTypes[extension] ? new File([file], file.name, { type: inferredTypes[extension], lastModified: file.lastModified }) : file;
-  const prepared = scope === 'logos' ? typedFile : await compressProductImage(typedFile);
+  const prepared = scope === 'products' ? await compressProductImage(typedFile) : typedFile;
   if (prepared.size > 6 * 1024 * 1024) throw new Error('Please choose an image smaller than 6 MB.');
   if (!prepared.type.startsWith('image/')) throw new Error('Please choose a supported photo file.');
   const base64 = await new Promise<string>((resolve, reject) => {

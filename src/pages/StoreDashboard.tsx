@@ -1,4 +1,4 @@
-import { ArrowLeft, BellRing, Camera, Check, Edit3, ExternalLink, Eye, EyeOff, Home, Image, Inbox, KeyRound, LogOut, MessageCircle, PackagePlus, Plus, RefreshCw, Smartphone, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, BellRing, Camera, Check, Edit3, ExternalLink, Eye, EyeOff, Home, Image, Inbox as InboxIcon, KeyRound, LogOut, MessageCircle, PackagePlus, Plus, RefreshCw, Smartphone, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -11,7 +11,7 @@ import supabase from '../lib/supabase';
 import type { DashboardData, Order, Product } from '../types';
 import '../pricing-update.css';
 import '../order-update.css';
-import '../social-tiktok.css';
+import '../manage-redesign.css';
 
 const colorPresets = ['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold'];
 const sizePresets = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42'];
@@ -51,9 +51,13 @@ export default function StoreDashboard() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
-  const [activePage, setActivePage] = useState<'overview' | 'products' | 'inbox'>('overview');
+  const [activePage, setActivePage] = useState<'overview' | 'products'>('overview');
+  // TikTok-style redesign: Home and Inbox are the two destinations of the
+  // fixed bottom nav; the + button opens the post-once-to-all composer.
+  const [activeTab, setActiveTab] = useState<'home' | 'inbox'>('home');
   const [composerOpen, setComposerOpen] = useState(false);
-  const [inboxRefreshKey, setInboxRefreshKey] = useState(0);
+  const [socialUnread, setSocialUnread] = useState(0);
+  const [inboxKey, setInboxKey] = useState(0);
   const [linkCopied, setLinkCopied] = useState(false);
   // Vfixed: one persistent "is the app installed" flag for the whole page. It combines
   // (a) actually running as an installed app, (b) the local record written the moment
@@ -72,6 +76,17 @@ export default function StoreDashboard() {
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { document.documentElement.dataset.managePage = activePage; return () => { delete document.documentElement.dataset.managePage; }; }, [activePage]);
+  useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
+  const refreshSocialUnread = useCallback(async (storeIdValue: number) => {
+    try {
+      const status = await apiFetch<{ unread?: { total?: number } }>(`/api/media?action=social&op=status&storeId=${storeIdValue}`);
+      setSocialUnread(Number(status.unread?.total || 0));
+    } catch { /* badge stays hidden until the inbox loads */ }
+  }, []);
+  useEffect(() => {
+    const id = data?.store?.id;
+    if (id) refreshSocialUnread(id);
+  }, [data?.store?.id, refreshSocialUnread]);
   useEffect(() => {
     if (profile?.role !== 'owner') return;
     if (isStandaloneApp()) {
@@ -132,12 +147,12 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
   const cycleLabel = cycleStart && cycleEnd ? `${upkeep.upkeep_plan === 'PAID' ? 'KES 300 · ' : 'Free trial · '}Day ${cycleDay} of 30 · ${cycleStart.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })} – ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : (upkeep.upkeep_plan === 'PAID' ? 'KES 300 · current 30-day cycle' : 'Free trial · current 30-day cycle');
-  const openComposer = () => setComposerOpen(true);
-  const goInbox = () => setActivePage('inbox');
   return <div className="owner-page"><header className="owner-header"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'owner' && !appInstalled && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><BrandLogo compact /><h1>{store.name}</h1><span className="owner-cycle-dates">{cycleLabel}</span><div className="owner-store-link-row"><a href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)} <ExternalLink /></a><button onClick={copyStoreLink}>{linkCopied ? 'Copied!' : 'Copy link'}</button></div></header><main className="owner-main">
-    {activePage !== 'inbox' && <nav className="manage-page-tabs" aria-label="Manage store pages"><button className={activePage === 'overview' ? 'active' : ''} onClick={() => setActivePage('overview')}>Home</button><button className={activePage === 'products' ? 'active' : ''} onClick={() => setActivePage('products')}>Products</button></nav>}
-    {activePage === 'inbox' && <SocialInbox key={inboxRefreshKey} storeId={store.id} />}
-    {activePage !== 'inbox' && <>{error && <div className="dashboard-error">{error}</div>}
+    {activeTab === 'home' && <nav className="manage-page-tabs" aria-label="Manage store pages"><button className={activePage === 'overview' ? 'active' : ''} onClick={() => setActivePage('overview')}>Home</button><button className={activePage === 'products' ? 'active' : ''} onClick={() => setActivePage('products')}>Products</button></nav>}
+    {error && <div className="dashboard-error">{error}</div>}
+    {activeTab === 'inbox'
+    ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
+    : <>
     {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} installed={appInstalled} onInstalled={() => setAppInstalled(true)} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}
     <section className="analytics-grid two"><article className="metric-card owner-metric"><div className="metric-icon"><Users /></div><span>Store visitors</span><strong>{store.visitor_total.toLocaleString()}</strong><small>+{store.visitor_today} Today</small></article><article className={`metric-card owner-metric green ${upkeep.upkeep_plan === 'PAID' ? 'pro-plan' : ''}`}><div className="metric-icon"><MessageCircle /></div><span>Orders · last 30 days</span><strong>{upkeepOrders}</strong><small className="order-plan-pill">{upkeep.upkeep_plan === 'PAID' ? 'KES 300 · every 30 days' : 'FREE TRIAL · first 30 days'}</small></article></section>
@@ -147,11 +162,8 @@ export default function StoreDashboard() {
     {latestUpdate && !latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Latest update</span><h3>{updateTitle}</h3><p className="daily-traffic-summary"><b>{store.visitor_today}</b> people visited your store today and <b>{store.orders_today}</b> clicked Order via WhatsApp.</p><div className="daily-product-highlights">{latestUpdate.winner_product && <article className="champion"><img src={latestUpdate.winner_product.images?.[0] || latestUpdate.winner_product.image_url} alt={latestUpdate.winner_product.name} /><div><small>Today's champion product</small><strong>{latestUpdate.winner_product.name}</strong><span>{latestUpdate.winner_product.orders_today} orders from {latestUpdate.winner_product.views_today} views today. This product is leading your store.</span></div></article>}{latestUpdate.needs_product && <article><img src={latestUpdate.needs_product.images?.[0] || latestUpdate.needs_product.image_url} alt={latestUpdate.needs_product.name} /><div><small>Needs a look</small><strong>{latestUpdate.needs_product.name}</strong><span>{latestUpdate.needs_product.views_today} views with {latestUpdate.needs_product.orders_today} orders today. Try improving its main photo or checking the price.</span></div></article>}</div><p className="daily-update-reminder">Keep mentioning <b>{storeDomain(store.slug)}</b> in your videos so customers always know where to shop.</p></div></section>}
     <section className="incoming-orders"><div className="incoming-orders-head"><div><span className="eyebrow">Order management</span><h2>Incoming orders</h2><p>Customer details and product choices, newest first.</p></div><span className="order-status-count">{(data.orders || []).filter((order) => order.status === 'new').length} new</span></div>{data.orders?.length ? <div className="incoming-order-list">{data.orders.map((order) => { const orderedProduct = (data.products || []).find((product) => product.id === order.product_id); const orderPhoto = orderedProduct?.images?.[0] || orderedProduct?.image_url || ''; return <article className="incoming-order" key={order.id}>{orderPhoto ? <img className="incoming-order-photo" src={orderPhoto} alt={order.product_name} /> : <div className="incoming-order-photo incoming-order-photo-empty" aria-hidden="true" />}<div className="incoming-order-main"><strong>{order.product_name}</strong><span>{formatMoney(order.product_price)}{order.color ? ` · ${order.color}` : ''}{order.size ? ` · ${order.size}` : ''}{order.fulfilment ? ` · ${order.fulfilment}` : ''}</span>{order.note && <span>“{order.note}”</span>}</div><div className="incoming-order-customer"><a href={`tel:${order.customer_phone}`}>{order.customer_phone}</a><small>{new Date(order.created_at).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</small></div><button className={`order-done-toggle ${order.status === 'new' ? '' : 'done'}`} onClick={() => updateOrderStatus(order, order.status === 'new' ? 'completed' : 'new')}>{order.status === 'new' ? 'new' : 'done'}</button></article>; })}</div> : <div className="orders-empty">Confirmed customer orders will appear here.</div>}</section>
     <section className="products-panel"><div className="dash-section-head"><div><span className="eyebrow">Your live shelf</span><h2>Products</h2><p>{locked ? 'Locked until the next KES 300 payment — your products stay live for customers.' : `${data.products?.length || 0} products customers can shop.`}</p></div><button className="button-primary" onClick={() => setEditing('new')} disabled={locked}><Plus /> Add product</button></div><div className="owner-product-list">{data.products?.map((product) => <article key={product.id}><img src={product.image_url || '/stoyangu-logo.png'} alt={product.name} /><div className="owner-product-name"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong></div><div className="word-stats"><p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p><p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p></div><div className="product-actions"><button onClick={() => setEditing(product)} disabled={locked}><Edit3 /> Edit</button><button className="danger" onClick={() => remove(product)} disabled={locked}><Trash2 /> Delete</button></div></article>)}</div>{!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Add the first product. A photo, name and price is enough.</p><button className="button-primary" onClick={() => setEditing('new')}><PackagePlus /> Add first product</button></div>}</section>
-  </>}</main><nav className="tiktok-bottom-nav" aria-label="Manage store">
-    <button className={activePage !== 'inbox' ? 'active' : ''} onClick={() => setActivePage('overview')} aria-label="Home"><Home /><span>Home</span></button>
-    <button className="tiktok-post-fab" onClick={openComposer} aria-label="Post to social apps"><span className="tiktok-post-fab-inner"><Plus /></span></button>
-    <button className={activePage === 'inbox' ? 'active' : ''} onClick={goInbox} aria-label="Inbox"><Inbox /><span>Inbox</span></button>
-  </nav>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{composerOpen && <PostComposer storeId={store.id} onClose={() => setComposerOpen(false)} onPosted={() => { setInboxRefreshKey((key) => key + 1); goInbox(); }} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}</div>;
+    </>}
+  </main><nav className="manage-bottom-nav" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')} aria-label="Home"><Home /><span>Home</span></button><button className="manage-nav-post" onClick={() => setComposerOpen(true)} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'inbox' ? 'active' : ''}`} onClick={() => setActiveTab('inbox')} aria-label="Inbox"><InboxIcon /><span>Inbox</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{composerOpen && <PostComposer storeId={store.id} products={data.products || []} onClose={() => setComposerOpen(false)} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} />}</div>;
 }
 
 function InstallAppCard({ forceOpen, installed, onInstalled, onDismiss }: { forceOpen: boolean; installed: boolean; onInstalled: () => void; onDismiss: () => void }) {

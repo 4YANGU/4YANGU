@@ -81,6 +81,62 @@ export type Application = {
   created_at: string;
 };
 
+export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram' | 'youtube' | 'threads';
+
+export type SocialConnection = {
+  id: number;
+  store_id: number;
+  platform: string;
+  account_handle: string;
+  account_id: string | null;
+  connection_status: string;
+  auth_payload: Record<string, unknown>;
+  connected_at: string;
+  updated_at: string;
+};
+
+export type SocialPost = {
+  id: number;
+  store_id: number;
+  caption: string;
+  media_urls: string[];
+  platforms: string[];
+  status: string;
+  results: Record<string, unknown>;
+  scheduled_at: string | null;
+  posted_at: string | null;
+  created_at: string;
+};
+
+export type SocialMessage = {
+  id: number;
+  store_id: number;
+  platform: string;
+  kind: string;
+  thread_key: string;
+  sender_name: string;
+  sender_handle: string | null;
+  body: string;
+  direction: 'in' | 'out';
+  is_read: boolean;
+  is_resolved: boolean;
+  external_id: string | null;
+  created_at: string;
+};
+
+export type SocialThread = {
+  thread_key: string;
+  platform: string;
+  kind: string;
+  sender_name: string;
+  sender_handle: string | null;
+  last_body: string;
+  last_at: string;
+  unread: number;
+  resolved: boolean;
+  messages: SocialMessage[];
+};
+
 export type DashboardData = {
   profile: Profile;
   analytics?: {
