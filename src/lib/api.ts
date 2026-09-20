@@ -95,3 +95,22 @@ async function compressProductImage(file: File): Promise<File> {
     return file;
   }
 }
+
+// Woyoyo-004: composer media (photos + TikTok-style videos). The server mints
+// a signed upload URL and the browser PUTs the file straight to Supabase
+// storage, so large videos never pass through the serverless function.
+export async function uploadPostMedia(file: File): Promise<{ url: string; kind: 'image' | 'video' }> {
+  const declared = file.type || '';
+  const isVideo = declared.startsWith('video/') || (!declared.startsWith('image/') && /\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name));
+  if (isVideo && file.size > 75 * 1024 * 1024) throw new Error('Please keep videos under 75 MB.');
+  if (!isVideo && file.size > 15 * 1024 * 1024) throw new Error('Please choose a photo smaller than 15 MB.');
+  const prepared = isVideo ? file : await compressProductImage(file);
+  const contentType = prepared.type || (isVideo ? 'video/mp4' : 'image/jpeg');
+  const prep = await apiFetch<{ signedUrl: string; url: string; kind: 'image' | 'video' }>(
+    '/api/media?action=post-upload-url',
+    { method: 'POST', body: JSON.stringify({ fileName: prepared.name, contentType, kind: isVideo ? 'video' : 'image' }) },
+  );
+  const put = await fetch(prep.signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: prepared });
+  if (!put.ok) throw new Error('Could not upload that file. Please try again.');
+  return { url: prep.url, kind: prep.kind };
+}

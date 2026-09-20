@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
 import Modal from './Modal';
 import { apiFetch } from '../lib/api';
@@ -46,12 +46,20 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [seeding, setSeeding] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [replizPending, setReplizPending] = useState('');
+  const [picker, setPicker] = useState<{ platform: string; state: string; token: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const loadRef = useRef<() => void>(() => undefined);
 
-  const load = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true); else setLoading(true);
-    setError('');
+  const load = useCallback(async (silent = false, background = false) => {
+    if (background) { /* live mode syncs silently below — never show spinners */ }
+    else if (silent) setRefreshing(true);
+    else setLoading(true);
+    if (!background) setError('');
     try {
+      if (background) {
+        // Quiet live sync: pull newest Repliz comments/chats, then re-read.
+        await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: storeId }) }).catch(() => undefined);
+      }
       const [s, inbox] = await Promise.all([
         apiFetch<StatusResponse>(`/api/media?action=social&op=status&storeId=${storeId}`),
         apiFetch<InboxResponse>(`/api/media?action=social&op=inbox&storeId=${storeId}`),
@@ -60,7 +68,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       setThreads(inbox.threads || []);
       onActivity?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load the inbox.');
+      if (!background) setError(err instanceof Error ? err.message : 'Could not load the inbox.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -69,6 +77,22 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   }, [storeId]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadRef.current = () => load(true, true); }, [load]);
+
+  // Woyoyo-004: social-style auto-refresh — the inbox quietly checks for new
+  // DMs and comments every 20 seconds (only when the tab is visible and the
+  // owner is not typing a reply), so nothing is ever missed.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      const active = document.activeElement;
+      if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return;
+      loadRef.current();
+    }, 20000);
+    const onVisible = () => { if (!document.hidden) loadRef.current(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
 
   const selected = useMemo(() => threads.find((t) => t.thread_key === selectedKey) || null, [threads, selectedKey]);
 
@@ -140,20 +164,65 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
+  // Woyoyo-004: connect opens the official platform OAuth page in a pop-up.
+  // Single-step platforms finish in the pop-up; Facebook/YouTube return a
+  // Page/channel picker that is completed inside this modal.
   const connect = async (platform: string) => {
     if (busyKey) return;
     setBusyKey(`connect-${platform}`);
     setError('');
-    setReplizPending('');
     try {
-      await apiFetch<{ connection?: SocialConnection; connect_url?: string }>('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'connect', store_id: storeId, platform }) });
+      const started = await apiFetch<{ connection?: SocialConnection; oauth?: boolean; authorize_url?: string; state?: string }>('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'connect', store_id: storeId, platform }) });
+      if (!started.oauth || !started.authorize_url) {
+        await load(true);
+        return;
+      }
+      const popup = window.open(started.authorize_url, `stoyangu-connect-${platform}`, 'width=560,height=680');
+      if (!popup) {
+        setError('Your browser blocked the connect window. Allow pop-ups for this site and try again.');
+        return;
+      }
+      const outcome = await new Promise<{ ok: boolean; connection?: SocialConnection; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string; error?: string }>((resolve) => {
+        const timeout = window.setTimeout(() => { window.removeEventListener('message', onMessage); resolve({ ok: false, error: 'The connection window timed out. Please try again.' }); }, 300000);
+        const onMessage = (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return;
+          const data = event.data;
+          if (!data || data.source !== 'stoyangu-oauth') return;
+          window.clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+          resolve(data);
+        };
+        window.addEventListener('message', onMessage);
+      });
+      try { popup.close(); } catch { /* already closed */ }
+      if (!outcome.ok) {
+        setError(outcome.error || 'Could not connect that account.');
+        return;
+      }
+      if (outcome.needs_pick && outcome.token && outcome.choices?.length) {
+        setPicker({ platform: outcome.platform || platform, state: outcome.state || started.state || '', token: outcome.token, choices: outcome.choices });
+        return;
+      }
       await load(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not connect that account.';
-      setError(message);
-      if (/repliz/i.test(message)) setReplizPending(platform);
+      setError(err instanceof Error ? err.message : 'Could not connect that account.');
     } finally {
       setBusyKey('');
+    }
+  };
+
+  const finishPick = async (selectionId: string) => {
+    if (!picker || picking) return;
+    setPicking(true);
+    setError('');
+    try {
+      await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'oauth_pick', store_id: storeId, platform: picker.platform, selection_id: selectionId, token: picker.token, state: picker.state }) });
+      setPicker(null);
+      await load(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not finish that connection.');
+    } finally {
+      setPicking(false);
     }
   };
 
@@ -176,7 +245,6 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     setError('');
     try {
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_accounts', store_id: storeId }) });
-      setReplizPending('');
       await load(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not refresh from Repliz.');
@@ -206,13 +274,12 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   return <section className="social-inbox" aria-label="Inbox">
     <div className="social-inbox-head">
       <div>
-        <span className="eyebrow">Repliz connected inbox</span>
         <h2>Inbox</h2>
         <p>DMs and comments from TikTok, Facebook, Instagram, YouTube and Threads — in one place.</p>
       </div>
       <div className="social-head-actions">
         <button className="secondary-button accounts-button" onClick={() => setAccountsOpen(true)}><Link2 /> Accounts{connectedCount < 5 ? ` · ${connectedCount}/5` : ''}</button>
-        <button className="secondary-button" onClick={() => load(true)} disabled={refreshing}><RefreshCw className={refreshing ? 'spin' : ''} /> Refresh</button>
+        <button className="inbox-refresh-icon" onClick={() => load(true)} disabled={refreshing} aria-label="Refresh inbox" title="Refresh inbox"><RefreshCw className={refreshing ? 'spin' : ''} /></button>
       </div>
     </div>
     {error && <div className="form-error">{error}</div>}
@@ -272,26 +339,39 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
             </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a conversation to read and reply.</p></div>}
           </div>
         </div>}
-    {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 5`} onClose={() => setAccountsOpen(false)}>
+    {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 5`} onClose={() => { setAccountsOpen(false); setPicker(null); }}>
       <div className="accounts-modal-body">
-        <p className="form-intro">Connect each platform through Repliz. Posting and replies use these accounts automatically.</p>
-        <div className="accounts-modal-list">
-          {PLATFORMS.map((platform) => {
-            const connection = status?.connections.find((c) => c.platform === platform);
-            return <div key={platform} className="account-row">
-              <PlatformBadge platform={platform} />
-              <div><strong>{connection ? connection.account_handle : 'Not connected'}</strong><small>{connection ? 'Linked through Repliz' : `Tap Connect to link your ${platformLabel(platform)} account`}</small></div>
-              {connection
-                ? <button className="social-unlink" onClick={() => disconnect(connection.id)} disabled={busyKey === `conn-${connection.id}`} aria-label={`Disconnect ${platformLabel(platform)}`} title="Disconnect"><Unlink /></button>
-                : <button className="social-link" onClick={() => connect(platform)} disabled={busyKey === `connect-${platform}`}>{busyKey === `connect-${platform}` ? 'Connecting…' : 'Connect'}</button>}
-            </div>;
-          })}
-        </div>
-        {replizPending && <div className="form-error">No {platformLabel(replizPending)} account was found in your Repliz workspace. Connect it inside Repliz, then press Refresh below. <a href="https://repliz.com/" target="_blank" rel="noreferrer">Open Repliz</a></div>}
-        <div className="modal-actions">
-          <button type="button" className="secondary-button" onClick={syncAccounts} disabled={syncing}><RefreshCw className={syncing ? 'spin' : ''} /> {syncing ? 'Checking…' : 'Refresh from Repliz'}</button>
-          <button type="button" className="button-primary compact" onClick={() => setAccountsOpen(false)}>Done <Check /></button>
-        </div>
+        {picker ? <>
+          <p className="form-intro">{picker.platform === 'facebook' ? 'Choose the Facebook Page to connect.' : 'Choose the YouTube channel to connect.'}</p>
+          <div className="accounts-modal-list">
+            {picker.choices.map((choice) => <div key={choice.id} className="account-row oauth-pick-row">
+              {choice.picture ? <img src={choice.picture} alt="" /> : <PlatformBadge platform={picker.platform} />}
+              <div><strong>{choice.name}</strong><small>{choice.username ? `@${choice.username}` : platformLabel(picker.platform)}</small></div>
+              <button className="social-link" onClick={() => finishPick(choice.id)} disabled={picking}>{picking ? 'Connecting…' : 'Use this'}</button>
+            </div>)}
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={() => setPicker(null)}>Back</button>
+          </div>
+        </> : <>
+          <p className="form-intro">Connect each platform through Repliz. Posting and replies use these accounts automatically.</p>
+          <div className="accounts-modal-list">
+            {PLATFORMS.map((platform) => {
+              const connection = status?.connections.find((c) => c.platform === platform);
+              return <div key={platform} className="account-row">
+                <PlatformBadge platform={platform} />
+                <div><strong>{connection ? connection.account_handle : 'Not connected'}</strong><small>{connection ? 'Linked through Repliz' : `Tap Connect to link your ${platformLabel(platform)} account`}</small></div>
+                {connection
+                  ? <button className="social-unlink" onClick={() => disconnect(connection.id)} disabled={busyKey === `conn-${connection.id}`} aria-label={`Disconnect ${platformLabel(platform)}`} title="Disconnect"><Unlink /></button>
+                  : <button className="social-link" onClick={() => connect(platform)} disabled={busyKey === `connect-${platform}`}>{busyKey === `connect-${platform}` ? 'Connecting…' : 'Connect'}</button>}
+              </div>;
+            })}
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={syncAccounts} disabled={syncing}><RefreshCw className={syncing ? 'spin' : ''} /> {syncing ? 'Checking…' : 'Refresh from Repliz'}</button>
+            <button type="button" className="button-primary compact" onClick={() => setAccountsOpen(false)}>Done <Check /></button>
+          </div>
+        </>}
       </div>
     </Modal>}
   </section>;

@@ -42,4 +42,23 @@
 .incoming-order{grid-template-columns:auto minmax(160px,1.25fr) minmax(130px,.8fr) auto}
 .incoming-order-photo{width:54px;height:54px;border-radius:11px;object-fit:cover;background:#eef1ec}
 .incoming-order-photo-empty{background:#eef1ec}
-@media(max-width:720px){.incoming-order{grid-template-columns:auto 1fr;gap:10px}}
+.order-delete{border:1px solid #efd2cf;background:#fff;color:#a74a43;border-radius:50%;width:34px;height:34px;display:grid;place-items:center;flex:0 0 auto}
+.order-delete svg{width:15px}
+.order-delete:hover{background:#fdf0ef}
+@media(max-width:720px){.incoming-order{grid-template-columns:auto 1fr;gap:10px}.order-delete{grid-column:2;justify-self:end}}
+/* Woyoyo-004: polished manage-store header — store logo left, name + details right. */
+.owner-header{display:grid;grid-template-columns:1fr;justify-items:center}
+.owner-header-actions{width:100%;max-width:1040px}
+.owner-store-logo{grid-column:1}
+.owner-header-copy{grid-column:1}
+.owner-header.owner-header-split{text-align:left}
+.owner-header-split .owner-header-actions{max-width:none}
+.owner-header-identity{width:100%;max-width:1040px;margin:14px auto 0;display:flex;align-items:center;gap:18px;text-align:left}
+.owner-header-identity .owner-store-logo{flex:0 0 auto;margin:0}
+.owner-header-identity .owner-store-logo-fallback{flex:0 0 auto}
+.owner-header-identity .owner-store-logo-fallback .brand-logo-compact{width:88px;height:88px;border-radius:50%;background:#fff;padding:8px;box-sizing:border-box}
+.owner-header-copy{min-width:0}
+.owner-header-copy h1{margin:.1rem 0;font-size:1.9rem;line-height:1.1}
+.owner-header-copy .owner-cycle-dates{margin:6px 0}
+.owner-header-copy .owner-store-link-row{justify-content:flex-start}
+@media(max-width:560px){.owner-header-identity{gap:13px}.owner-header-identity .owner-store-logo{width:84px;height:84px}.owner-header-copy h1{font-size:1.45rem}.owner-header-copy .owner-store-link-row>a{font-size:.64rem}}

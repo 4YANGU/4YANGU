@@ -1,10 +1,10 @@
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
-import { fallbackOrders, missingOrdersTable, saveFallbackOrder, storeOrders, updateFallbackOrder } from '../lib/order-fallback.js';
+import { deleteFallbackOrder, fallbackOrders, missingOrdersTable, saveFallbackOrder, storeOrders, updateFallbackOrder } from '../lib/order-fallback.js';
 
 const cors = (res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 };
 
@@ -149,6 +149,26 @@ export default async function handler(req, res) {
       const { data, error } = await supabase.from('orders').update({ status, updated_at: new Date().toISOString() }).eq('id', id).select().single();
       if (error) throw error;
       return res.status(200).json(data);
+    }
+    if (req.method === 'DELETE') {
+      // Woyoyo-004: delete icon on incoming orders. Ownership is enforced
+      // exactly like the status update above (owner: own store only).
+      const id = Number(req.body?.id || 0);
+      if (!id) return res.status(400).json({ error: 'Order is required.' });
+      if (id < 0) {
+        if (profile.role !== 'founder') { const owned = await fallbackOrders(supabase, Number(profile.store_id || 0), 200); if (!owned.some((order) => order.id === id)) return res.status(403).json({ error: 'You cannot delete this order.' }); }
+        const deleted = await deleteFallbackOrder(supabase, id);
+        if (!deleted) return res.status(404).json({ error: 'Order not found.' });
+        return res.status(200).json({ ok: true });
+      }
+      const { data: existing, error: existingError } = await supabase.from('orders').select('*').eq('id', id).single();
+      if (missingOrdersTable(existingError)) return res.status(404).json({ error: 'Order not found.' });
+      if (existingError && existingError.code !== 'PGRST116') throw existingError;
+      if (!existing) return res.status(404).json({ error: 'Order not found.' });
+      if (profile.role !== 'founder' && Number(profile.store_id) !== Number(existing.store_id)) return res.status(403).json({ error: 'You cannot delete this order.' });
+      const { error } = await supabase.from('orders').delete().eq('id', id);
+      if (error) throw error;
+      return res.status(200).json({ ok: true });
     }
     return res.status(405).json({ error: 'Method not allowed.' });
   } catch (error) {

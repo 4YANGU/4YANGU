@@ -3,10 +3,14 @@
 //  Combined auth/media/social endpoint
 //  ?action=profile — get the current user's StoYangu profile (GET only)
 //  ?action=upload  — upload a product photo or store logo (POST only)
+//  ?action=post-upload-url — signed URL for a composer photo/video (POST;
+//                    the browser uploads straight to storage, no size limits)
 //  ?action=social  — Repliz social layer: connect accounts, post-once-to-all,
 //                    unified DMs/comments inbox (GET ?op=status|inbox|posts,
-//                    POST { op: connect|disconnect|publish|save_draft|reply|
-//                    read|resolve|seed_demo })
+//                    POST { op: connect|oauth_pick|disconnect|sync_accounts|
+//                    sync_inbox|publish|save_draft|reply|read|resolve|
+//                    seed_demo })
+//  ?action=social-callback — landing page for official platform OAuth (GET)
 //
 //  This was originally two files (/api/profile and /api/upload). They were
 //  merged into one serverless function to stay under Vercel's Hobby plan
@@ -16,11 +20,16 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
-import { REPLIZ_LABELS, REPLIZ_PLATFORMS, mockPublishResults, mockSeedThreads, replizConnectUrl, replizMode, replizPublish, replizSendReply, replizWorkspaceAccounts } from '../lib/repliz.js';
+import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, mockPublishResults, mockSeedThreads, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
+const ALLOWED_POST_MEDIA_TYPES = /^image\/(jpeg|jpg|png|webp|gif)$/i;
+const ALLOWED_POST_VIDEO_TYPES = /^video\/(mp4|quicktime|webm)$/i;
 const MAX_BASE64 = 8_400_000;
 const MAX_BYTES = 6_291_456;
+const MAX_POST_BASE64 = 105_000_000;
+const MAX_POST_BYTES = 78_643_200;
+const POST_MEDIA_BUCKET = 'stoyangu-posts';
 
 function applyCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -113,47 +122,62 @@ async function handleSocialPosts(req, res, profile, storeId) {
 }
 
 async function handleSocialConnect(req, res, profile, storeId) {
-  // Woyoyo-003: connect binds the store to the REAL Repliz-side account over
-  // the public Repliz API. The owner taps a platform — no username is typed.
+  // Woyoyo-004: official OAuth. With live keys, tapping Connect returns the
+  // platform's official authorization URL — the owner approves there and the
+  // platform sends them back to our callback, which binds the account.
+  // Without keys (demo mode), the old instant local connection is used.
   const platform = String(req.body?.platform || '').toLowerCase();
   if (!REPLIZ_PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Unknown platform.' });
   const mode = replizMode();
-  let account = null;
-  if (mode === 'live') {
-    let workspace = [];
-    try {
-      workspace = await replizWorkspaceAccounts();
-    } catch (connectError) {
-      return res.status(502).json({ error: connectError instanceof Error ? connectError.message : 'Could not reach Repliz.' });
-    }
-    account = workspace.find((entry) => entry.platform === platform) || null;
-    if (!account) {
-      return res.status(404).json({
-        error: `No ${REPLIZ_LABELS[platform] || platform} account is connected in your Repliz workspace yet. Connect it inside Repliz, then tap Refresh from Repliz.`,
-        connect_url: replizConnectUrl(),
-      });
-    }
-  } else {
+  if (mode !== 'live') {
     const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
     const slug = String(store?.name || 'mystore').toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore';
-    account = { id: `mock_${platform}_${storeId}`, handle: `@${slug}`, display_name: store?.name || 'Store', avatar_url: '' };
+    const connection = await upsertConnection(storeId, platform, {
+      id: `mock_${platform}_${storeId}`,
+      handle: `@${slug}`,
+      display_name: store?.name || 'Store',
+      avatar_url: '',
+    }, 'mock');
+    return res.status(200).json({ connection, oauth: false });
   }
-  const handle = String(account.handle || '').trim() || `@${platform}-account`;
-  const { data: existing } = await supabase.from('social_connections').select('id').eq('store_id', storeId).eq('platform', platform).limit(1);
+  try {
+    const redirect = replizCallbackUrl(req);
+    const state = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+    const { error: stateError } = await supabase.from('social_oauth_states').insert({
+      store_id: storeId,
+      token: state,
+      platform,
+      data: { user_id: profile.user_id, redirect },
+      expires_at: new Date(Date.now() + 30 * 60000).toISOString(),
+    });
+    if (stateError && !/42P01|PGRST205|does not exist|schema cache/i.test(stateError.message || '')) throw stateError;
+    const url = await replizAuthorizeUrl({ platform, redirect });
+    const joiner = url.includes('?') ? '&' : '?';
+    return res.status(200).json({ oauth: true, authorize_url: `${url}${joiner}state=${encodeURIComponent(state)}`, state });
+  } catch (connectError) {
+    return res.status(502).json({ error: connectError instanceof Error ? connectError.message : 'Could not reach Repliz.' });
+  }
+}
+
+async function upsertConnection(storeId, platform, account, status) {
+  const handle = String(account?.handle || '').trim() || `@${platform}-account`;
   const values = {
     store_id: storeId,
     platform,
     account_handle: handle.startsWith('@') ? handle : `@${handle}`,
-    account_id: account.id,
-    connection_status: mode === 'mock' ? 'mock' : 'connected',
-    auth_payload: mode === 'mock' ? { mode: 'mock' } : { display_name: account.display_name || '', avatar_url: account.avatar_url || '', synced_at: new Date().toISOString() },
+    account_id: String(account?.id || ''),
+    connection_status: status,
+    auth_payload: status === 'mock'
+      ? { mode: 'mock' }
+      : { display_name: account?.display_name || '', avatar_url: account?.avatar_url || '', synced_at: new Date().toISOString() },
     updated_at: new Date().toISOString(),
   };
+  const { data: existing } = await supabase.from('social_connections').select('id').eq('store_id', storeId).eq('platform', platform).limit(1);
   const saved = existing?.length
     ? await supabase.from('social_connections').update(values).eq('id', existing[0].id).select().single()
     : await supabase.from('social_connections').insert(values).select().single();
   if (saved.error) throw saved.error;
-  return res.status(200).json({ connection: saved.data });
+  return saved.data;
 }
 
 async function handleSocialDisconnect(req, res, profile, storeId) {
@@ -180,29 +204,50 @@ async function handleSocialSyncAccounts(req, res, profile, storeId) {
   let synced = 0;
   for (const account of workspace) {
     if (!REPLIZ_PLATFORMS.includes(account.platform)) continue;
-    const handle = String(account.handle || '').trim() || `@${account.platform}-account`;
-    const values = {
-      store_id: storeId,
-      platform: account.platform,
-      account_handle: handle.startsWith('@') ? handle : `@${handle}`,
-      account_id: account.id,
-      connection_status: 'connected',
-      auth_payload: { display_name: account.display_name || '', avatar_url: account.avatar_url || '', synced_at: new Date().toISOString() },
-      updated_at: new Date().toISOString(),
-    };
-    const { data: existing } = await supabase.from('social_connections').select('id').eq('store_id', storeId).eq('platform', account.platform).limit(1);
-    const saved = existing?.length
-      ? await supabase.from('social_connections').update(values).eq('id', existing[0].id).select().single()
-      : await supabase.from('social_connections').insert(values).select().single();
-    if (!saved.error) synced += 1;
+    try {
+      await upsertConnection(storeId, account.platform, account, 'connected');
+      synced += 1;
+    } catch { /* one bad row never blocks the rest */ }
   }
   const { data } = await supabase.from('social_connections').select('*').eq('store_id', storeId).order('platform', { ascending: true });
   return res.status(200).json({ connections: data || [], synced });
 }
 
+// Woyoyo-004: pick the Page (Facebook) or channel (YouTube) that completes a
+// two-step OAuth connection. The token and pending state come from the
+// callback page; we bind into Repliz, then store the connection.
+async function handleSocialOAuthPick(req, res, profile, storeId) {
+  const platform = String(req.body?.platform || '').toLowerCase();
+  const selectionId = String(req.body?.selection_id || '');
+  const token = String(req.body?.token || '');
+  const state = String(req.body?.state || '');
+  if (!REPLIZ_TWO_STEP.includes(platform) || !selectionId || !token) {
+    return res.status(400).json({ error: 'Choose a Page or channel first.' });
+  }
+  if (state) {
+    const { data: saved } = await supabase.from('social_oauth_states').select('*').eq('token', state).limit(1).maybeSingle();
+    if (saved && Number(saved.store_id) !== Number(storeId)) return res.status(403).json({ error: 'That connection belongs to another store.' });
+  }
+  try {
+    const { accountId, account } = await replizConnectOAuth({ platform, token, selectionId });
+    if (!accountId) throw new Error('Repliz accepted the connection but did not return an account. Please try again.');
+    const connection = await upsertConnection(storeId, platform, account && account.handle ? account : { id: accountId, handle: `@${platform}-account` }, 'connected');
+    if (state) await supabase.from('social_oauth_states').delete().eq('token', state);
+    return res.status(200).json({ connection });
+  } catch (pickError) {
+    return res.status(502).json({ error: pickError instanceof Error ? pickError.message : 'Could not finish that connection.' });
+  }
+}
+
 async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   const caption = String(req.body?.caption || '').trim().slice(0, 2200);
-  const mediaUrls = Array.isArray(req.body?.media_urls) ? req.body.media_urls.map((u) => String(u).slice(0, 1000)).filter(Boolean).slice(0, 4) : [];
+  const mediaUrls = Array.isArray(req.body?.media_urls) ? req.body.media_urls.map((u) => String(u).slice(0, 1000)).filter(Boolean).slice(0, 10) : [];
+  // Woyoyo-004: the composer sends one kind per attachment ('image'/'video')
+  // so TikTok-style videos publish as videos on every platform.
+  const mediaKinds = Array.isArray(req.body?.media_kinds)
+    ? req.body.media_kinds.map((kind) => (kind === 'video' ? 'video' : 'image')).slice(0, 10)
+    : mediaUrls.map((url) => (/\.(mp4|mov|m4v|webm|3gp)(\?|#|$)/i.test(url) ? 'video' : 'image'));
+  const title = String(req.body?.title || '').trim().slice(0, 120);
   if (!caption) return res.status(400).json({ error: 'Write a caption first.' });
   const mode = replizMode();
   const { data: connections, error: connError } = await supabase.from('social_connections').select('*').eq('store_id', storeId);
@@ -219,8 +264,8 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
       for (const platform of platforms) {
         const connection = (connections || []).find((c) => c.platform === platform);
         try {
-          const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls });
-          results[platform] = { ok: true, mode: 'live', external_id: String(posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() };
+          const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title });
+          results[platform] = { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() };
         } catch (publishError) {
           results[platform] = { ok: false, mode: 'live', error: publishError instanceof Error ? publishError.message : 'Publish failed.' };
         }
@@ -230,10 +275,10 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   const { data, error } = await supabase.from('social_posts').insert({
     store_id: storeId,
     caption,
-    media_urls: mediaUrls,
+    media_urls: normalizePublishMedia(mediaUrls, mediaKinds).map((item) => item.url),
     platforms,
     status: asDraft ? 'draft' : 'posted',
-    results,
+    results: { ...(results || {}), media_kinds: mediaKinds },
     posted_at: asDraft ? null : new Date().toISOString(),
   }).select().single();
   if (error) throw error;
@@ -290,6 +335,10 @@ async function handleSocialRead(req, res, profile, storeId) {
   if (!threadKey) return res.status(400).json({ error: 'Conversation is required.' });
   const { error } = await supabase.from('social_messages').update({ is_read: true }).eq('store_id', storeId).eq('thread_key', threadKey).eq('direction', 'in');
   if (error) throw error;
+  // Live mode: also clear it on the platform side for DM threads.
+  if (replizMode() === 'live' && threadKey.startsWith('chat:')) {
+    try { await replizMarkChatRead(threadKey.slice(5)); } catch { /* local state already correct */ }
+  }
   return res.status(200).json({ ok: true });
 }
 
@@ -299,7 +348,127 @@ async function handleSocialResolve(req, res, profile, storeId) {
   if (!threadKey) return res.status(400).json({ error: 'Conversation is required.' });
   const { error } = await supabase.from('social_messages').update({ is_resolved: resolved }).eq('store_id', storeId).eq('thread_key', threadKey);
   if (error) throw error;
+  // Live mode: mirror comment status back into the Repliz inbox.
+  if (replizMode() === 'live') {
+    try {
+      const { data: rows } = await supabase.from('social_messages').select('kind,external_id').eq('store_id', storeId).eq('thread_key', threadKey).eq('direction', 'in').limit(1);
+      const head = rows?.[0];
+      if (head?.kind === 'comment' && head.external_id && !String(head.external_id).startsWith('mock_')) {
+        await replizUpdateCommentStatus(head.external_id, resolved);
+      }
+    } catch { /* local state already correct */ }
+  }
   return res.status(200).json({ ok: true, resolved });
+}
+
+// Woyoyo-004: live inbox sync. Pulls the newest Repliz comments + chats for
+// every connected account and merges them into social_messages (new rows
+// only — the inbox never duplicates). The inbox page calls this quietly on
+// a timer so new DMs and comments appear like a social app.
+async function handleSocialSyncInbox(req, res, profile, storeId) {
+  if (replizMode() !== 'live') return res.status(200).json({ ok: true, mode: 'mock', added: 0 });
+  const { data: connections } = await supabase.from('social_connections').select('*').eq('store_id', storeId);
+  const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
+  const storeName = store?.name || 'Store';
+  const { data: known } = await supabase
+    .from('social_messages')
+    .select('external_id,thread_key,body,created_at')
+    .eq('store_id', storeId)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  const seenExternal = new Set((known || []).map((row) => row.external_id).filter(Boolean));
+  const seenCombo = new Set((known || []).map((row) => `${row.thread_key}::${row.body}::${row.created_at}`));
+  const candidates = [];
+  const errors = [];
+  for (const connection of connections || []) {
+    const platform = String(connection.platform || '').toLowerCase();
+    if (!REPLIZ_PLATFORMS.includes(platform)) continue;
+    try {
+      const { comments, chats } = await replizFetchInbox({ accountId: connection.account_id, platform });
+      for (const doc of comments?.docs || comments?.data || []) {
+        try {
+          const row = normalizeReplizComment(doc, platform);
+          if (!row.body) continue;
+          candidates.push({ ...row, kind: 'comment', direction: 'in', is_read: row.status !== 'pending', is_resolved: row.status === 'resolved' });
+        } catch { /* skip one malformed doc */ }
+      }
+      const chatDocs = chats?.docs || chats?.data || [];
+      const historyOnly = chatDocs.length === 1;
+      for (const doc of chatDocs) {
+        try {
+          const chat = normalizeReplizChat(doc, platform);
+          if (historyOnly && chat.chat_id) {
+            // Single thread: store its fuller history, newest max 20.
+            const history = await replizFetchChatMessages(chat.chat_id, 20).catch(() => []);
+            const messages = history.length ? history : [];
+            for (const item of messages) {
+              const row = normalizeReplizChatMessage(item, chat.chat_id, platform, chat.thread_key);
+              if (!row.body) continue;
+              candidates.push({
+                ...row,
+                kind: 'dm',
+                sender_name: row.direction === 'out' ? storeName : (chat.sender_name || row.sender_name || 'Follower'),
+                sender_handle: row.sender_handle,
+                sender_avatar: row.sender_avatar || chat.sender_avatar,
+                is_read: row.direction === 'out',
+                is_resolved: false,
+              });
+            }
+          }
+          if (chat.body) {
+            candidates.push({
+              ...chat,
+              kind: 'dm',
+              sender_name: chat.direction === 'out' ? storeName : chat.sender_name,
+              is_read: chat.direction === 'out' ? true : chat.unread === 0,
+              is_resolved: false,
+            });
+          }
+        } catch { /* skip one malformed doc */ }
+      }
+    } catch (accountError) {
+      errors.push(`${platform}: ${accountError instanceof Error ? accountError.message : 'sync failed'}`.slice(0, 160));
+    }
+  }
+  const fresh = [];
+  for (const candidate of candidates) {
+    const key = `${candidate.thread_key}::${candidate.body}::${candidate.created_at}`;
+    if (candidate.external_id && seenExternal.has(candidate.external_id)) continue;
+    if (seenCombo.has(key)) continue;
+    seenCombo.add(key);
+    if (candidate.external_id) seenExternal.add(candidate.external_id);
+    fresh.push({
+      store_id: storeId,
+      platform: candidate.platform || '',
+      kind: candidate.kind,
+      thread_key: candidate.thread_key,
+      sender_name: String(candidate.sender_name || 'Follower').slice(0, 200),
+      sender_handle: candidate.sender_handle ? String(candidate.sender_handle).slice(0, 200) : null,
+      body: String(candidate.body).slice(0, 2000),
+      direction: candidate.direction === 'out' ? 'out' : 'in',
+      is_read: Boolean(candidate.is_read),
+      is_resolved: Boolean(candidate.is_resolved),
+      external_id: candidate.external_id ? String(candidate.external_id).slice(0, 200) : null,
+      post_ref: String(candidate.post_ref || '').slice(0, 200),
+      post_title: String(candidate.post_title || '').slice(0, 300),
+      post_url: String(candidate.post_url || '').slice(0, 1000),
+      sender_avatar: candidate.sender_avatar ? String(candidate.sender_avatar).slice(0, 1000) : null,
+      created_at: candidate.created_at || new Date().toISOString(),
+    });
+  }
+  if (fresh.length) {
+    const attempt = await supabase.from('social_messages').insert(fresh);
+    if (attempt.error) {
+      if (/post_ref|post_title|post_url|sender_avatar/.test(attempt.error.message || '')) {
+        const legacy = fresh.map(({ post_ref, post_title, post_url, sender_avatar, ...rest }) => rest); // eslint-disable-line @typescript-eslint/no-unused-vars
+        const retry = await supabase.from('social_messages').insert(legacy);
+        if (retry.error) throw retry.error;
+      } else {
+        throw attempt.error;
+      }
+    }
+  }
+  return res.status(200).json({ ok: true, mode: 'live', added: fresh.length, errors });
 }
 
 async function handleSocialSeedDemo(req, res, profile, storeId) {
@@ -334,17 +503,92 @@ async function handleSocial(req, res) {
   if (req.method === 'POST') {
     const op = String(req.body?.op || '').toLowerCase();
     if (op === 'connect') return handleSocialConnect(req, res, profile, storeId);
+    if (op === 'oauth_pick') return handleSocialOAuthPick(req, res, profile, storeId);
     if (op === 'disconnect') return handleSocialDisconnect(req, res, profile, storeId);
     if (op === 'sync_accounts') return handleSocialSyncAccounts(req, res, profile, storeId);
+    if (op === 'sync_inbox') return handleSocialSyncInbox(req, res, profile, storeId);
     if (op === 'publish') return handleSocialPublish(req, res, profile, storeId, false);
     if (op === 'save_draft') return handleSocialPublish(req, res, profile, storeId, true);
     if (op === 'reply') return handleSocialReply(req, res, profile, storeId);
     if (op === 'read') return handleSocialRead(req, res, profile, storeId);
     if (op === 'resolve') return handleSocialResolve(req, res, profile, storeId);
     if (op === 'seed_demo') return handleSocialSeedDemo(req, res, profile, storeId);
-    return res.status(400).json({ error: 'Unknown op. Use connect | disconnect | sync_accounts | publish | save_draft | reply | read | resolve | seed_demo' });
+    return res.status(400).json({ error: 'Unknown op. Use connect | oauth_pick | disconnect | sync_accounts | sync_inbox | publish | save_draft | reply | read | resolve | seed_demo' });
   }
   return res.status(405).json({ error: 'Method not allowed' });
+}
+
+// Woyoyo-004: OAuth landing page. The platform sends the owner back here
+// after they approve on the official authorization page. Single-step
+// platforms (TikTok / Instagram / Threads) finish immediately; two-step
+// platforms (Facebook / YouTube) exchange the code and return the Page /
+// channel picker to the pop-up, which posts the result back to the inbox.
+async function handleSocialCallback(req, res) {
+  const state = String(req.query?.state || '');
+  const code = String(req.query?.code || '');
+  const errorParam = String(req.query?.error_description || req.query?.error || '');
+  const finish = (payload) => {
+    const safe = JSON.stringify({ source: 'stoyangu-oauth', ...payload }).replace(/</g, '\\u003c');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(
+      '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StoYangu</title></head>' +
+      '<body style="font-family:Arial,sans-serif;background:#101f30;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0">' +
+      '<p>Finishing the connection…</p>' +
+      '<script>try{if(window.opener){window.opener.postMessage(' + safe + ',window.location.origin)}}catch(e){}window.close();setTimeout(function(){var p=document.querySelector("p");if(p)p.textContent="You can close this tab and return to StoYangu."},800);<' + '/script></body></html>'
+    );
+  };
+  if (errorParam) return finish({ ok: false, error: `The platform did not approve the connection (${errorParam.slice(0, 120)}). Please try again.` });
+  if (!state || !code) return finish({ ok: false, error: 'The connection reply was incomplete. Please try again.' });
+  const { data: saved } = await supabase.from('social_oauth_states').select('*').eq('token', state).limit(1).maybeSingle();
+  if (!saved) return finish({ ok: false, error: 'That connection request expired. Please tap Connect again.' });
+  if (new Date(saved.expires_at).getTime() < Date.now()) {
+    await supabase.from('social_oauth_states').delete().eq('token', state);
+    return finish({ ok: false, error: 'That connection request expired. Please tap Connect again.' });
+  }
+  const storeId = Number(saved.store_id);
+  const platform = String(saved.platform || '').toLowerCase();
+  try {
+    if (REPLIZ_SINGLE_STEP.includes(platform)) {
+      const { accountId, account } = await replizConnectOAuth({ platform, code });
+      if (!accountId) throw new Error('Repliz accepted the connection but did not return an account. Please try again.');
+      const connection = await upsertConnection(storeId, platform, account && account.handle ? account : { id: accountId, handle: `@${platform}-account` }, 'connected');
+      await supabase.from('social_oauth_states').delete().eq('token', state);
+      return finish({ ok: true, platform, connection });
+    }
+    if (REPLIZ_TWO_STEP.includes(platform)) {
+      const token = await replizExchangeCode({ platform, code });
+      const choices = await replizListOAuthChoices({ platform, token });
+      if (!choices.length) throw new Error(`No ${REPLIZ_LABELS[platform]} Pages or channels were found on that account.`);
+      await supabase.from('social_oauth_states').update({ data: { ...(saved.data || {}), token } }).eq('token', state);
+      return finish({ ok: true, needs_pick: true, platform, state, token, choices });
+    }
+    throw new Error('Unknown platform.');
+  } catch (callbackError) {
+    return finish({ ok: false, platform, error: callbackError instanceof Error ? callbackError.message : 'Could not finish that connection.' });
+  }
+}
+
+// Woyoyo-004: signed upload URL for composer photos/videos. The browser PUTs
+// the file bytes straight to Supabase storage, so TikTok-style videos never
+// pass through the serverless function (which caps request bodies).
+async function handlePostUploadUrl(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { user, error } = await getAuthedUser(req);
+  if (error) return res.status(401).json({ error });
+  const { fileName, contentType, kind } = req.body || {};
+  const type = String(contentType || '').toLowerCase();
+  const isVideo = kind === 'video' || ALLOWED_POST_VIDEO_TYPES.test(type);
+  if (isVideo && !ALLOWED_POST_VIDEO_TYPES.test(type)) return res.status(400).json({ error: 'Please use an MP4, MOV or WebM video.' });
+  if (!isVideo && !ALLOWED_POST_MEDIA_TYPES.test(type)) return res.status(400).json({ error: 'Please use a JPG, PNG, WebP or GIF photo.' });
+  const extension = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : type.includes('quicktime') ? 'mov' : type.includes('webm') ? 'webm' : isVideo ? 'mp4' : 'jpg';
+  const path = `posts/${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+  const { data, error: signedError } = await supabase.storage.from(POST_MEDIA_BUCKET).createSignedUploadUrl(path);
+  if (signedError || !data?.signedUrl) {
+    console.error('Post upload URL error:', signedError);
+    return res.status(500).json({ error: 'Could not prepare that upload. Please try again.' });
+  }
+  const { data: publicData } = supabase.storage.from(POST_MEDIA_BUCKET).getPublicUrl(path);
+  return res.status(200).json({ path, signedUrl: data.signedUrl, url: publicData.publicUrl, kind: isVideo ? 'video' : 'image' });
 }
 
 async function handleProfile(req, res) {
@@ -435,8 +679,10 @@ export default async function handler(req, res) {
     }
     if (action === 'profile') return handleProfile(req, res);
     if (action === 'upload') return handleUpload(req, res);
+    if (action === 'post-upload-url') return handlePostUploadUrl(req, res);
     if (action === 'social') return handleSocial(req, res);
-    return res.status(400).json({ error: 'Unknown action. Use ?action=profile | upload | social' });
+    if (action === 'social-callback') return handleSocialCallback(req, res);
+    return res.status(400).json({ error: 'Unknown action. Use ?action=profile | upload | post-upload-url | social | social-callback' });
   } catch (err) {
     console.error('Media API error:', err);
     return res.status(500).json({ error: err instanceof Error ? err.message : 'Internal error' });
