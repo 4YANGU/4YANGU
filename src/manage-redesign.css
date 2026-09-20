@@ -209,56 +209,13 @@
 .composer-result-row.ok svg { color: var(--green); }
 .composer-result-row.fail svg { color: #a74a43; }
 
-/* ---- Accounts popup trigger + platform tags ---- */
-.social-head-actions { display: flex; gap: .5rem; align-items: center; flex-shrink: 0; }
-.accounts-button { border: 0; border-radius: 10px; background: var(--green); color: #fff; font-size: .68rem; font-weight: 900; padding: .62rem .9rem; display: flex; align-items: center; gap: .45rem; white-space: nowrap; }
-.accounts-button svg { width: 15px; }
-.accounts-button span { background: rgba(255, 255, 255, .2); border-radius: 999px; padding: .1rem .45rem; font-size: .6rem; }
-.platform-tag { display: inline-flex; align-items: center; gap: 5px; font-size: .56rem; font-weight: 900; letter-spacing: .02em; border-radius: 999px; padding: .22rem .55rem; background: #eef1ee; color: #4d5c54; white-space: nowrap; }
-.platform-tag svg { display: block; }
-.platform-tiktok { background: #111; color: #fff; }
-.platform-facebook { background: #e3eefa; color: #1877F2; }
-.platform-instagram { background: #fbe4ee; color: #C13584; }
-.platform-youtube { background: #fde3e3; color: #FF0000; }
-.platform-threads { background: #e8e8e8; color: #111; }
-.social-kind-tabs button b { background: var(--gold); color: #101f30; border-radius: 999px; min-width: 18px; height: 18px; display: grid; place-items: center; font-size: .58rem; padding: 0 4px; }
-.composer-targets { display: flex; flex-wrap: wrap; gap: 7px; }
-
-/* ---- Accounts popup rows ---- */
-.accounts-body { padding: 24px 28px 28px; display: grid; gap: 14px; }
-.accounts-list { display: grid; gap: 9px; }
-.account-row { display: grid; grid-template-columns: auto 1fr auto; gap: 11px; align-items: center; border: 1px solid #e0e4df; border-radius: 12px; padding: 11px 13px; background: #fff; }
-.account-row.off { background: #f4f6f3; }
-.account-row > svg:first-child { color: var(--navy); }
-.account-row strong { font-size: .74rem; color: var(--navy); display: block; }
-.account-row small { font-size: .62rem; color: #75817a; display: block; }
-.account-row-actions { display: flex; align-items: center; gap: 8px; }
-.account-on { display: flex; align-items: center; gap: 4px; font-size: .62rem; font-weight: 800; color: #2e6b44; }
-.account-on svg { width: 13px; }
-
-/* ---- Manage-store header: show the store's own logo ---- */
-.store-logo-badge { width: 112px; height: 112px; border-radius: 50%; object-fit: cover; background: #fff; border: 3px solid rgba(230, 220, 200, .35); box-shadow: 0 10px 30px rgba(0, 0, 0, .25); }
-
-/* ---- Comment source context (which video / post the comment came from) ---- */
-.social-source { padding: 10px 14px; border-bottom: 1px solid #e7eae6; background: #f1f5f1; display: grid; gap: 4px; }
-.social-source-label { font-size: .6rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; color: #75817a; display: flex; align-items: center; gap: 6px; }
-.social-source-label svg { width: 13px; }
-.social-source p { margin: 0; font-size: .72rem; line-height: 1.5; color: #17261f; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.social-source small { font-size: .6rem; color: #75817a; }
-
-/* ---- Composer product block (attach existing or add new) ---- */
-.composer-block-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.composer-add-product { min-height: 34px; font-size: .64rem; display: inline-flex; align-items: center; gap: 5px; }
-.composer-add-product svg { width: 14px; }
-
 @media (max-width: 900px) {
   .social-connection-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 720px) {
   .social-inbox { padding: 16px; }
   .social-inbox-head { flex-direction: column; }
-  .social-head-actions { width: 100%; }
-  .social-head-actions .accounts-button, .social-head-actions .secondary-button { flex: 1; justify-content: center; }
+  .social-inbox-head .secondary-button { width: 100%; }
   .social-threads { grid-template-columns: 1fr; }
   .social-thread-list { max-height: none; }
   .social-threads.show-detail .social-thread-list { display: none; }
