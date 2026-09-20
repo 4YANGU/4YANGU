@@ -88,6 +88,34 @@ create table if not exists public.api_rate_limits (
   id serial primary key, key_hash text not null, action text not null,
   request_count integer not null default 1, window_started_at timestamptz not null default now()
 );
+create table if not exists public.social_accounts (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  platform text not null check (platform in ('tiktok','facebook','instagram','youtube','threads')),
+  handle text not null, display_name text not null default '', avatar_url text not null default '',
+  repliz_account_id text not null default '', status text not null default 'connected',
+  connected_at timestamptz not null default now(), created_at timestamptz not null default now()
+);
+create table if not exists public.social_posts (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  caption text not null, media_urls jsonb not null default '[]'::jsonb,
+  platforms jsonb not null default '[]'::jsonb, repliz_post_id text not null default '',
+  status text not null default 'published', scheduled_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.social_messages (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  platform text not null, conversation_id text not null, sender text not null default '',
+  sender_handle text not null default '', body text not null,
+  direction text not null default 'in', kind text not null default 'dm',
+  post_ref text not null default '', repliz_id text not null default '',
+  read boolean not null default false, created_at timestamptz not null default now()
+);
+create table if not exists public.order_archives (
+  id serial primary key, store_id integer not null,
+  store_name text not null default '', orders jsonb not null default '[]'::jsonb,
+  order_count integer not null default 0, archived_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
 
 create index if not exists idx_products_store on public.products(store_id);
 create index if not exists idx_profiles_phone on public.profiles(phone) where phone is not null;
@@ -99,6 +127,11 @@ create index if not exists idx_notification_highlights_note on public.notificati
 create index if not exists idx_scheduled_due on public.scheduled_notifications(status,send_at);
 create index if not exists idx_subscriptions_store on public.push_subscriptions(store_id);
 create index if not exists idx_limits_lookup on public.api_rate_limits(key_hash,action,window_started_at);
+create index if not exists idx_social_accounts_store on public.social_accounts(store_id,platform);
+create index if not exists idx_social_posts_store on public.social_posts(store_id,created_at desc);
+create index if not exists idx_social_messages_store on public.social_messages(store_id,created_at desc);
+create index if not exists idx_social_messages_convo on public.social_messages(store_id,conversation_id);
+create index if not exists idx_order_archives_store on public.order_archives(store_id,archived_at desc);
 
 alter table public.profiles enable row level security;
 alter table public.applications enable row level security;
@@ -154,3 +187,10 @@ on conflict (id) do update set public=true, file_size_limit=6291456;
 -- AFTER creating your founder in Authentication → Users, replace the values below and run only this insert:
 -- insert into public.profiles(user_id,email,full_name,role,store_id)
 -- values ('PASTE-AUTH-USER-UUID','you@example.com','Your Name','founder',null);
+
+-- DEMO AND SOCIAL TABLES (already included above for fresh installs):
+-- social_accounts, social_posts, social_messages, order_archives.
+-- Existing projects: run supabase/migrations/202609200001_social.sql once
+-- (required for the TikTok-style Inbox), plus
+-- supabase/migrations/202609200002_order_archives.sql only if the founder
+-- dashboard ON/OFF switch ever failed with "Could not process that store".
