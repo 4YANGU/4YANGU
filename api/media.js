@@ -16,7 +16,7 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
-import { REPLIZ_PLATFORMS, mockPublishResults, mockSeedThreads, replizMode, replizPublish, replizSendReply } from '../lib/repliz.js';
+import { REPLIZ_LABELS, REPLIZ_PLATFORMS, mockPublishResults, mockSeedThreads, replizConnectUrl, replizMode, replizPublish, replizSendReply, replizWorkspaceAccounts } from '../lib/repliz.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
 const MAX_BASE64 = 8_400_000;
@@ -64,7 +64,7 @@ async function handleSocialStatus(req, res, profile, storeId) {
   if (unreadError) throw unreadError;
   const byPlatform = {};
   for (const row of unread || []) byPlatform[row.platform] = (byPlatform[row.platform] || 0) + 1;
-  return res.status(200).json({ mode: replizMode(), connections: connections || [], unread: { total: (unread || []).length, by_platform: byPlatform } });
+  return res.status(200).json({ connections: connections || [], unread: { total: (unread || []).length, by_platform: byPlatform } });
 }
 
 async function handleSocialInbox(req, res, profile, storeId) {
@@ -84,6 +84,9 @@ async function handleSocialInbox(req, res, profile, storeId) {
     const chronological = [...rows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     const latest = rows[0];
     const firstInbound = chronological.find((row) => row.direction === 'in') || chronological[0];
+    // Woyoyo-003: comment threads carry their source video/post so the
+    // conversation header can show where the comment came from.
+    const source = chronological.find((row) => row.post_title || row.post_ref) || {};
     return {
       thread_key: threadKey,
       platform: latest.platform,
@@ -94,10 +97,13 @@ async function handleSocialInbox(req, res, profile, storeId) {
       last_at: latest.created_at,
       unread: rows.filter((row) => row.direction === 'in' && !row.is_read).length,
       resolved: rows.every((row) => row.is_resolved),
+      source_ref: source.post_ref || '',
+      source_title: source.post_title || '',
+      source_url: source.post_url || '',
       messages: chronological,
     };
   }).sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
-  return res.status(200).json({ mode: replizMode(), threads });
+  return res.status(200).json({ threads });
 }
 
 async function handleSocialPosts(req, res, profile, storeId) {
@@ -107,26 +113,47 @@ async function handleSocialPosts(req, res, profile, storeId) {
 }
 
 async function handleSocialConnect(req, res, profile, storeId) {
+  // Woyoyo-003: connect binds the store to the REAL Repliz-side account over
+  // the public Repliz API. The owner taps a platform — no username is typed.
   const platform = String(req.body?.platform || '').toLowerCase();
-  const handle = String(req.body?.handle || '').trim().slice(0, 80);
   if (!REPLIZ_PLATFORMS.includes(platform)) return res.status(400).json({ error: 'Unknown platform.' });
-  if (handle.length < 2) return res.status(400).json({ error: 'Add the account handle first.' });
   const mode = replizMode();
+  let account = null;
+  if (mode === 'live') {
+    let workspace = [];
+    try {
+      workspace = await replizWorkspaceAccounts();
+    } catch (connectError) {
+      return res.status(502).json({ error: connectError instanceof Error ? connectError.message : 'Could not reach Repliz.' });
+    }
+    account = workspace.find((entry) => entry.platform === platform) || null;
+    if (!account) {
+      return res.status(404).json({
+        error: `No ${REPLIZ_LABELS[platform] || platform} account is connected in your Repliz workspace yet. Connect it inside Repliz, then tap Refresh from Repliz.`,
+        connect_url: replizConnectUrl(),
+      });
+    }
+  } else {
+    const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
+    const slug = String(store?.name || 'mystore').toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore';
+    account = { id: `mock_${platform}_${storeId}`, handle: `@${slug}`, display_name: store?.name || 'Store', avatar_url: '' };
+  }
+  const handle = String(account.handle || '').trim() || `@${platform}-account`;
   const { data: existing } = await supabase.from('social_connections').select('id').eq('store_id', storeId).eq('platform', platform).limit(1);
   const values = {
     store_id: storeId,
     platform,
     account_handle: handle.startsWith('@') ? handle : `@${handle}`,
-    account_id: mode === 'mock' ? `mock_${platform}_${storeId}` : null,
+    account_id: account.id,
     connection_status: mode === 'mock' ? 'mock' : 'connected',
-    auth_payload: mode === 'mock' ? { mode: 'mock' } : {},
+    auth_payload: mode === 'mock' ? { mode: 'mock' } : { display_name: account.display_name || '', avatar_url: account.avatar_url || '', synced_at: new Date().toISOString() },
     updated_at: new Date().toISOString(),
   };
   const saved = existing?.length
     ? await supabase.from('social_connections').update(values).eq('id', existing[0].id).select().single()
     : await supabase.from('social_connections').insert(values).select().single();
   if (saved.error) throw saved.error;
-  return res.status(200).json({ connection: saved.data, mode });
+  return res.status(200).json({ connection: saved.data });
 }
 
 async function handleSocialDisconnect(req, res, profile, storeId) {
@@ -137,19 +164,53 @@ async function handleSocialDisconnect(req, res, profile, storeId) {
   return res.status(200).json({ ok: true });
 }
 
+async function handleSocialSyncAccounts(req, res, profile, storeId) {
+  // Re-read the Repliz workspace and bind any platform the owner connected
+  // inside Repliz since the last check. Mock mode keeps current connections.
+  if (replizMode() !== 'live') {
+    const { data } = await supabase.from('social_connections').select('*').eq('store_id', storeId).order('platform', { ascending: true });
+    return res.status(200).json({ connections: data || [], synced: 0 });
+  }
+  let workspace = [];
+  try {
+    workspace = await replizWorkspaceAccounts();
+  } catch (syncError) {
+    return res.status(502).json({ error: syncError instanceof Error ? syncError.message : 'Could not reach Repliz.' });
+  }
+  let synced = 0;
+  for (const account of workspace) {
+    if (!REPLIZ_PLATFORMS.includes(account.platform)) continue;
+    const handle = String(account.handle || '').trim() || `@${account.platform}-account`;
+    const values = {
+      store_id: storeId,
+      platform: account.platform,
+      account_handle: handle.startsWith('@') ? handle : `@${handle}`,
+      account_id: account.id,
+      connection_status: 'connected',
+      auth_payload: { display_name: account.display_name || '', avatar_url: account.avatar_url || '', synced_at: new Date().toISOString() },
+      updated_at: new Date().toISOString(),
+    };
+    const { data: existing } = await supabase.from('social_connections').select('id').eq('store_id', storeId).eq('platform', account.platform).limit(1);
+    const saved = existing?.length
+      ? await supabase.from('social_connections').update(values).eq('id', existing[0].id).select().single()
+      : await supabase.from('social_connections').insert(values).select().single();
+    if (!saved.error) synced += 1;
+  }
+  const { data } = await supabase.from('social_connections').select('*').eq('store_id', storeId).order('platform', { ascending: true });
+  return res.status(200).json({ connections: data || [], synced });
+}
+
 async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   const caption = String(req.body?.caption || '').trim().slice(0, 2200);
-  const platforms = Array.from(new Set((req.body?.platforms || []).map((p) => String(p).toLowerCase()))).filter((p) => REPLIZ_PLATFORMS.includes(p));
   const mediaUrls = Array.isArray(req.body?.media_urls) ? req.body.media_urls.map((u) => String(u).slice(0, 1000)).filter(Boolean).slice(0, 4) : [];
   if (!caption) return res.status(400).json({ error: 'Write a caption first.' });
-  if (!platforms.length && !asDraft) return res.status(400).json({ error: 'Choose at least one platform.' });
   const mode = replizMode();
-  const { data: connections, error: connError } = await supabase.from('social_connections').select('*').eq('store_id', storeId).in('platform', platforms.length ? platforms : ['__none__']);
+  const { data: connections, error: connError } = await supabase.from('social_connections').select('*').eq('store_id', storeId);
   if (connError) throw connError;
-  if (!asDraft) {
-    const missing = platforms.filter((p) => !(connections || []).some((c) => c.platform === p));
-    if (missing.length) return res.status(400).json({ error: `Connect ${missing.join(', ')} in the Inbox tab first.` });
-  }
+  // Woyoyo-003: publishing ALWAYS goes to every connected platform —
+  // the composer never asks which ones (any legacy `platforms` payload ignored).
+  const platforms = (connections || []).map((c) => String(c.platform).toLowerCase()).filter((p) => REPLIZ_PLATFORMS.includes(p));
+  if (!platforms.length && !asDraft) return res.status(400).json({ error: 'Connect at least one account first — open the Inbox tab and tap Accounts.' });
   let results = {};
   if (!asDraft) {
     if (mode === 'mock') {
@@ -214,7 +275,7 @@ async function handleSocialReply(req, res, profile, storeId) {
   if (mode === 'live') {
     try {
       const { data: connection } = await supabase.from('social_connections').select('account_id').eq('store_id', storeId).eq('platform', head.platform).limit(1).maybeSingle();
-      await replizSendReply({ platform: head.platform, accountId: connection?.account_id, threadKey, body });
+      await replizSendReply({ platform: head.platform, accountId: connection?.account_id, threadKey, externalId: head.external_id, body, kind: head.kind });
     } catch (replyError) {
       delivery = { ok: false, mode, error: replyError instanceof Error ? replyError.message : 'Live send failed.' };
     }
@@ -246,8 +307,15 @@ async function handleSocialSeedDemo(req, res, profile, storeId) {
   if (already?.length) return res.status(200).json({ ok: true, seeded: 0, note: 'Inbox already has messages.' });
   const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
   const rows = mockSeedThreads(storeId, store?.name || 'Store');
-  const { error } = await supabase.from('social_messages').insert(rows);
-  if (error) throw error;
+  const attempt = await supabase.from('social_messages').insert(rows);
+  if (attempt.error && /post_ref|post_title|post_url|sender_avatar/.test(attempt.error.message || '')) {
+    // Pre-woyoyo-003 database (migration 003 not run yet): fall back to legacy columns.
+    const legacy = rows.map(({ post_ref, post_title, post_url, sender_avatar, ...rest }) => rest); // eslint-disable-line @typescript-eslint/no-unused-vars
+    const retry = await supabase.from('social_messages').insert(legacy);
+    if (retry.error) throw retry.error;
+    return res.status(201).json({ ok: true, seeded: legacy.length });
+  }
+  if (attempt.error) throw attempt.error;
   return res.status(201).json({ ok: true, seeded: rows.length });
 }
 
@@ -267,13 +335,14 @@ async function handleSocial(req, res) {
     const op = String(req.body?.op || '').toLowerCase();
     if (op === 'connect') return handleSocialConnect(req, res, profile, storeId);
     if (op === 'disconnect') return handleSocialDisconnect(req, res, profile, storeId);
+    if (op === 'sync_accounts') return handleSocialSyncAccounts(req, res, profile, storeId);
     if (op === 'publish') return handleSocialPublish(req, res, profile, storeId, false);
     if (op === 'save_draft') return handleSocialPublish(req, res, profile, storeId, true);
     if (op === 'reply') return handleSocialReply(req, res, profile, storeId);
     if (op === 'read') return handleSocialRead(req, res, profile, storeId);
     if (op === 'resolve') return handleSocialResolve(req, res, profile, storeId);
     if (op === 'seed_demo') return handleSocialSeedDemo(req, res, profile, storeId);
-    return res.status(400).json({ error: 'Unknown op. Use connect | disconnect | publish | save_draft | reply | read | resolve | seed_demo' });
+    return res.status(400).json({ error: 'Unknown op. Use connect | disconnect | sync_accounts | publish | save_draft | reply | read | resolve | seed_demo' });
   }
   return res.status(405).json({ error: 'Method not allowed' });
 }

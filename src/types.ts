@@ -121,6 +121,10 @@ export type SocialMessage = {
   is_read: boolean;
   is_resolved: boolean;
   external_id: string | null;
+  post_ref: string;
+  post_title: string;
+  post_url: string;
+  sender_avatar: string | null;
   created_at: string;
 };
 
@@ -134,6 +138,9 @@ export type SocialThread = {
   last_at: string;
   unread: number;
   resolved: boolean;
+  source_ref: string;
+  source_title: string;
+  source_url: string;
   messages: SocialMessage[];
 };
 

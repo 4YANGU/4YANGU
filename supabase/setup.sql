@@ -88,6 +88,41 @@ create table if not exists public.api_rate_limits (
   id serial primary key, key_hash text not null, action text not null,
   request_count integer not null default 1, window_started_at timestamptz not null default now()
 );
+create table if not exists public.orders (
+  id bigserial primary key, order_key text not null, store_id bigint not null, product_id bigint not null,
+  product_name text not null, product_price numeric not null default 0, customer_phone text not null,
+  color text not null default '', size text not null default '', fulfilment text not null default 'Delivery',
+  note text not null default '', status text not null default 'new' check (status in ('new','contacted','completed','cancelled')),
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create unique index if not exists orders_store_order_key_unique on public.orders(store_id, order_key);
+create index if not exists orders_store_created_idx on public.orders(store_id, created_at desc);
+create index if not exists orders_store_status_idx on public.orders(store_id, status);
+create table if not exists public.order_archives (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  store_name text not null default '', orders jsonb not null default '[]'::jsonb,
+  order_count integer not null default 0, archived_at timestamptz not null default now(), created_at timestamptz not null default now()
+);
+create table if not exists public.social_connections (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  platform text not null, account_handle text not null, account_id text,
+  connection_status text not null default 'mock', auth_payload jsonb not null default '{}'::jsonb,
+  connected_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table if not exists public.social_posts (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  caption text not null, media_urls jsonb not null default '[]'::jsonb, platforms jsonb not null default '[]'::jsonb,
+  status text not null default 'draft', results jsonb not null default '{}'::jsonb,
+  scheduled_at timestamptz, posted_at timestamptz, created_at timestamptz not null default now()
+);
+create table if not exists public.social_messages (
+  id serial primary key, store_id integer not null references public.stores(id) on delete cascade,
+  platform text not null, kind text not null, thread_key text not null, sender_name text not null,
+  sender_handle text, body text not null, direction text not null,
+  is_read boolean not null default false, is_resolved boolean not null default false, external_id text,
+  post_ref text not null default '', post_title text not null default '', post_url text not null default '', sender_avatar text,
+  created_at timestamptz not null default now()
+);
 
 create index if not exists idx_products_store on public.products(store_id);
 create index if not exists idx_profiles_phone on public.profiles(phone) where phone is not null;
@@ -99,6 +134,12 @@ create index if not exists idx_notification_highlights_note on public.notificati
 create index if not exists idx_scheduled_due on public.scheduled_notifications(status,send_at);
 create index if not exists idx_subscriptions_store on public.push_subscriptions(store_id);
 create index if not exists idx_limits_lookup on public.api_rate_limits(key_hash,action,window_started_at);
+create index if not exists idx_social_connections_store on public.social_connections(store_id);
+create index if not exists idx_social_posts_store on public.social_posts(store_id, created_at desc);
+create index if not exists idx_social_messages_store on public.social_messages(store_id, created_at desc);
+create index if not exists idx_social_messages_thread on public.social_messages(store_id, thread_key, created_at);
+create index if not exists idx_social_messages_source on public.social_messages(store_id, kind, created_at desc);
+create index if not exists idx_order_archives_store on public.order_archives(store_id, archived_at desc);
 
 alter table public.profiles enable row level security;
 alter table public.applications enable row level security;
@@ -114,6 +155,11 @@ alter table public.push_subscriptions enable row level security;
 alter table public.pwa_installations enable row level security;
 alter table public.scheduled_notifications enable row level security;
 alter table public.api_rate_limits enable row level security;
+alter table public.orders enable row level security;
+alter table public.order_archives enable row level security;
+alter table public.social_connections enable row level security;
+alter table public.social_posts enable row level security;
+alter table public.social_messages enable row level security;
 
 create policy "users read own profile" on public.profiles for select using (auth.uid() = user_id);
 create policy "users read assigned store" on public.stores for select using (

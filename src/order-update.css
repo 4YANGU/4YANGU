@@ -19,12 +19,10 @@
 .owner-cycle-dates{display:block;width:max-content;max-width:calc(100% - 32px);margin:5px auto 7px;padding:.35rem .65rem;border-radius:999px;background:rgba(120,190,150,.14);border:1px solid rgba(120,190,150,.2);color:#a8d8b8;font-size:.6rem;font-weight:800;letter-spacing:.025em}
 .owner-store-link-row{display:flex;align-items:center;justify-content:center;gap:7px}.owner-store-link-row>a{color:#9cb0ba;font-size:.72rem;display:flex;align-items:center;gap:.35rem}.owner-store-link-row>a svg{width:12px}.owner-store-link-row>button{border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.06);color:#c9d4d0;padding:.28rem .52rem;font-size:.55rem;font-weight:900}
 .owner-main{display:flex;flex-direction:column}
-.manage-page-tabs{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:0 0 16px;padding:6px;border:1px solid #dce3dd;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(16,31,48,.04)}
-.manage-page-tabs button{min-height:42px;border:0;border-radius:10px;background:transparent;color:#67756d;font-size:.7rem;font-weight:900}
-.manage-page-tabs button.active{background:#101f30;color:#fff;box-shadow:0 9px 20px rgba(16,31,48,.16)}
-html[data-manage-page="overview"] .owner-main>.products-panel{display:none}
-html[data-manage-page="products"] .owner-main>*:not(.manage-page-tabs):not(.products-panel){display:none!important}
-html[data-manage-page="products"] .owner-main>.products-panel{margin-top:0}
+/* Woyoyo-003: Home + Products merged — the manage-page tabs are retired. The shelf always renders on the single Home page. */
+.manage-page-tabs{display:none!important}
+.owner-store-logo{width:112px;height:112px;border-radius:50%;object-fit:cover;background:#fff;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.products-shelf-hint{font-size:.66rem;color:#75817a;font-weight:700;background:#f2f6f2;border:1px dashed #c4d2c7;border-radius:999px;padding:.5rem .8rem;white-space:nowrap}
 .incoming-orders{margin-top:18px;background:#fff;border:1px solid #e0e4df;border-radius:19px;padding:24px;box-shadow:0 8px 30px rgba(16,31,48,.03)}
 .incoming-orders-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:15px}
 .incoming-orders-head h2{margin:0;color:var(--navy);font-size:1.25rem}

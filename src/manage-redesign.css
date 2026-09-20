@@ -226,3 +226,40 @@
   .social-reply .button-primary { width: 100%; }
   .composer-body { padding: 20px 18px 24px; }
 }
+
+/* ---- Woyoyo-003: platform logo badges, DMs/Comments tabs, accounts pop-up, comment source, auto-post composer ---- */
+.platform-badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #e0e4df; background: #f4f6f3; border-radius: 999px; padding: .18rem .5rem; font-size: .6rem; font-weight: 800; color: #4d5c54; white-space: nowrap; }
+.platform-badge.small { font-size: .56rem; padding: .12rem .45rem; }
+.social-head-actions { display: flex; gap: .5rem; flex-shrink: 0; }
+.accounts-button { border-color: var(--navy) !important; }
+.social-view-tabs button b.tab-unread { background: var(--gold); color: #101f30; border-radius: 999px; min-width: 18px; height: 18px; display: grid; place-items: center; font-size: .58rem; padding: 0 4px; }
+.thread-source-line { display: flex; align-items: center; gap: 5px; font-size: .6rem; color: #75817a; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-source-line svg { width: 12px; color: var(--green); flex: 0 0 auto; }
+.comment-source-card { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #e7eae6; background: #f2f7f3; }
+.comment-source-thumb { width: 38px; height: 38px; border-radius: 10px; background: var(--navy); color: #fff; display: grid; place-items: center; flex: 0 0 auto; }
+.comment-source-thumb svg { width: 16px; }
+.comment-source-card > div { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.comment-source-card small { font-size: .56rem; color: #75817a; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.comment-source-card strong { font-size: .72rem; color: var(--navy); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment-source-card span { font-size: .6rem; color: #75817a; }
+.comment-source-card a { display: flex; align-items: center; gap: 4px; font-size: .62rem; font-weight: 800; color: var(--green); border: 1px solid #cfe0d4; border-radius: 999px; padding: .35rem .6rem; background: #fff; flex: 0 0 auto; }
+.comment-source-card a svg { width: 12px; }
+.bubble-platform { display: inline-flex; align-items: center; gap: 4px; font-size: .55rem; font-weight: 800; opacity: .75; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em; }
+.accounts-modal-body { padding: 24px 28px 28px; display: grid; gap: 14px; }
+.accounts-modal-list { display: grid; gap: 8px; }
+.account-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; border: 1px solid #e0e4df; border-radius: 12px; padding: 10px 12px; background: #fff; }
+.account-row > div { min-width: 0; }
+.account-row strong { font-size: .72rem; color: var(--navy); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-row small { font-size: .6rem; color: #75817a; }
+.composer-auto-post { display: grid; gap: 6px; }
+.composer-platform-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.composer-product-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.composer-product-row .secondary-button { min-height: 44px; white-space: nowrap; }
+@media (max-width: 720px) {
+  .social-head-actions { width: 100%; }
+  .social-head-actions .secondary-button { flex: 1; }
+  .account-row { grid-template-columns: 1fr auto; }
+  .account-row .platform-badge { grid-column: 1 / -1; width: max-content; }
+  .composer-product-row { grid-template-columns: 1fr; }
+  .composer-product-row .secondary-button { width: 100%; }
+}
