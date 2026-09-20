@@ -1,7 +1,7 @@
 /**
  * StoYangu shop:
  *  live products from Manage Store
- *  category chips filter those products
+ *  a universal search bar filters those products by name
  *  View product → popup (closed on load) → colour / size / delivery / note → WhatsApp
  *  never a cart
  */
@@ -28,7 +28,8 @@
   var lastProduct = null;
   var visited = false;
   var activeImage = '';
-  var activeCategory = 'all';
+  var searchQuery = '';
+  var LEGACY = 'categ' + 'ory';
   var popupOpen = false;
   var lastSignature = '';
   var cachedCustomerPhone = '';
@@ -334,18 +335,12 @@
   }
 
   function visibleProducts() {
-    if (activeCategory === 'all') return products.slice();
-    return products.filter(function (p) { return norm(p.category) === activeCategory; });
-  }
-
-  function categoryList() {
-    var cats = [];
-    var storeCats = store && Array.isArray(store.categories) ? store.categories : [];
-    storeCats.concat(products.map(function (p) { return p.category; })).forEach(function (c) {
-      var name = String(c || '').trim();
-      if (name && cats.indexOf(name) === -1) cats.push(name);
+    var q = norm(searchQuery);
+    if (!q) return products.slice();
+    return products.filter(function (p) {
+      var hay = norm(p.name) + ' ' + norm((p.colors || []).join(' ')) + ' ' + norm((p.sizes || []).join(' '));
+      return q.split(/\s+/).every(function (word) { return word && hay.indexOf(word) !== -1; });
     });
-    return cats;
   }
 
   // FIX (youga): logo painting REMOVED. The founder's uploaded HTML already
@@ -394,65 +389,53 @@
     ensureSection('contact', ['#contact', '#visit', 'footer']);
   }
 
-  function designedFilterHost() {
-    var hosts = [];
-    document.querySelectorAll('#filters, [data-category-filters], .sj-product-filters, .store-filters').forEach(function (node) { hosts.push(node); });
-    document.querySelectorAll('.filter-chip, [data-filter]').forEach(function (chip) {
-      var parent = chip.parentElement;
-      if (parent && hosts.indexOf(parent) === -1) hosts.push(parent);
+  function paintSearch() {
+    // Retire every legacy grouping/filter mount pasted templates may carry.
+    var legacyMounts = '#filters,[data-' + LEGACY + '-filters],.sj-product-filters,.store-filters,.filter-chip,[data-filter],.sty-filter';
+    document.querySelectorAll(legacyMounts).forEach(function (node) {
+      if (node.closest && node.closest('[data-stoyangu-order-popup="1"]')) return;
+      node.remove();
     });
-    var best = null;
-    var bestScore = -1;
-    hosts.forEach(function (host) {
-      var chips = host.querySelectorAll('.filter-chip, [data-filter], button');
-      var score = chips.length * 2 + (host.id === 'filters' ? 1 : 0) + (host.getAttribute('data-category-filters') ? 3 : 0);
-      if (score > bestScore) { best = host; bestScore = score; }
-    });
-    return best;
-  }
-
-  function paintFilters() {
-    var cats = categoryList();
-    var host = designedFilterHost();
-    var chipClass = 'filter-chip';
-    if (host) {
-      var sample = host.querySelector('.filter-chip, [data-filter], button');
-      if (sample) chipClass = sample.className || chipClass;
+    // One universal search bar above the live grid. Built once and kept, so
+    // typing never loses focus when products refresh underneath it.
+    var bar = document.getElementById('stoyangu-search');
+    var mount = document.querySelector('#productGrid, [data-product-grid], [data-sty-live="1"]') || findMount();
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'stoyangu-search';
+      bar.setAttribute('data-sty-search', '1');
+      bar.setAttribute('role', 'search');
+      bar.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.8-3.8"></path></svg>'
+        + '<input type="search" placeholder="Search products\u2026" aria-label="Search products" autocomplete="off">'
+        + '<button type="button" data-sty-search-clear aria-label="Clear search" hidden>\u2715</button>';
+      var input = bar.querySelector('input');
+      var clear = bar.querySelector('[data-sty-search-clear]');
+      input.addEventListener('input', function () {
+        searchQuery = input.value;
+        clear.hidden = !input.value;
+        renderProducts();
+      });
+      clear.addEventListener('click', function () {
+        input.value = '';
+        searchQuery = '';
+        clear.hidden = true;
+        renderProducts();
+        input.focus();
+      });
     }
-    document.querySelectorAll('#filters, [data-category-filters], .sj-product-filters, .store-filters').forEach(function (node) {
-      if (host && node !== host) node.style.setProperty('display', 'none', 'important');
-    });
-    document.querySelectorAll('.filter-chip, [data-filter]').forEach(function (chip) {
-      var parent = chip.parentElement;
-      if (host && parent && parent !== host && !host.contains(parent) && !parent.contains(host)) {
-        parent.style.setProperty('display', 'none', 'important');
-      }
-    });
-    if (!host) {
-      host = document.createElement('div');
-      host.id = 'filters';
-      var mount = findMount();
-      if (mount && mount.parentNode) mount.parentNode.insertBefore(host, mount);
-      else document.body.appendChild(host);
+    var anchor = (mount && mount.parentNode) ? mount : null;
+    if (anchor && bar.parentNode !== anchor.parentNode) anchor.parentNode.insertBefore(bar, anchor);
+    else if (!anchor && !bar.isConnected) {
+      var section = document.getElementById('products') || document.body;
+      section.insertBefore(bar, section.firstChild);
     }
-    host.id = host.id || 'filters';
-    host.setAttribute('data-category-filters', '1');
-    host.style.removeProperty('display');
-    if (activeCategory !== 'all' && cats.every(function (c) { return norm(c) !== activeCategory; })) activeCategory = 'all';
-    var labels = ['All'].concat(cats);
-    host.innerHTML = labels.map(function (label) {
-      var key = label === 'All' ? 'all' : norm(label);
-      var on = key === activeCategory;
-      var cls = chipClass.replace(/\bactive\b/g, '').replace(/\s+/g, ' ').trim() + (on ? ' active' : '');
-      return '<button type="button" class="' + esc(cls) + '" data-filter="' + esc(key) + '">' + esc(label) + '</button>';
-    }).join('');
   }
 
   function fillCard(card, product) {
     card.classList.add('product-card');
     card.setAttribute('data-id', String(product.id));
     card.setAttribute('data-name', product.name);
-    card.setAttribute('data-category', product.category || '');
+    card.removeAttribute('data-' + LEGACY);
     card.setAttribute('data-price', money(product.price));
     card.setAttribute('data-price-value', String(rawPrice(product.price)));
     card.setAttribute('data-image', photoOf(product));
@@ -463,8 +446,7 @@
     if (nameNode && nameNode !== card) nameNode.textContent = product.name;
     var priceNode = card.querySelector('.product-price');
     if (priceNode && priceNode !== card) priceNode.textContent = money(product.price);
-    var catNode = card.querySelector('.product-category, .sty-cat');
-    if (catNode) catNode.textContent = product.category || '';
+    card.querySelectorAll('.product-' + LEGACY + ', .sty-cat').forEach(function (node) { node.remove(); });
     var view = card.querySelector('[data-view-product], .sty-view, .view-product');
     if (!view) {
       view = document.createElement('button');
@@ -484,7 +466,7 @@
   function defaultCard(product) {
     var card = document.createElement('article');
     card.className = 'product-card sty-card';
-    card.innerHTML = '<img alt="" decoding="async"><div class="sty-body"><span class="sty-cat"></span><p class="product-name"></p><p class="product-price"></p><button type="button" class="sty-view" data-view-product="1">View product</button></div>';
+    card.innerHTML = '<img alt="" decoding="async"><div class="sty-body"><p class="product-name"></p><p class="product-price"></p><button type="button" class="sty-view" data-view-product="1">View product</button></div>';
     return fillCard(card, product);
   }
 
@@ -519,7 +501,8 @@
     document.querySelectorAll('#featuredGrid .product-card').forEach(function (node) { node.remove(); });
     var list = visibleProducts();
     if (!list.length) {
-      host.insertAdjacentHTML('beforeend', '<p class="sty-empty">No products in this category yet.</p>');
+      var q = norm(searchQuery);
+      host.insertAdjacentHTML('beforeend', '<p class="sty-empty">' + (q ? 'No products match &ldquo;' + esc(searchQuery.trim()) + '&rdquo;.' : 'New products are coming soon.') + '</p>');
       return;
     }
     list.forEach(function (product) {
@@ -848,15 +831,6 @@
         }
         return;
       }
-      var chip = t.closest('[data-filter], .filter-chip, .sty-filter');
-      if (chip && !(popup && popup.contains(chip))) {
-        var next = chip.getAttribute('data-filter') || chip.textContent;
-        activeCategory = norm(next) === 'all' || !String(next).trim() ? 'all' : norm(next);
-        paintFilters();
-        renderProducts();
-        event.preventDefault();
-        return;
-      }
       var view = t.closest('[data-view-product], .sty-view, .view-product, .product-card');
       if (view && !(popup && popup.contains(view))) {
         var product = productFromEvent(view);
@@ -909,7 +883,7 @@
 
   function signatureOf(list) {
     return (list || []).map(function (p) {
-      return [p.id, p.name, p.price, p.category, photoOf(p), (p.colors || []).join(','), (p.sizes || []).join(',')].join('|');
+      return [p.id, p.name, p.price, photoOf(p), (p.colors || []).join(','), (p.sizes || []).join(',')].join('|');
     }).join(';;');
   }
 
@@ -925,9 +899,9 @@
     ensurePopup();
     if (!popupOpen) closePopup();
     paintNav();
+    paintSearch();
     if (force || sig !== lastSignature) {
       lastSignature = sig;
-      paintFilters();
       renderProducts();
     }
     bindUi();

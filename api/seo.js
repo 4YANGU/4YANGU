@@ -45,12 +45,12 @@ async function handleCatalog(req, res) {
   try {
     const root = rootDomain(req);
     const [{ data: stores, error: storeError }, { data: products, error: productError }] = await Promise.all([
-      supabase.from('stores').select('id,name,slug,categories,logo_url,updated_at').eq('is_active', true).order('name', { ascending: true }),
-      supabase.from('products').select('id,store_id,name,price,category,image_url,active,updated_at').eq('active', true).order('name', { ascending: true }),
+      supabase.from('stores').select('id,name,slug,logo_url,updated_at').eq('is_active', true).order('name', { ascending: true }),
+      supabase.from('products').select('id,store_id,name,price,image_url,active,updated_at').eq('active', true).order('name', { ascending: true }),
     ]);
     if (storeError || productError) throw storeError || productError;
     res.setHeader('Cache-Control', 'public, s-maxage=1800, stale-while-revalidate=86400');
-    return res.status(200).json({ name: 'StoYangu public store directory', generated_at: new Date().toISOString(), stores: (stores || []).map((store) => ({ name: store.name, url: `https://${root}/s/${store.slug}`, alt_url: `https://${store.slug}.${root}/`, categories: store.categories, logo: store.logo_url, updated_at: store.updated_at, products: (products || []).filter((product) => product.store_id === store.id).map((product) => ({ name: product.name, category: product.category, price_kes: Number(product.price), image: product.image_url, updated_at: product.updated_at })) })) });
+    return res.status(200).json({ name: 'StoYangu public store directory', generated_at: new Date().toISOString(), stores: (stores || []).map((store) => ({ name: store.name, url: `https://${root}/s/${store.slug}`, alt_url: `https://${store.slug}.${root}/`, logo: store.logo_url, updated_at: store.updated_at, products: (products || []).filter((product) => product.store_id === store.id).map((product) => ({ name: product.name, price_kes: Number(product.price), image: product.image_url, updated_at: product.updated_at })) })) });
   } catch (err) {
     console.error('Catalog API error:', err);
     return res.status(500).json({ error: 'Could not generate the public catalog.' });
@@ -61,8 +61,8 @@ async function handleLlmsFull(req, res) {
   try {
     const root = rootDomain(req);
     const [{ data: stores, error: storeError }, { data: products, error: productError }] = await Promise.all([
-      supabase.from('stores').select('id,name,slug,categories,visitor_total').eq('is_active', true).order('created_at', { ascending: true }),
-      supabase.from('products').select('id,store_id,name,price,category,active').eq('active', true),
+      supabase.from('stores').select('id,name,slug,visitor_total').eq('is_active', true).order('created_at', { ascending: true }),
+      supabase.from('products').select('id,store_id,name,price,active').eq('active', true),
     ]);
     if (storeError || productError) throw storeError || productError;
     const lines = [
@@ -74,12 +74,10 @@ async function handleLlmsFull(req, res) {
       '',
       ...(stores || []).map((store) => {
         const storeProducts = (products || []).filter((product) => product.store_id === store.id).slice(0, 8);
-        const categories = Array.isArray(store.categories) ? store.categories.filter(Boolean).join(', ') : '';
         return [
           `## ${store.name}`,
           `- Storefront (AI-readable): https://${root}/s/${store.slug}`,
           `- Also reachable at: https://${store.slug}.${root}/`,
-          categories ? `- Sells: ${categories}` : null,
           `- ${storeProducts.length ? `Live products include: ${storeProducts.map((product) => `${product.name} — KES ${Number(product.price).toLocaleString('en-KE')}`).join('; ')}` : 'New store, catalogue growing.'}`,
           '',
         ].filter(Boolean).join('\n');
@@ -142,7 +140,7 @@ function injectIntoShell(shell, { title, description, canonical, image, favicon,
 async function loadStore(slug) {
   const { data: store, error } = await supabase.from('stores').select('*').eq('slug', slug).single();
   if (error || !store) return { store: null, products: [] };
-  const { data: products } = await supabase.from('products').select('id,name,price,category,image_url,views_total').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false }).limit(50);
+  const { data: products } = await supabase.from('products').select('id,name,price,image_url,views_total').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false }).limit(50);
   const { data: media } = products?.length ? await supabase.from('product_images').select('product_id,url').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [] };
   const liveProducts = (products || []).map((product) => ({ ...product, images: (media || []).filter((image) => image.product_id === product.id).map((image) => image.url) }));
   return { store, products: liveProducts };
@@ -155,19 +153,17 @@ function buildStorePage({ store, products, canonical, root }) {
   const title = `${name} — Shop online in Kenya`;
   const description = clamp(`Shop ${name} online. ${count ? `${count} product${count === 1 ? '' : 's'} live${highlights ? `: ${highlights}` : ''}. ` : ''}Browse the full catalogue and order directly on WhatsApp. Powered by StoYangu.`, 220);
   const image = products[0]?.images?.[0] || products[0]?.image_url || store.logo_url || `https://${root}/stoyangu-logo.png`;
-  const categories = Array.isArray(store.categories) ? store.categories.filter(Boolean).map(String) : [];
   const storeLd = {
     '@context': 'https://schema.org', '@type': 'OnlineStore', name, url: canonical,
     description, image, telephone: store.whatsapp, currenciesAccepted: 'KES', paymentAccepted: 'M-Pesa, WhatsApp order',
     areaServed: { '@type': 'Country', name: 'Kenya' },
-    ...(categories.length ? { knowsAbout: categories } : {}),
     foundingDate: store.created_at,
   };
   const itemListLd = {
     '@context': 'https://schema.org', '@type': 'ItemList', name: `${name} products`, numberOfItems: count,
     itemListElement: products.slice(0, 30).map((product, index) => ({
       '@type': 'ListItem', position: index + 1,
-      item: { '@type': 'Product', name: product.name, image: product.images?.length ? product.images : [product.image_url].filter(Boolean), category: product.category, offers: { '@type': 'Offer', price: Number(product.price), priceCurrency: 'KES', availability: 'https://schema.org/InStock', url: canonical, seller: { '@type': 'Organization', name } } },
+      item: { '@type': 'Product', name: product.name, image: product.images?.length ? product.images : [product.image_url].filter(Boolean), offers: { '@type': 'Offer', price: Number(product.price), priceCurrency: 'KES', availability: 'https://schema.org/InStock', url: canonical, seller: { '@type': 'Organization', name } } },
     })),
   };
   const breadcrumbLd = { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [

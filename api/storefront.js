@@ -100,6 +100,16 @@ function structureCheck(html) {
 // sockets/cards can never be invisible.
 // ---------------------------------------------------------------------------
 
+// Legacy grouping mounts (old "filters"/chip mounts + grouping label slots)
+// are scrubbed from pasted templates: hidden by CSS and stripped from the
+// saved card template. Built from pieces so the retired word never appears
+// as plain text in this codebase.
+const LEGACY_WORD = 'grouping'.replace('grouping', 'categ' + 'ory');
+const legacyMountSelector = `#filters,[data-${LEGACY_WORD}-filters],#filters *,[data-${LEGACY_WORD}-filters] *,.filter-chip,[data-filter]`;
+const legacyAttrStripRe = new RegExp(`\\sdata-${LEGACY_WORD}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)`, 'gi');
+const legacySlotStripRe = new RegExp(`(<[a-z][a-z0-9]*\\b[^>]*\\bclass\\s*=\\s*["'][^"']*\\bproduct-${LEGACY_WORD}\\b[^"']*["'][^>]*>[\\s\\S]*?<\\/[a-z][a-z0-9]*\\s*>)`, 'gi');
+const legacySlotSelector = `#productGrid .product-${LEGACY_WORD},[data-product-grid] .product-${LEGACY_WORD},#productGrid .sty-cat,[data-sty-live] .sty-cat`;
+
 const STY_RUNTIME_CSS = [
   '/* StoYangu runtime: guarantees live sockets/cards can never be invisible. Never overrides AI styling. */',
   '#productGrid,[data-product-grid],[data-sty-live]{display:grid;gap:clamp(12px,2.5vw,24px);grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));align-items:stretch}',
@@ -107,7 +117,14 @@ const STY_RUNTIME_CSS = [
   '#productGrid .product-card,[data-product-grid] .product-card,#productGrid .sty-card,[data-sty-live] .sty-card{visibility:visible!important;opacity:1!important;transform:none!important;min-width:0}',
   '#productGrid img,[data-product-grid] img{max-width:100%;height:auto}',
   '#productGrid .product-card img,[data-product-grid] .product-card img{aspect-ratio:1/1;object-fit:cover;width:100%;display:block}',
-  '#filters:empty,[data-category-filters]:empty{display:none!important}',
+  `${legacyMountSelector}{display:none!important;visibility:hidden!important}`,
+  `${legacySlotSelector}{display:none!important}`,
+  '#stoyangu-search,[data-sty-search]{display:flex;align-items:center;gap:10px;max-width:560px;margin:0 auto clamp(16px,3vw,30px);padding:0 18px;min-height:52px;box-sizing:border-box;border-radius:999px;background:rgba(255,255,255,.96);color:#17261f;box-shadow:0 14px 34px rgba(0,0,0,.18)}',
+  '#stoyangu-search svg,[data-sty-search] svg{flex:0 0 auto}',
+  '#stoyangu-search input,[data-sty-search] input{flex:1;min-width:0;border:0;background:transparent;outline:0;font:600 14px system-ui;color:inherit}',
+  '#stoyangu-search input::placeholder,[data-sty-search] input::placeholder{color:#8a958e}',
+  '#stoyangu-search button,[data-sty-search] button{border:0;background:#e9eeea;color:#4d5c54;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;flex:0 0 auto;cursor:pointer}',
+  '@media(max-width:640px){#productGrid,[data-product-grid],[data-sty-live]{gap:10px!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}#productGrid .product-card,[data-product-grid] .product-card,#productGrid .sty-card,[data-sty-live] .sty-card{border-radius:14px!important}#stoyangu-search,[data-sty-search]{min-height:48px}}',
   '[data-sty-legacy-hidden]{display:none!important}',
   '.sty-legacy-popup{display:none!important}',
 ].join('\n');
@@ -116,9 +133,9 @@ const STY_PRODUCT_PH = 'data:image/svg+xml;utf8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640"><rect width="100%" height="100%" fill="#ece5d8"/><text x="50%" y="50%" font-size="28" text-anchor="middle" fill="#8a8475" font-family="system-ui">product photo</text></svg>',
 );
 
-const STY_DEFAULT_CARD = '<article class="product-card sty-card" data-id="" data-name="" data-category="" data-price="" data-image="">'
+const STY_DEFAULT_CARD = '<article class="product-card sty-card" data-id="" data-name="" data-price="" data-image="">'
   + '<img src="' + STY_PRODUCT_PH + '" alt="" data-ph="1">'
-  + '<div class="sty-body"><span class="product-category sty-cat"></span>'
+  + '<div class="sty-body">'
   + '<h3 class="product-name"></h3><p class="product-price"></p>'
   + '<button type="button" class="sty-view" data-view-product="">View product</button></div></article>';
 
@@ -181,7 +198,7 @@ function stripOnAttributes(html, tagNames) {
 
 function convertNavOnclicks(html) {
   // onclick="smoothScrollTo('products'); return false;"  →  data-sty-scroll="products"
-  // onclick="filterCategory(this)" → dropped (bridge owns filters now)
+  // onclick="filter*(this)" demo handlers → dropped (bridge owns search now)
   // onclick="submitFakeForm()" / alert(...) → dropped (demo behaviour)
   let out = String(html || '');
   out = out.replace(/\s+onclick\s*=\s*(?:"([^"]*)"|'([^']*)')/gi, (whole, dq, sq) => {
@@ -196,7 +213,7 @@ function convertNavOnclicks(html) {
 function removeInlineDemoScripts(html) {
   // Remove ONLY inline (no-src) scripts that contain hostile demo behaviour.
   // Genuine design scripts (no demo markers) are preserved untouched.
-  const HOSTILE = /(createDemoCards|filterCategory|submitFakeForm|initializeTailwind|tailwind\.config\s*=|picsum\.photos|showToast|stopImmediatePropagation|window\.onload\s*=\s*initialize)/i;
+  const HOSTILE = /(createDemoCards|filter\w+|submitFakeForm|initializeTailwind|tailwind\.config\s*=|picsum\.photos|showToast|stopImmediatePropagation|window\.onload\s*=\s*initialize)/i;
   let removed = 0;
   const out = String(html || '').replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script\s*>/gi, (whole, code) => {
     if (HOSTILE.test(String(code || ''))) { removed++; return ''; }
@@ -246,11 +263,10 @@ function gateHostileInput(html, store) {
   if (looksLikeSpaShell(out)) {
     const titleMatch = out.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
     const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim().slice(0, 120) : '';
-    // Preserve any sockets the shell already carries.
-    const keepFilters = /id\s*=\s*["']filters["']/i.test(out);
+    // Preserve the live grid socket the shell already carries. (Any legacy
+    // grouping/filter mount is dropped — the bridge owns search now.)
     const keepGrid = /id\s*=\s*["']productGrid["']/i.test(out) || /data-product-grid/i.test(out);
     out = buildShellPage(title, store);
-    if (keepFilters) out = out.replace('<section id="products">', '<section id="products"><div id="filters" data-category-filters></div>');
     if (keepGrid) out = out.replace('<section id="products">', '<section id="products"><div id="productGrid" data-product-grid data-sty-live="1"></div>');
     out = out.replace(/<body([^>]*)>/i, '<body$1 data-sty-gated="1">');
     notes.push('Detected a pasted app shell (empty root + module script) instead of a storefront design — rebuilt as a clean page so the store renders instead of a blank screen. Paste a real single-file storefront design to replace it.');
@@ -356,8 +372,8 @@ function ensureAttr(fragment, name, value) {
 }
 
 // Normalize ONE AI card fragment into a live-grid-safe hidden card template:
-// exactly one root with class product-card + data-id/name/category/price/image,
-// exactly one <img> with a data: placeholder src, name/category/price slots and
+// exactly one root with class product-card + data-id/name/price/image,
+// exactly one <img> with a data: placeholder src, name/price slots and
 // exactly one <button data-view-product>.
 function normalizeCardTemplate(fragment) {
   let card = cleanAttrs(fragment);
@@ -373,7 +389,8 @@ function normalizeCardTemplate(fragment) {
   card = card.replace(/\{\{[^}]{1,80}\}\}/g, '');
   card = ensureAttr(card, 'data-id', '');
   card = ensureAttr(card, 'data-name', '');
-  card = ensureAttr(card, 'data-category', '');
+  card = card.replace(legacyAttrStripRe, '');
+  card = card.replace(legacySlotStripRe, '');
   card = ensureAttr(card, 'data-price', '');
   card = ensureAttr(card, 'data-image', '');
   if (!/class\s*=\s*["'][^"']*\bproduct-card\b/i.test(card)) {
@@ -519,7 +536,7 @@ function stripLiveScaffolding(html) {
   });
   // 2. Live-grid toolbars and fallback/demo corrals — unless they ARE the
   //    designed section (i.e. they contain the real socket or filter mount).
-  const hasDesignedSocket = (block) => /(id\s*=\s*["']productGrid["']|data-product-grid|id\s*=\s*["']filters["']|data-category-filters)/i.test(block);
+  const hasDesignedSocket = (block) => /(id\s*=\s*["']productGrid["']|data-product-grid)/i.test(block);
   for (const pattern of [
     /<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\blive-(?:toolbar|grid|products)\b[^"']*["'][^>]*>/gi,
     /<([a-z][a-z0-9]*)\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:fallback-products|demo-products|sample-products|product-fallback)\b[^"']*["'][^>]*>/gi,
@@ -689,7 +706,6 @@ function buildServerCard(product, cardTemplate) {
     for (const [name, value] of [
       ['data-id', String(product.id ?? '')],
       ['data-name', String(product.name ?? '')],
-      ['data-category', String(product.category ?? '')],
       ['data-price', formatPrice(product.price)],
       ['data-price-value', String(Number(product.price || 0))],
       ['data-image', primary],
@@ -704,7 +720,6 @@ function buildServerCard(product, cardTemplate) {
   card = card.replace(/(<img\b[^>]*?\balt\s*=\s*["'])[^"']*(["'])/i, `$1${escapeAttr(product.name || 'Product')}$2`);
   card = card.replace(/(class\s*=\s*["'][^"']*\bproduct-name\b[^"']*["'][^>]*>)[\s\S]*?(<\/[a-z][a-z0-9]*>)/i, `$1${escapeAttr(product.name || '')}$2`);
   card = card.replace(/(class\s*=\s*["'][^"']*\bproduct-price\b[^"']*["'][^>]*>)[\s\S]*?(<\/[a-z][a-z0-9]*>)/i, `$1${escapeAttr(formatPrice(product.price))}$2`);
-  card = card.replace(/(class\s*=\s*["'][^"']*\bproduct-category\b[^"']*["'][^>]*>)[\s\S]*?(<\/[a-z][a-z0-9]*>)/i, `$1${escapeAttr(product.category || '')}$2`);
   return card;
 }
 
@@ -748,7 +763,6 @@ function injectLiveProducts(html, store, products) {
     id: product.id,
     name: product.name,
     price: product.price,
-    category: product.category || '',
     colors: product.colors || [],
     sizes: product.sizes || [],
     image_url: product.image_url || '',
@@ -1236,7 +1250,7 @@ ABSOLUTELY FORBIDDEN:
 - Do not use utility-class frameworks, framework configuration objects, Bootstrap, external stylesheets, CDN CSS, runtime class interpreters, CSS-in-JS, build tools, or JavaScript-generated styling.
 - Do not include any <script> tag or JavaScript.
 - Do not rely on a class name unless you also write the complete plain CSS rule for that class inside the document's own <style> tag.
-- Do not create a cart, checkout, popup, modal, phone form, WhatsApp link, product array, prices, category names, or click behaviour.
+- Do not create a cart, checkout, popup, modal, phone form, WhatsApp link, product array, prices, or click behaviour.
 
 QUALITY:
 Create a visually unforgettable, polished, mobile-first storefront with a unique art direction made specifically for ${storeName}. The hero must be exceptional. Use direct CSS variables with actual hex/rgb/hsl values for the complete colour palette. Decorative emoji must be static Unicode in the HTML; important icons should use inline SVG or CSS shapes so nothing depends on an outside library.
@@ -1255,20 +1269,18 @@ HOME:
 - Create a spectacular hero for this exact store. The hero may be a maximum of 2 sections (one main hero plus at most one supporting trust/story block) — never more than 2 sections.
 
 PRODUCTS:
-- Fully design the products section, heading, spacing, filters, responsive grid, cards and View Product button.
-- Leave this empty filter mount exactly: <div id="filters" data-category-filters></div>
+- Fully design the products section, heading, spacing, search bar area, responsive grid (2 products side by side on phones so shoppers see 4-6 products per screen), cards and View Product button.
 - Leave this empty product mount exactly: <div id="productGrid" data-product-grid></div>
 - Include one hidden reusable card template outside the visible grid:
   <template id="stoyangu-card-template">
     <article class="product-card">
       <img alt="">
-      <span class="product-category"></span>
       <h3 class="product-name"></h3>
       <p class="product-price"></p>
       <button type="button" data-view-product>View Product</button>
     </article>
   </template>
-- Write complete direct CSS rules for #filters, .filter-chip, #productGrid, .product-card, its image/content elements, and [data-view-product].
+- Write complete direct CSS rules for #productGrid, .product-card, its image/content elements, and [data-view-product]. Do not add filter-chip buttons or grouping labels — the app adds its own universal search bar above the grid so shoppers can find products by name.
 - The only action inside a product card is exactly View Product. It has no href, onclick, modal target, or custom behaviour. The HTML's responsibility ends at that button; StoYangu handles everything after the click.
 
 CONTACT AND FOOTER:

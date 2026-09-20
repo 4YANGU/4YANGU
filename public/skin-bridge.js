@@ -70,7 +70,7 @@
       var card = document.createElement('div');
       card.className = 'sty-card';
       card.setAttribute('data-product', p.name);
-      card.innerHTML = '<img loading="lazy" src="' + (p.image_url || '') + '" alt=""><div class="sty-body"><span class="sty-cat">' + (p.category || '') + '</span><span class="sty-name">' + p.name + '</span><strong class="sty-price">' + money(p.price) + '</strong><a class="sty-order" data-wa-order="1" target="_blank" rel="noreferrer" href="' + orderUrl(p) + '">Order via WhatsApp</a></div>';
+      card.innerHTML = '<img loading="lazy" src="' + (p.image_url || '') + '" alt=""><div class="sty-body"><span class="sty-name">' + p.name + '</span><strong class="sty-price">' + money(p.price) + '</strong><a class="sty-order" data-wa-order="1" target="_blank" rel="noreferrer" href="' + orderUrl(p) + '">Order via WhatsApp</a></div>';
       card.querySelector('a').addEventListener('click', function () { track('order', p.id); });
       grid.appendChild(card);
     });

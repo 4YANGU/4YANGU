@@ -1,7 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion, useScroll, useSpring } from 'framer-motion';
 import {
   ArrowDown, ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Code2, Copy, Download,
-  ExternalLink, Instagram, Mail, MapPin, Menu, MessageCircle, ShieldCheck, ShoppingBag,
+  ExternalLink, Instagram, Mail, MapPin, Menu, MessageCircle, Search, ShieldCheck, ShoppingBag,
   Sparkles, Star, Truck, X, type LucideIcon,
 } from 'lucide-react';
 import { CSSProperties, useEffect, useMemo, useState } from 'react';
@@ -20,7 +20,7 @@ type RendererProps = {
 
 const ICONS: Record<string, LucideIcon> = {
   ArrowDown, ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Code2, Copy, Download,
-  ExternalLink, Instagram, Mail, MapPin, Menu, MessageCircle, ShieldCheck, ShoppingBag,
+  ExternalLink, Instagram, Mail, MapPin, Menu, MessageCircle, Search, ShieldCheck, ShoppingBag,
   Sparkles, Star, Truck, X,
 };
 const isObj = (value: unknown): value is Obj => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -321,20 +321,6 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
   </section>;
 }
 
-function CategoriesSection({ section, design, onSelect }: { section: Obj; design: Obj; onSelect: (category: string) => void }) {
-  const categories = array(first(section, 'store_categories', 'categories', 'items', 'cards'));
-  const cardDesign = isObj(section.card_design) ? section.card_design : {};
-  return <section id={idSafe(section.id || 'categories')} className="sj-section sj-categories" style={mergedStyle(design, section.layout, section.style)}>
-    <Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Categories')}</h2>{section.intro && <p>{String(section.intro)}</p>}</Reveal>
-    <div className="sj-category-grid" style={{ gridAutoRows: safeCss(section.layout?.desktop_grid_row_height) }}>{categories.map((category, index) => { const entry = isObj(category) ? category : { name: category }; return <Reveal key={index} design={design} node={entry} animation="category_card_reveal" index={index} className={`sj-category-card sj-category-${index + 1}`} style={mergedStyle(design, cardDesign, entry.style)}>
-      <button onClick={() => { onSelect(String(first(entry, 'product_filter_target', 'name', 'title') || 'All')); document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' }); }} aria-label={`Shop ${String(entry.name || entry.title || '')}`}>
-        {safeUrl(entry.image) && <img src={safeUrl(entry.image)} alt={String(entry.alt || entry.name || entry.title || '')} />}
-        <span className="sj-category-number">{String(index + 1).padStart(2, '0')}</span><div>{entry.count && <small className="sj-category-count">{String(entry.count)}</small>}<small>{String(first(entry, 'tagline', 'note', 'description') || '')}</small><strong>{String(entry.name || entry.title || '')}</strong>{array(entry.spec_pills).length > 0 && <i className="sj-spec-pills">{array(entry.spec_pills).map((pill, p) => <em key={p}>{String(isObj(pill) ? pill.text || pill.label || '' : pill).replace(/^[\[\]"']+|[\[\]"']+$/g, '')}</em>)}</i>}<ArrowRight /></div>
-      </button>
-    </Reveal>; })}</div>
-  </section>;
-}
-
 function colourValue(value: string) {
   if (/^#|^rgb|^hsl/i.test(value)) return value;
   const known: Record<string, string> = { black:'#111827',white:'#ffffff',navy:'#172554',green:'#4d7c5b',red:'#dc2626',blue:'#2563eb',pink:'#ec4899',brown:'#795548',beige:'#d6c6a5',gold:'#d4a94c',cream:'#f5edda',sage:'#9caf88',mocha:'#8b6f61',olive:'#6b7245',terracotta:'#c66b4e',sky:'#87ceeb',peach:'#f4a58a',grey:'#6b7280',gray:'#6b7280'};
@@ -394,7 +380,7 @@ const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery addr
     <motion.div className="sj-product-page-grid" style={{ background: String(safeCss(dialog.background) || '#FFFFFF'), borderRadius: safeCss(dialog.radius), boxShadow: String(safeCss(dialog.box_shadow) || '') }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: Number(design.animations?.product_modal?.duration_seconds || .5), ease: design.animations?.product_modal?.easing || [0.16, 1, 0.3, 1] }}>
       <button type="button" className="sj-popup-close" onClick={onClose} aria-label="Close product view"><X /></button>
       <div className="sj-modal-media" style={mergedStyle(design, config.media_panel)}><div className="sj-photo-stack"><img className="sj-photo-sizer" src={activeImage} alt="" aria-hidden="true" />{media.map((image, index) => <img key={image} className={`sj-photo-layer${image === activeImage ? ' active' : ''}`} src={image} alt={image === activeImage ? product.name : ''} decoding="async" fetchPriority={index === 0 ? 'high' : 'auto'} />)}</div>{media.length > 1 && <><button type="button" className="sj-photo-nav prev" aria-label="Previous photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) - 1 + media.length) % media.length])}><ChevronLeft /></button><button type="button" className="sj-photo-nav next" aria-label="Next photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) + 1) % media.length])}><ChevronRight /></button></>}{media.length > 1 && <div className="sj-modal-thumbnails">{media.map((image, index) => <button key={image} className={activeImage === image ? 'active' : ''} onClick={() => setActiveImage(image)} aria-label={`Show product photo ${index + 1}`}><img src={image} alt="" loading="lazy" decoding="async" /></button>)}</div>}</div>
-      <div className="sj-modal-content" style={mergedStyle(design, config.content_panel)}><span className="sj-modal-category">{product.category}{config.category_suffix ? ` / ${config.category_suffix}` : ''}</span><h2>{product.name}</h2><strong className="sj-modal-price">{formatMoney(product.price)}</strong>
+      <div className="sj-modal-content" style={mergedStyle(design, config.content_panel)}><h2>{product.name}</h2><strong className="sj-modal-price">{formatMoney(product.price)}</strong>
         {product.sizes?.length > 0 && config.size_selector?.visible !== false && <fieldset className="sj-variant"><div><span className="sj-variant-title">{String(config.size_selector?.label || 'Size')}</span><small>{String(config.size_selector?.helper || '')}</small></div><div>{product.sizes.map((item) => <button type="button" className={size === item ? 'selected' : ''} key={item} onClick={() => setSize(item)} aria-pressed={size === item}>{item}</button>)}</div></fieldset>}
         {product.colors?.length > 0 && config.colour_selector?.visible !== false && <fieldset className="sj-variant colours"><div><span className="sj-variant-title">{String(config.colour_selector?.label || 'Colour')}</span><small>{colour || String(config.colour_selector?.helper || '')}</small></div><div>{product.colors.map((item) => <button type="button" className={colour === item ? 'selected' : ''} key={item} style={{ background: colourValue(item) }} onClick={() => setColour(item)} aria-label={`Choose ${item}`} aria-pressed={colour === item}>{colour === item && <Check />}</button>)}</div></fieldset>}
         <fieldset className="sj-fulfilment"><span className="sj-fulfilment-title">Ikufikie aje?</span><div><button type="button" className={fulfilment === 'Walk in Store' ? 'selected' : ''} onClick={() => setFulfilment('Walk in Store')}>Walk in Store</button><button type="button" className={fulfilment === 'Delivery' ? 'selected' : ''} onClick={() => setFulfilment('Delivery')}>Delivery</button></div>{fulfilment === 'Delivery' && <label>Delivery address<textarea value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={300} placeholder="Estate, building and nearest landmark" /></label>}<label>Optional order note<textarea value={orderNote} onChange={(event) => setOrderNote(event.target.value)} maxLength={300} placeholder="Any extra request or question?" /></label></fieldset>
@@ -407,13 +393,12 @@ const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery addr
   </section>;
 }
 
-function ProductsSection({ section, design, products, selectedCategory, setSelectedCategory, onSelectProduct, onView }: { section: Obj; design: Obj; products: Product[]; selectedCategory: string; setSelectedCategory: (value: string) => void; onSelectProduct: (product: Product) => void; onView: RendererProps['onView'] }) {
+function ProductsSection({ section, design, products, onSelectProduct, onView }: { section: Obj; design: Obj; products: Product[]; onSelectProduct: (product: Product) => void; onView: RendererProps['onView'] }) {
   const reduced = Boolean(useReducedMotion());
   const card = isObj(section.product_card) ? section.product_card : {};
-  const liveCategories = [...new Set(products.map((product) => product.category).filter(Boolean))];
-  const configured = array(section.filter_labels).map(String);
-  const filters = ['All', ...configured.filter((item) => !/^all/i.test(item) && liveCategories.some((category) => category.toLowerCase() === item.toLowerCase())), ...liveCategories.filter((item) => !configured.some((labelValue) => labelValue.toLowerCase() === item.toLowerCase()))];
-  const visible = selectedCategory === 'All' ? products : products.filter((product) => product.category.toLowerCase() === selectedCategory.toLowerCase());
+  const [query, setQuery] = useState('');
+  const trimmed = query.trim().toLowerCase();
+  const visible = trimmed ? products.filter((product) => `${product.name} ${product.colors?.join(' ') || ''} ${product.sizes?.join(' ') || ''}`.toLowerCase().includes(trimmed)) : products;
   const openProduct = (product: Product) => {
     // Damn fix (snappy photos): start fetching every photo the moment the card
     // is tapped, giving the images a head start before the view even opens.
@@ -422,18 +407,18 @@ function ProductsSection({ section, design, products, selectedCategory, setSelec
   };
   return <section id={idSafe(section.id || 'products')} className="sj-section sj-products" style={mergedStyle(design, section.layout, section.style)}>
     <Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading center"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Products')}</h2>{section.intro && <p>{String(section.intro)}</p>}</Reveal>
-    {filters.length > 1 && <div className="sj-product-filters" role="tablist" aria-label="Product categories">{filters.map((filter) => <button role="tab" aria-selected={selectedCategory === filter} className={selectedCategory === filter ? 'active' : ''} key={filter} onClick={() => setSelectedCategory(filter)}>{filter === 'All' ? String(configured.find((item) => /^all/i.test(item)) || 'All') : filter}</button>)}</div>}
-    <AnimatePresence mode={design.animations?.product_filter_transition?.presence_mode === 'popLayout' ? 'popLayout' : 'sync'}><motion.div layout key={selectedCategory} className="sj-product-grid" initial={stateToMotion(design.animations?.product_filter_transition?.incoming)} animate={stateToMotion(design.animations?.product_filter_transition?.active)} exit={stateToMotion(design.animations?.product_filter_transition?.outgoing)} transition={{ duration: Number(design.animations?.product_filter_transition?.duration_seconds || .45) }}>{visible.map((product, index) => <motion.article layout key={product.id} className="sj2-product-card" style={mergedStyle(design, card)} {...animationProps(design, section, 'product_filter_transition', reduced, index)}>
-      <button className="sj-product-card-main" onClick={() => openProduct(product)} aria-label={`View ${product.name}`}><div className="sj2-product-image" style={{ borderRadius: safeCss(card.image_radius) }}><img src={product.images?.[0] || product.image_url || '/stoyangu-logo.png'} alt={product.name} loading="lazy" /><span>{String(index + 1).padStart(2, '0')}</span>{(product.images?.length || 0) > 1 && <small>{product.images.length} photos</small>}</div><div className="sj2-product-copy"><small>{product.category}</small><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong><span className="sj-view-product">{String(card.only_action || 'View product')}<Icon name={card.action_icon || 'ArrowRight'} /></span></div></button>
+    <div className="sj-product-search" role="search"><Search size={17} aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products…" aria-label="Search products" autoComplete="off" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={15} /></button>}</div>
+    <AnimatePresence mode={design.animations?.product_filter_transition?.presence_mode === 'popLayout' ? 'popLayout' : 'sync'}><motion.div layout key={trimmed} className="sj-product-grid" initial={stateToMotion(design.animations?.product_filter_transition?.incoming)} animate={stateToMotion(design.animations?.product_filter_transition?.active)} exit={stateToMotion(design.animations?.product_filter_transition?.outgoing)} transition={{ duration: Number(design.animations?.product_filter_transition?.duration_seconds || .45) }}>{visible.map((product, index) => <motion.article layout key={product.id} className="sj2-product-card" style={mergedStyle(design, card)} {...animationProps(design, section, 'product_filter_transition', reduced, index)}>
+      <button className="sj-product-card-main" onClick={() => openProduct(product)} aria-label={`View ${product.name}`}><div className="sj2-product-image" style={{ borderRadius: safeCss(card.image_radius) }}><img src={product.images?.[0] || product.image_url || '/stoyangu-logo.png'} alt={product.name} loading="lazy" /><span>{String(index + 1).padStart(2, '0')}</span>{(product.images?.length || 0) > 1 && <small>{product.images.length} photos</small>}</div><div className="sj2-product-copy"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong><span className="sj-view-product">{String(card.only_action || 'View product')}<Icon name={card.action_icon || 'ArrowRight'} /></span></div></button>
     </motion.article>)}</motion.div></AnimatePresence>
-    {!visible.length && <div className="sj-products-empty"><ShoppingBag /><h3>No products in this category yet.</h3><button onClick={() => setSelectedCategory('All')}>View all products</button></div>}
+    {!visible.length && <div className="sj-products-empty"><ShoppingBag /><h3>{trimmed ? `No products match “${query.trim()}”.` : 'New products are coming soon.'}</h3>{trimmed ? <button onClick={() => setQuery('')}>Clear search</button> : null}</div>}
   </section>;
 }
 
 function SimilarProducts({ current, products, onSelect }: { current: Product; products: Product[]; onSelect: (product: Product) => void }) {
-  const related = [...products.filter((product) => product.id !== current.id && product.category === current.category), ...products.filter((product) => product.id !== current.id && product.category !== current.category)].slice(0, 4);
+  const related = products.filter((product) => product.id !== current.id).slice(0, 4);
   if (!related.length) return null;
-  return <section className="sj-similar-products"><span>Keep browsing</span><h2>Similar products</h2><div>{related.map((product) => <article key={product.id}><button onClick={() => onSelect(product)}><img src={product.images?.[0] || product.image_url} alt={product.name} loading="lazy" /><small>{product.category}</small><strong>{product.name}</strong><b>{formatMoney(product.price)}</b><em>View product <ArrowRight /></em></button></article>)}</div></section>;
+  return <section className="sj-similar-products"><span>Keep browsing</span><h2>Similar products</h2><div>{related.map((product) => <article key={product.id}><button onClick={() => onSelect(product)}><img src={product.images?.[0] || product.image_url} alt={product.name} loading="lazy" /><strong>{product.name}</strong><b>{formatMoney(product.price)}</b><em>View product <ArrowRight /></em></button></article>)}</div></section>;
 }
 
 function ContactSection({ section, design }: { section: Obj; design: Obj }) {
@@ -503,7 +488,6 @@ function Footer({ design, store, onSectionNavigate }: { design: Obj; store: Stor
 function sectionKind(section: Obj) {
   const identity = label(first(section, 'type', 'component', 'kind', 'id', 'name')).toLowerCase();
   if (/home|hero|landing|welcome/.test(identity) || section.hero_visual || section.headline_lines) return 'hero';
-  if (/categor|collection nav/.test(identity) || section.store_categories) return 'categories';
   if (/product|catalog|shop/.test(identity) || section.product_card || section.product_page) return 'products';
   if (/contact|visit|location|find us/.test(identity) || section.map_visual || section.contact_items || section.map_embed || section.review_quote) return 'contact';
   return 'generic';
@@ -544,12 +528,10 @@ export default function StorefrontRenderer({ store, products, onOrder, onView }:
     const parsed = array(source).filter(isObj);
     return parsed.length ? parsed : [{ id: 'home', headline: design.store_name || store.name, tagline: 'Karibu. Shop our newest products.' }, { id: 'products', headline: 'Our products', product_card: {} }];
   }, [design, store.name]);
-  const [category, setCategory] = useState('All');
   const productSection = sections.find((section) => sectionKind(section) === 'products') || {};
   const productPageConfig = isObj(productSection.product_page) ? productSection.product_page : {};
   const productFromUrl = () => { const id = Number(new URLSearchParams(window.location.search).get('product')); return products.find((product) => product.id === id) || null; };
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(productFromUrl);
-  useEffect(() => { if (!products.some((product) => product.category.toLowerCase() === category.toLowerCase())) setCategory('All'); }, [products, category]);
   useEffect(() => { const pop = () => setSelectedProduct(productFromUrl()); window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, [products]);
   const selectProduct = (product: Product) => { setSelectedProduct(product); const url = new URL(window.location.href); url.searchParams.set('product', String(product.id)); window.history.pushState({}, '', url); window.scrollTo(0, 0); };
   const leaveProduct = (target = '#products') => { setSelectedProduct(null); const url = new URL(window.location.href); url.searchParams.delete('product'); window.history.replaceState({}, '', url); window.requestAnimationFrame(() => document.querySelector(target)?.scrollIntoView({ behavior: 'smooth' })); };
@@ -563,8 +545,7 @@ export default function StorefrontRenderer({ store, products, onOrder, onView }:
     <main>{selectedProduct ? <><ProductPageDetails key={selectedProduct.id} product={selectedProduct} config={productPageConfig} design={design} onClose={() => leaveProduct('#products')} onOrder={onOrder} /><SimilarProducts current={selectedProduct} products={products} onSelect={selectProduct} /></> : sections.map((section, index) => {
       const kind = sectionKind(section);
       if (kind === 'hero') return <HeroSection key={section.id || index} section={section} design={design} store={store} />;
-      if (kind === 'categories') return <CategoriesSection key={section.id || index} section={section} design={design} onSelect={setCategory} />;
-      if (kind === 'products') return <ProductsSection key={section.id || index} section={section} design={design} products={products} selectedCategory={category} setSelectedCategory={setCategory} onSelectProduct={selectProduct} onView={onView} />;
+      if (kind === 'products') return <ProductsSection key={section.id || index} section={section} design={design} products={products} onSelectProduct={selectProduct} onView={onView} />;
       if (kind === 'contact') return <ContactSection key={section.id || index} section={section} design={design} />;
       return <GenericSection key={section.id || index} section={section} design={design} />;
     })}</main>

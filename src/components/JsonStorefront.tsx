@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Menu, MessageCircle, ShoppingBag, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Menu, MessageCircle, Search, ShoppingBag, X } from 'lucide-react';
 import { Component, CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 import type { Product, Store } from '../types';
 import { formatMoney } from '../lib/api';
@@ -200,7 +200,7 @@ function ProductCard({ product, onOrder, onView, cardStyle, collectionMotion, in
   const transition = animation.transition ? { ...animation.transition, delay: Number(animation.transition.delay || 0) + index * stagger } : undefined;
   return <motion.article ref={ref} className="store-product-card" style={toStyle(cardStyle)} initial={animation.initial} animate={animation.animate} transition={transition}>
     <div className="store-product-image"><img src={product.image_url || '/stoyangu-logo.png'} alt={product.name} loading="lazy" /></div>
-    <div className="store-product-copy"><span className="product-category">{product.category}</span><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong>
+    <div className="store-product-copy"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong>
       {product.colors?.length > 0 && <label>Colour<select value={color} onChange={(event) => setColor(event.target.value)}>{product.colors.map((item) => <option key={item}>{item}</option>)}</select></label>}
       {product.sizes?.length > 0 && <label>Size<select value={size} onChange={(event) => setSize(event.target.value)}>{product.sizes.map((item) => <option key={item}>{item}</option>)}</select></label>}
       <button className="store-order-button" onClick={() => onOrder(product, color, size)}><MessageCircle size={18} /> Order via WhatsApp</button>
@@ -209,9 +209,9 @@ function ProductCard({ product, onOrder, onView, cardStyle, collectionMotion, in
 }
 
 function ProductCollection({ node, products, onOrder, onView }: { node: AnyRecord; products: Product[]; onOrder: EngineProps['onOrder']; onView: EngineProps['onView'] }) {
-  const [category, setCategory] = useState('All');
-  const categories = ['All', ...Array.from(new Set(products.map((item) => item.category).filter(Boolean)))];
-  const visible = category === 'All' ? products : products.filter((item) => item.category === category);
+  const [query, setQuery] = useState('');
+  const trimmed = query.trim().toLowerCase();
+  const visible = trimmed ? products.filter((item) => `${item.name} ${(item.colors || []).join(' ')} ${(item.sizes || []).join(' ')}`.toLowerCase().includes(trimmed)) : products;
   const cardStyle = take(node, 'card_style', 'product_card', 'cardStyle');
   const heading = take(node, 'heading', 'headline', 'title');
   const eyebrow = take(node, 'eyebrow', 'kicker', 'overline');
@@ -219,11 +219,11 @@ function ProductCollection({ node, products, onOrder, onView }: { node: AnyRecor
   const collectionMotion = take(node, 'motion', 'animation', 'animations');
   return <div className="store-products-wrap">
     {(heading || eyebrow || body) && <div className="store-products-heading">{eyebrow && <span className="json-eyebrow">{String(eyebrow)}</span>}{heading && <h2>{String(heading)}</h2>}{body && <p>{String(body)}</p>}</div>}
-    {categories.length > 2 && <div className="store-filters" aria-label="Product categories">{categories.map((item) => <button key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div>}
+    <div className="store-search" role="search"><Search size={16} aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products…" aria-label="Search products" autoComplete="off" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14} /></button>}</div>
     <div className="store-product-grid" style={toStyle(take(node, 'grid', 'grid_style', 'layout'))}>
       {visible.map((product, index) => <ProductCard key={product.id} product={product} onOrder={onOrder} onView={onView} cardStyle={cardStyle} collectionMotion={collectionMotion} index={index} />)}
     </div>
-    {!visible.length && <p className="store-empty">New products are coming soon.</p>}
+    {!visible.length && <p className="store-empty">{trimmed ? `No products match “${query.trim()}”.` : 'New products are coming soon.'}</p>}
   </div>;
 }
 

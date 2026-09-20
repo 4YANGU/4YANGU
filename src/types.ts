@@ -16,7 +16,7 @@ export type Store = {
   whatsapp: string;
   phone: string;
   logo_url: string;
-  categories: string[];
+  groupings?: string[];
   design_json: Record<string, unknown> & { storefront_html?: string };
   is_active: boolean;
   billing_started_at: string | null;
@@ -59,7 +59,7 @@ export type Product = {
   store_id: number;
   name: string;
   price: number;
-  category: string;
+  legacyGrouping?: string;
   colors: string[];
   sizes: string[];
   image_url: string;
