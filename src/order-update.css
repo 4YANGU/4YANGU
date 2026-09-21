@@ -46,6 +46,9 @@
 .order-delete svg{width:15px}
 .order-delete:hover{background:#fdf0ef}
 @media(max-width:720px){.incoming-order{grid-template-columns:auto 1fr;gap:10px}.order-card-actions{grid-column:1/-1;justify-content:flex-end}}
+/* Woyoyo-009: mobile order cards — name + details take the freed middle
+column (photo | details | customer), no squeezed right rail. */
+@media(max-width:720px){.incoming-order{grid-template-columns:auto minmax(0,1fr)}.incoming-order-main{min-width:0}.incoming-order-main strong{font-size:.82rem}.incoming-order-customer{grid-column:2;min-width:0}.incoming-order-photo{width:64px;height:64px}}
 /* Woyoyo-004: polished manage-store header — store logo left, name + details right. */
 .owner-header{display:grid;grid-template-columns:1fr;justify-items:center}
 .owner-header-actions{width:100%;max-width:1040px}

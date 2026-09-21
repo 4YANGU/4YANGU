@@ -3,7 +3,18 @@ import { selfHostStorefrontAssets, scanStorefrontWarnings } from '../lib/html-as
 import { ensureDesignRuntime } from '../lib/html-runtime.js';
 import { billingPeriod } from '../lib/billing.js';
 
-const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
+// Woyoyo-009: joined subdomains — "Stevo Jerseys" → stevojerseys.stoyangu.com
+// (no hyphens). Store NAMES keep their spaces everywhere in the UI; only the
+// URL slug is joined. Old hyphenated slugs keep working via store_aliases and
+// the hyphen-tolerant lookups below, so nothing already shared ever breaks.
+const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '').slice(0, 55);
+// Accept both spellings when RESOLVING (new joined + legacy hyphenated).
+const slugVariants = (value) => {
+  const raw = String(value || '').toLowerCase().trim().slice(0, 60);
+  const joined = raw.replace(/[^a-z0-9]+/g, '');
+  const hyphen = raw.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return [...new Set([joined, hyphen].filter(Boolean))];
+};
 const normalizePhone = (value) => {
   const digits = String(value || '').replace(/\D/g, '');
   const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits;
@@ -53,15 +64,29 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', req.query?.fresh ? 'no-store, max-age=0' : 'public, s-maxage=10');
       let result;
       if (req.query.slug) {
-        const requestedSlug = slugify(req.query.slug);
-        result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', requestedSlug).single();
+        // Woyoyo-009: try the joined slug, then the legacy hyphenated one,
+        // then aliases under either spelling.
+        const variants = slugVariants(req.query.slug);
+        result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', variants[0] || '').single();
+        if ((result.error || !result.data) && variants[1]) {
+          result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', variants[1]).single();
+        }
         if (result.error || !result.data) {
-          const { data: alias } = await supabase.from('store_aliases').select('store_id').eq('slug', requestedSlug).eq('active', true).single();
-          if (alias?.store_id) result = await supabase.from('stores').select('*').eq('is_active', true).eq('id', alias.store_id).single();
+          for (const variant of variants) {
+            const { data: alias } = await supabase.from('store_aliases').select('store_id').eq('slug', variant).eq('active', true).single();
+            if (alias?.store_id) {
+              result = await supabase.from('stores').select('*').eq('is_active', true).eq('id', alias.store_id).single();
+              if (!result.error && result.data) break;
+            }
+          }
         }
       }
       else {
-        result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', slugify(process.env.FEATURED_STORE_SLUG || 'stevo-jerseys')).single();
+        result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', slugify(process.env.FEATURED_STORE_SLUG || 'stevojerseys')).single();
+        if (result.error || !result.data) {
+          const legacy = slugVariants(process.env.FEATURED_STORE_SLUG || 'stevojerseys')[1];
+          if (legacy) result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', legacy).single();
+        }
         if (result.error || !result.data) result = await supabase.from('stores').select('*').eq('is_active', true).order('created_at', { ascending: true }).limit(1).single();
       }
       const { data: store, error } = result;
@@ -86,7 +111,9 @@ export default async function handler(req, res) {
       if (name.length < 2 || !whatsapp || password.length < 8) return res.status(400).json({ error: 'Store name, owner WhatsApp number and a temporary password of at least 8 characters are required.' });
       let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
       const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
-      if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}-${suffix}`)) suffix++; slug = `${slug}-${suffix}`; }
+      // Woyoyo-009: joined uniqueness — "Stevo Jerseys" twice becomes
+      // stevojerseys, stevojerseys2 (no hyphen in new slugs).
+      if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}${suffix}`)) suffix++; slug = `${slug}${suffix}`; }
       const sourceHtml = String(body.storefront_html || '').trim();
       const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
       if (error) throw error;
@@ -119,7 +146,14 @@ export default async function handler(req, res) {
         const name = String(req.body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(req.body.whatsapp); const newPassword = String(req.body.owner_password || '');
         if (name.length < 2 || !whatsapp || newPassword && newPassword.length < 8) return res.status(400).json({ error: 'Add a valid store name, WhatsApp number and optional password of at least 8 characters.' });
         let slug = slugify(name); const { data: taken } = await supabase.from('stores').select('id').eq('slug', slug).neq('id', id).limit(1); if (taken?.length) return res.status(400).json({ error: 'Another store already uses that name or subdomain.' });
-        if (existing.slug !== slug) await supabase.from('store_aliases').upsert({ store_id: id, slug: existing.slug, active: true }, { onConflict: 'slug' });
+        if (existing.slug !== slug) {
+          // Woyoyo-009: keep BOTH old spellings alive (current + hyphen twin)
+          // so every previously shared link keeps opening this store.
+          const oldVariants = [...new Set([existing.slug, ...slugVariants(existing.slug)])].filter(Boolean);
+          for (const oldSlug of oldVariants) {
+            await supabase.from('store_aliases').upsert({ store_id: id, slug: oldSlug, active: true }, { onConflict: 'slug' });
+          }
+        }
         const changes = { name, slug, whatsapp, phone: whatsapp, owner_name: 'Store owner', owner_email: '', logo_url: String(req.body.logo_url ?? existing.logo_url).slice(0, 1000), updated_at: new Date().toISOString() };
         const { data: ownerProfile } = await supabase.from('profiles').select('user_id').eq('store_id', id).eq('role', 'owner').single();
         if (ownerProfile?.user_id) {

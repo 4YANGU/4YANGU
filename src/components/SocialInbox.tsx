@@ -46,9 +46,16 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [seeding, setSeeding] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [notice, setNotice] = useState('');
   const [picker, setPicker] = useState<{ platform: string; state: string; token: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null>(null);
   const [picking, setPicking] = useState(false);
   const loadRef = useRef<() => void>(() => undefined);
+  // Woyoyo-009: single-flight OAuth resume. After same-tab approval the
+  // callback redirects back here with ?oauth=…&platform=… — we pick it up
+  // once, show the result, capture any pending Page/channel choice, and then
+  // scrub the params so refresh never replays it.
+  const oauthResumeKey = `stoyangu-oauth-resume-${storeId}`;
+  const oauthHandled = useRef(false);
 
   const load = useCallback(async (silent = false, background = false) => {
     if (background) { /* live mode syncs silently below — never show spinners */ }
@@ -78,6 +85,50 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadRef.current = () => load(true, true); }, [load]);
+
+  useEffect(() => {
+    // Woyoyo-009: consume the same-tab OAuth result exactly once.
+    if (oauthHandled.current) return;
+    oauthHandled.current = true;
+    let params: URLSearchParams | null = null;
+    try { params = new URLSearchParams(window.location.search); } catch { return; }
+    const outcome = params.get('oauth');
+    if (!outcome) return;
+    const platform = params.get('platform') || '';
+    const label = platform ? platformLabel(platform) : 'Account';
+    const failed = outcome !== 'ok'
+      ? (params.get('oauth_error') || `Could not connect that account.`)
+      : '';
+    const resumed: { state: string; token: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null = (() => {
+      try {
+        const raw = sessionStorage.getItem(oauthResumeKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || parsed.platform !== platform || !parsed.state) return null;
+        if (Date.now() - Number(parsed.savedAt || 0) > 30 * 60 * 1000) return null;
+        return parsed;
+      } catch { return null; }
+    })();
+    try {
+      sessionStorage.removeItem(oauthResumeKey);
+      params.delete('oauth'); params.delete('platform'); params.delete('oauth_error'); params.delete('oauth_pick'); params.delete('oauth_state');
+      const rest = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+    } catch { /* URL stays — result still shows */ }
+    if (!failed && params.get('oauth_pick') === '1' && resumed?.token && resumed.choices?.length) {
+      setPicker({ platform, state: params.get('oauth_state') || resumed.state || '', token: resumed.token, choices: resumed.choices });
+      setAccountsOpen(true);
+      setNotice(`${label} approved — pick the ${platform === 'facebook' ? 'Page' : 'channel'} to finish.`);
+    } else if (!failed) {
+      setAccountsOpen(true);
+      setNotice(`${label} connected.`);
+    } else {
+      setAccountsOpen(true);
+      setError(failed);
+    }
+    load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Woyoyo-004: social-style auto-refresh — the inbox quietly checks for new
   // DMs and comments every 20 seconds (only when the tab is visible and the
@@ -215,8 +266,33 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     if (busyKey) return;
     setBusyKey(`connect-${platform}`);
     setError('');
+    setNotice('');
+    // Woyoyo-009: phones do OAuth in the SAME tab (a pop-up gets killed and
+    // the OAuth session cookie never comes back — that was the "failed to
+    // fetch" / silent-return bug). Same-tab also lets the OS offer the
+    // installed TikTok/Facebook/Instagram/YouTube app instead of forcing a
+    // Chrome login. Desktop keeps the pop-up flow.
+    const isPhone = (() => {
+      try {
+        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+          (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches && Math.min(window.screen.width, window.screen.height) < 820);
+      } catch { return false; }
+    })();
+    // Where the callback must send a same-tab phone back to. Owners manage
+    // from /owner; founders manage one store from /manage/:storeId — detect
+    // from the current path so both land back in their inbox.
+    const returnTo = (() => {
+      try {
+        const path = window.location.pathname || '/owner';
+        const base = path.startsWith('/manage/') ? path : '/owner';
+        return `${base}?storeId=${storeId}&inbox=1`;
+      } catch { return `/owner?storeId=${storeId}&inbox=1`; }
+    })();
     try {
-      const started = await apiFetch<{ connection?: SocialConnection; oauth?: boolean; authorize_url?: string; state?: string }>('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'connect', store_id: storeId, platform }) });
+      const started = await apiFetch<{ connection?: SocialConnection; oauth?: boolean; authorize_url?: string; state?: string }>(
+        '/api/media?action=social',
+        { method: 'POST', body: JSON.stringify({ op: 'connect', store_id: storeId, platform, return_to: returnTo }) },
+      );
       if (!started.oauth || !started.authorize_url) {
         await load(true);
         return;
@@ -227,6 +303,14 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       if (target.startsWith('/')) target = `${window.location.origin}${target}`;
       if (!/^https?:\/\//i.test(target)) {
         setError('The connect link was invalid. Please try again.');
+        return;
+      }
+      if (isPhone) {
+        // Same-tab handoff: remember the pending platform/state, then go.
+        // sessionStorage (not localStorage) so a stale entry can never leak
+        // into a later store's session, and it dies with the tab.
+        try { sessionStorage.setItem(oauthResumeKey, JSON.stringify({ platform, state: started.state || '', savedAt: Date.now() })); } catch { /* resume still works without it */ }
+        window.location.assign(target);
         return;
       }
       const popup = openPopup(target, platform);
@@ -241,12 +325,19 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         return;
       }
       if (outcome.needs_pick && outcome.token && outcome.choices?.length) {
+        // Remember the Page/channel choice too — if the phone killed this
+        // tab mid-approval, the resume effect above restores the picker.
+        try { sessionStorage.setItem(oauthResumeKey, JSON.stringify({ platform: outcome.platform || platform, state: outcome.state || started.state || '', token: outcome.token, choices: outcome.choices, savedAt: Date.now() })); } catch { /* picker still shows now */ }
         setPicker({ platform: outcome.platform || platform, state: outcome.state || started.state || '', token: outcome.token, choices: outcome.choices });
         return;
       }
       await load(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not connect that account.');
+      // Woyoyo-009: never show a bare "Failed to fetch" — say what happened.
+      const message = err instanceof Error ? err.message : '';
+      setError(/failed to fetch|networkerror|load failed/i.test(message)
+        ? 'Connection interrupted — check your internet and tap Connect again.'
+        : (message || 'Could not connect that account.'));
     } finally {
       setBusyKey('');
     }
@@ -257,8 +348,12 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     setPicking(true);
     setError('');
     try {
+      // Woyoyo-009: server falls back to the token saved at callback time,
+      // so a phone-resumed picker (no token in the URL) still finishes.
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'oauth_pick', store_id: storeId, platform: picker.platform, selection_id: selectionId, token: picker.token, state: picker.state }) });
       setPicker(null);
+      try { sessionStorage.removeItem(oauthResumeKey); } catch { /* harmless */ }
+      setNotice(`${platformLabel(picker.platform)} connected.`);
       await load(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not finish that connection.');
@@ -324,6 +419,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       </div>
     </div>
     {error && <div className="form-error">{error}</div>}
+    {!error && notice && <div className="form-success">{notice}</div>}
     <div className="social-view-tabs" role="tablist" aria-label="Message types">
       <button className={kindFilter === 'dm' ? 'active' : ''} onClick={() => switchKind('dm')}><MessageCircle /> DMs{dmUnread > 0 && <b className="tab-unread">{dmUnread}</b>}</button>
       <button className={kindFilter === 'comment' ? 'active' : ''} onClick={() => switchKind('comment')}><MessagesSquare /> Comments{commentUnread > 0 && <b className="tab-unread">{commentUnread}</b>}</button>
@@ -380,7 +476,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
             </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a conversation to read and reply.</p></div>}
           </div>
         </div>}
-    {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 5`} onClose={() => { setAccountsOpen(false); setPicker(null); }}>
+    {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 5`} onClose={() => { setAccountsOpen(false); setPicker(null); setNotice(''); }}>
       <div className="accounts-modal-body">
         {picker ? <>
           <p className="form-intro">{picker.platform === 'facebook' ? 'Choose the Facebook Page to connect.' : 'Choose the YouTube channel to connect.'}</p>

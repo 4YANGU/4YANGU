@@ -52,7 +52,12 @@ export default function StoreDashboard() {
   const [installOpen, setInstallOpen] = useState(false);
   // Woyoyo-005: Orders and Inbox are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
-  const [activeTab, setActiveTab] = useState<'orders' | 'inbox'>('orders');
+  // Woyoyo-009: after same-tab OAuth the callback redirects back with
+  // ?inbox=1 — land straight in the inbox so the result is visible at once.
+  const [activeTab, setActiveTab] = useState<'orders' | 'inbox'>(() => {
+    try { return new URLSearchParams(window.location.search).get('inbox') === '1' ? 'inbox' : 'orders'; }
+    catch { return 'orders'; }
+  });
   const [composerOpen, setComposerOpen] = useState(false);
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
@@ -75,6 +80,17 @@ export default function StoreDashboard() {
     }
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
+  // Woyoyo-009: scrub the same-tab OAuth landing params once the dashboard
+  // has them, so a refresh never replays the resume.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.get('inbox') && !params.get('storeId')) return;
+      params.delete('inbox'); params.delete('storeId');
+      const rest = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+    } catch { /* params stay — harmless */ }
+  }, []);
   useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
   const refreshSocialUnread = useCallback(async (storeIdValue: number) => {
     try {

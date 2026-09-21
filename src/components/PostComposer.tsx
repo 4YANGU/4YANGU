@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Check, ImagePlus, Package, Send, Video, X } from 'lucide-react';
 import Modal from './Modal';
-import VideoRecorder from './VideoRecorder';
+// Woyoyo-009: native phone-camera capture — no in-app recorder.
 import { OptionPicker } from './ProductForm';
 import { apiFetch, formatMoney, uploadImage, uploadPostMedia } from '../lib/api';
 import type { Product, SocialConnection } from '../types';
@@ -19,30 +19,31 @@ type Attachment = { url: string; kind: 'image' | 'video' };
 // front), step progress header, media recap card, and the two permanent
 // hashtags (#stoyangu + #storename) rendered locked INSIDE the caption box
 // itself — visible, but impossible to delete or edit.
+// Woyoyo-009: native phone-camera capture. The in-app WebRTC recorder is
+// retired — sellers now shoot video AND photos with their own camera app
+// (full quality) via file inputs, then everything continues in-app.
+type VideoChoice = { url: string; file: File } | null;
 type Props = { storeId: number; storeName: string; storeSlug: string; locked?: boolean; onClose: () => void; onPosted: () => void; onProductsChanged?: () => void };
 
-type Step = 'permissions' | 'video' | 'photo' | 'details';
+type Step = 'video' | 'photo' | 'details';
 
 export default function PostComposer({ storeId, storeName, storeSlug, locked = false, onClose, onPosted, onProductsChanged }: Props) {
-  const [step, setStep] = useState<Step>(() => {
-    try { return localStorage.getItem('stoyangu-camera-ok') === '1' ? 'video' : 'permissions'; }
-    catch { return 'permissions'; }
-  });
+  const [step, setStep] = useState<Step>('video');
   const [video, setVideo] = useState<Attachment | null>(null);
+  const [videoChoice, setVideoChoice] = useState<VideoChoice>(null);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
-  const [priceMax, setPriceMax] = useState('');
   const [hasColors, setHasColors] = useState(false); const [colors, setColors] = useState<string[]>([]); const [customColor, setCustomColor] = useState('');
   const [hasSizes, setHasSizes] = useState(false); const [sizes, setSizes] = useState<string[]>([]); const [customSize, setCustomSize] = useState('');
   const [caption, setCaption] = useState('');
   const [captionTouched, setCaptionTouched] = useState(false);
   const [connectionCount, setConnectionCount] = useState(0);
-  const [cameraOpen, setCameraOpen] = useState(() => {
-    try { return localStorage.getItem('stoyangu-camera-ok') === '1'; }
-    catch { return false; }
-  });
+  // Woyoyo-009: durable draft. File inputs hand back File objects that
+  // must survive step changes AND full tab reloads (phones kill tabs when
+  // the camera app opens) — so every pick is mirrored to IndexedDB and the
+  // text draft to sessionStorage, then restored on mount.
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -50,8 +51,12 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [loadingConnections, setLoadingConnections] = useState(true);
   const galleryRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+  const videoCameraRef = useRef<HTMLInputElement>(null);
+  const videoGalleryRef = useRef<HTMLInputElement>(null);
   const firstRender = useRef(true);
   const captionBoxRef = useRef<HTMLDivElement>(null);
+  const draftKey = useMemo(() => `stoyangu-draft-${storeId}`, [storeId]);
+  const draftSaved = useRef(false);
 
   const slugTag = `#${String(storeSlug || storeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'}`;
   const permanentTags = `#stoyangu ${slugTag}`;
@@ -75,16 +80,10 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   };
 
   // Auto-build the caption from the product details; the seller can edit it.
-  const priceDisplay = (lo: string, hi: string) => {
-    const low = Number(lo) || 0; const high = Number(hi) || 0;
-    if (low > 0 && high > low) return `${formatMoney(low)} – ${formatMoney(high)}`;
-    if (low > 0) return formatMoney(low);
-    return '';
-  };
-  const buildCaption = (productName: string, productPrice: string, productPriceMax: string, productColors: string[], productSizes: string[]) => {
+  // Woyoyo-009: one simple price (the range experiment is retired).
+  const buildCaption = (productName: string, productPrice: string, productColors: string[], productSizes: string[]) => {
     const bits = [productName.trim() || 'New arrival'];
-    const shown = priceDisplay(productPrice, productPriceMax);
-    if (shown) bits.push(`— ${shown}`);
+    if (Number(productPrice) > 0) bits.push(`— ${formatMoney(Number(productPrice))}`);
     const variants = [...(productColors.length ? [`Colours: ${productColors.join(', ')}`] : []), ...(productSizes.length ? [`Sizes: ${productSizes.join(', ')}`] : [])];
     if (variants.length) bits.push(`(${variants.join(' · ')})`);
     bits.push('Order on WhatsApp!');
@@ -92,9 +91,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   };
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
-    if (!captionTouched) setCaption(buildCaption(name, price, priceMax, colors, sizes));
+    if (!captionTouched) setCaption(buildCaption(name, price, colors, sizes));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, price, priceMax, colors, sizes]);
+  }, [name, price, colors, sizes]);
 
   // Woyoyo-006: locked caption box. Editable text lives in state; the sync
   // below only writes to the DOM when state changed elsewhere (auto-build).
@@ -145,52 +144,133 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     }
   };
 
-  // Woyoyo-006: first-post permission primer — camera + microphone are asked
-  // once, up front, with a friendly explanation instead of a bare prompt.
-  // Woyoyo-007: verify what each device actually granted (some browsers
-  // grant the camera but silently deny the mic), and remember video-only so
-  // the recorder opens without re-prompting.
-  const requestPermissions = async () => {
-    setError('');
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError('This browser cannot open the camera. Please use Chrome or Safari on your phone — or skip to photos.');
-      return;
-    }
-    let stream: MediaStream | null = null;
+  // Woyoyo-009: durable draft store. sessionStorage keeps the text draft;
+  // IndexedDB keeps the actual picked Files (video + photos) so a phone that
+  // kills the tab when the camera app opens loses NOTHING — everything is
+  // restored on mount and the seller continues where they left off.
+  const openDraftDb = () => new Promise<IDBDatabase | null>((resolve) => {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-    } catch {
+      const request = indexedDB.open('stoyangu-drafts', 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files');
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    } catch { resolve(null); }
+  });
+  const draftDbPut = async (key: string, value: unknown) => {
+    const db = await openDraftDb();
+    if (!db) return;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch { /* storage full/blocked — in-memory draft still works */ }
+    db.close();
+  };
+  const draftDbGet = async (key: string): Promise<unknown> => {
+    const db = await openDraftDb();
+    if (!db) return undefined;
+    try {
+      const value = await new Promise<unknown>((resolve, reject) => {
+        const tx = db.transaction('files', 'readonly');
+        const get = tx.objectStore('files').get(key);
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      db.close();
+      return value;
+    } catch { db.close(); return undefined; }
+  };
+  const draftDbDel = async (key: string) => {
+    const db = await openDraftDb();
+    if (!db) return;
+    try {
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction('files', 'readwrite');
+        tx.objectStore('files').delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    } catch { /* harmless */ }
+    db.close();
+  };
+
+  // Restore any interrupted draft once, on mount.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        setError('Microphone was blocked — video will record without sound. Allow the mic in the address-bar icon to add sound.');
-      } catch {
-        setError('Camera was blocked. Tap the camera icon in the address bar, allow it, then tap Continue — or skip to photos below.');
-        return;
-      }
-    }
-    const tracks = stream?.getTracks() || [];
-    const hasVideo = tracks.some((track) => track.kind === 'video' && track.readyState === 'live');
-    const hasAudio = tracks.some((track) => track.kind === 'audio' && track.readyState === 'live');
-    tracks.forEach((track) => track.stop());
-    if (!hasVideo) {
-      setError('Camera was blocked. Tap the camera icon in the address bar, allow it, then tap Continue — or skip to photos below.');
-      return;
-    }
-    try { localStorage.setItem('stoyangu-camera-ok', '1'); } catch { /* private mode */ }
-    try { localStorage.setItem('stoyangu-mic-ok', hasAudio ? '1' : '0'); } catch { /* private mode */ }
-    setStep('video');
-    setCameraOpen(true);
+        const raw = sessionStorage.getItem(draftKey);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (alive && saved && typeof saved === 'object') {
+            if (typeof saved.name === 'string') setName(saved.name);
+            if (typeof saved.price === 'string') setPrice(saved.price);
+            if (Array.isArray(saved.colors)) { setColors(saved.colors); setHasColors(saved.colors.length > 0); }
+            if (Array.isArray(saved.sizes)) { setSizes(saved.sizes); setHasSizes(saved.sizes.length > 0); }
+            if (typeof saved.caption === 'string' && saved.caption) { setCaption(saved.caption); setCaptionTouched(true); }
+            if (saved.step === 'photo' || saved.step === 'details') setStep(saved.step);
+          }
+        }
+      } catch { /* no text draft */ }
+      try {
+        const files = await draftDbGet(`${draftKey}:files`) as { video?: File; photos?: File[] } | undefined;
+        if (!alive || !files) return;
+        if (files.video instanceof Blob && (files.video as File).size > 0) {
+          const file = files.video as File;
+          setVideoChoice({ url: URL.createObjectURL(file), file });
+        }
+        if (Array.isArray(files.photos) && files.photos.length) {
+          const kept = (files.photos as File[]).filter((file) => file instanceof Blob);
+          if (kept.length) {
+            setPhotoFiles(kept);
+            setPhotoUrls(kept.map((file) => URL.createObjectURL(file)));
+          }
+        }
+      } catch { /* no file draft */ }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // Mirror every change to the durable draft (debounced by React batching).
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(draftKey, JSON.stringify({ step, name, price, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], caption }));
+    } catch { /* private mode */ }
+  }, [draftKey, step, name, price, hasColors, colors, hasSizes, sizes, caption]);
+  useEffect(() => {
+    draftSaved.current = true;
+    void draftDbPut(`${draftKey}:files`, { video: videoChoice?.file, photos: photoFiles });
+  }, [draftKey, videoChoice, photoFiles]);
+
+  const clearDraft = async () => {
+    try { sessionStorage.removeItem(draftKey); } catch { /* private mode */ }
+    await draftDbDel(`${draftKey}:files`);
   };
 
-  const skipPrimerToPhotos = () => {
+  const chooseVideo = (files: FileList | null) => {
+    const file = Array.from(files || [])[0];
+    if (!file) return;
+    const looksVideo = file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name);
+    if (!looksVideo) { setError('That file is not a video. Please pick a video, or skip to photos.'); return; }
+    if (file.size > 75 * 1024 * 1024) { setError('Please keep videos under 75 MB.'); return; }
     setError('');
-    setStep('photo');
-    setCameraOpen(true);
+    setVideoChoice((previous) => {
+      if (previous) URL.revokeObjectURL(previous.url);
+      return { url: URL.createObjectURL(file), file };
+    });
   };
 
-  const choosePhotos = (files: FileList | null, fromCamera = false) => {
+  const choosePhotos = (files: FileList | null) => {
     const selected = Array.from(files || []).filter((file) => file.type.startsWith('image/'));
     if (!selected.length) return;
+    setError('');
     setPhotoFiles((current) => {
       const room = Math.max(0, 7 - current.length);
       if (selected.length > room) setError('A product can have a maximum of 7 photos.');
@@ -198,20 +278,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       setPhotoUrls((urls) => [...urls, ...kept.map((file) => URL.createObjectURL(file))]);
       return [...current, ...kept];
     });
-    if (fromCamera) {
-      setPhotoFiles((current) => {
-        if (current.length >= 7) {
-          setStep('details');
-          setCameraOpen(false);
-        } else {
-          setCameraOpen(true);
-        }
-        return current;
-      });
-    } else {
-      setStep('details');
-      setCameraOpen(false);
-    }
   };
 
   const removePhoto = (index: number) => {
@@ -220,6 +286,13 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       const removed = current[index];
       if (removed) URL.revokeObjectURL(removed);
       return current.filter((_, position) => position !== index);
+    });
+  };
+
+  const removeVideoChoice = () => {
+    setVideoChoice((previous) => {
+      if (previous) URL.revokeObjectURL(previous.url);
+      return null;
     });
   };
 
@@ -232,11 +305,20 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     if (!connectionCount) return setError('Connect at least one account first — open the Inbox tab and tap Accounts.');
     setBusy(true);
     try {
-      // 1. Upload product photos + create the product in the store.
-      const images = await Promise.all(photoFiles.map(async (file, index) => {
-        if (photoUrls[index] && !file.size) return photoUrls[index];
-        return (await uploadImage(file, 'products')).url;
-      }));
+      // 1. Upload the native video first (once — never re-uploaded, so it
+      // can never "disappear"), then the product photos, then create the
+      // product in the store.
+      let attachedVideo = video;
+      if (!attachedVideo && videoChoice) {
+        setUploadingVideo(true);
+        try {
+          attachedVideo = await uploadPostMedia(videoChoice.file);
+          setVideo(attachedVideo);
+        } finally {
+          setUploadingVideo(false);
+        }
+      }
+      const images = await Promise.all(photoFiles.map(async (file) => (await uploadImage(file, 'products')).url));
       const created = await apiFetch<Product>('/api/products', {
         method: 'POST',
         body: JSON.stringify({ store_id: storeId, name: name.trim(), price: Number(price), colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], image_url: images[0], images }),
@@ -244,9 +326,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       onProductsChanged?.();
       // 2. Post to every connected account. Permanent hashtags are appended
       // here at send time, so they always ship even if the seller edits.
-      const finalCaption = `${caption.trim() || buildCaption(name, price, priceMax, colors, sizes)}\n\n${permanentTags}`;
-      const mediaUrls = [...(video ? [video.url] : []), ...images];
-      const mediaKinds = [...(video ? ['video'] : []), ...images.map(() => 'image')];
+      const finalCaption = `${caption.trim() || buildCaption(name, price, colors, sizes)}\n\n${permanentTags}`;
+      const mediaUrls = [...(attachedVideo ? [attachedVideo.url] : []), ...images];
+      const mediaKinds = [...(attachedVideo ? ['video'] : []), ...images.map(() => 'image')];
       const response = await apiFetch<PublishResult & { mode?: string }>('/api/media?action=social', {
         method: 'POST',
         body: JSON.stringify({ op: 'publish', store_id: storeId, caption: finalCaption.slice(0, 2400), media_urls: mediaUrls, media_kinds: mediaKinds }),
@@ -254,6 +336,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       setResult({ results: response.results || {} });
       onPosted();
       void created;
+      await clearDraft();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not post.');
     } finally {
@@ -261,38 +344,18 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     }
   };
 
-  const finishVideo = async (file: File) => {
-    setCameraOpen(false);
-    setStep('photo');
-    setUploadingVideo(true);
-    setError('');
-    try {
-      const uploaded = await uploadPostMedia(file);
-      setVideo(uploaded);
-      // Fresh recording done → immediately open the product-photo camera.
-      setCameraOpen(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not upload that video.');
-      setStep('details');
-    } finally {
-      setUploadingVideo(false);
-    }
-  };
+  // Woyoyo-009: closing without posting keeps the durable draft, so a
+  // seller who backs out (or whose phone kills the tab) resumes intact.
+  // Preview video = uploaded clip, else the local native pick (instant).
+  const previewVideo: Attachment | null = video || (videoChoice ? { url: videoChoice.url, kind: 'video' } : null);
+  const clearPreviewVideo = () => { setVideo(null); removeVideoChoice(); };
 
-  const heading = step === 'permissions' ? 'Quick setup · Camera & microphone' : step === 'video' ? 'Step 1 of 3 · Product video' : step === 'photo' ? 'Step 2 of 3 · Product photos' : 'Step 3 of 3 · Details & caption';
+  const heading = step === 'video' ? 'Step 1 of 3 · Product video' : step === 'photo' ? 'Step 2 of 3 · Product photos' : 'Step 3 of 3 · Details & caption';
 
   return <Modal title="Post once, everywhere" onClose={onClose} wide>
     <div className="composer-body">
-      <div className="composer-progress" aria-label="Post progress"><span className={step === 'permissions' ? 'active' : 'done'}>1 · Setup</span><span className={step === 'video' ? 'active' : step === 'permissions' ? '' : 'done'}>2 · Video</span><span className={step === 'photo' ? 'active' : step === 'details' ? 'done' : ''}>3 · Photos</span><span className={step === 'details' ? 'active' : ''}>4 · Post</span></div>
+      <div className="composer-progress composer-progress-3" aria-label="Post progress"><span className={step === 'video' ? 'active' : 'done'}>1 · Video</span><span className={step === 'photo' ? 'active' : step === 'details' ? 'done' : ''}>2 · Photos</span><span className={step === 'details' ? 'active' : ''}>3 · Post</span></div>
       <p className="form-intro">{heading} — every post creates the product in your store and goes to all connected accounts automatically.</p>
-      {step === 'permissions' && <div className="composer-block composer-media-first composer-permissions">
-        <strong><Camera /> Allow camera & microphone</strong>
-        <p>To record product videos, StoYangu needs your camera and microphone. Tap Continue and choose <b>Allow</b> when your phone asks — you only do this once.</p>
-        <div className="composer-media-actions">
-          <button type="button" className="button-primary compact" onClick={requestPermissions}><Check /> Continue</button>
-          <button type="button" className="secondary-button compact-upload" onClick={skipPrimerToPhotos}>Skip video — photos only</button>
-        </div>
-      </div>}
       {result ? <div className="composer-result">
         <strong>Posted to your connected accounts.</strong>
         <p>StoYangu delivered this post to your accounts. Per-account results:</p>
@@ -306,32 +369,34 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         </div>
         <div className="modal-actions"><button className="button-primary" onClick={onClose}>Done <Check /></button></div>
       </div> : <>
-        {step === 'video' && !cameraOpen && <div className="composer-block composer-media-first">
-          <strong><Video /> Product video</strong>
+        {step === 'video' && <div className="composer-block composer-media-first">
+          <strong><Video /> Product video — shoot with your own camera</strong>
+          <small className="composer-hint">Record vertically (9:16, like TikTok) in your phone's camera app for the best quality, then pick the clip here. Or skip straight to photos.</small>
           <div className="composer-recap">
-            <MediaRecapCard video={video} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={() => setVideo(null)} onRemovePhoto={removePhoto} />
+            <MediaRecapCard video={previewVideo} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={clearPreviewVideo} onRemovePhoto={removePhoto} />
           </div>
           <div className="composer-media-actions">
-            <button type="button" className="button-primary compact" onClick={() => setCameraOpen(true)} disabled={uploadingVideo || busy}><Camera /> {video ? 'Re-record' : 'Record video'}</button>
-            <button type="button" className="secondary-button compact-upload" onClick={() => { setStep('photo'); setCameraOpen(true); }}>Continue to photos</button>
+            <button type="button" className="button-primary compact" onClick={() => videoCameraRef.current?.click()} disabled={uploadingVideo || busy}><Camera /> {previewVideo ? 'Re-shoot video' : 'Shoot video'}</button>
+            <button type="button" className="secondary-button compact-upload" onClick={() => videoGalleryRef.current?.click()} disabled={uploadingVideo || busy}><ImagePlus /> Pick from gallery</button>
+            <button type="button" className="secondary-button compact-upload" onClick={() => setStep('photo')}>Skip to photos</button>
           </div>
         </div>}
-        {step === 'photo' && !cameraOpen && <div className="composer-block composer-media-first">
+        {step === 'photo' && <div className="composer-block composer-media-first">
           <strong><ImagePlus /> Product photos (at least 1)</strong>
-          <small className="composer-hint">These photos become the product in your store and lead the post after the video.</small>
+          <small className="composer-hint">Shoot with your camera or pick many at once from the gallery (up to 7). These photos become the product in your store and lead the post after the video.</small>
           <div className="composer-recap">
-            <MediaRecapCard video={video} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={() => setVideo(null)} onRemovePhoto={removePhoto} />
+            <MediaRecapCard video={previewVideo} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={clearPreviewVideo} onRemovePhoto={removePhoto} />
           </div>
           <div className="composer-media-actions">
-            <button type="button" className="button-primary compact" onClick={() => setCameraOpen(true)} disabled={busy}><Camera /> Take photo</button>
-            <button type="button" className="secondary-button compact-upload" onClick={() => galleryRef.current?.click()} disabled={busy}><ImagePlus /> Gallery</button>
+            <button type="button" className="button-primary compact" onClick={() => photoRef.current?.click()} disabled={busy}><Camera /> {photoFiles.length ? `Take another (${photoFiles.length}/7)` : 'Take photo'}</button>
+            <button type="button" className="secondary-button compact-upload" onClick={() => galleryRef.current?.click()} disabled={busy}><ImagePlus /> Gallery (many at once)</button>
             <button type="button" className="secondary-button compact-upload" onClick={() => setStep('details')} disabled={!photoUrls.length}>Continue to details</button>
           </div>
         </div>}
         {(step === 'details') && <div className="composer-block">
           <strong><Package /> Product details</strong>
           <div className="composer-recap">
-            <MediaRecapCard video={video} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={() => setVideo(null)} onRemovePhoto={removePhoto} />
+            <MediaRecapCard video={previewVideo} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={clearPreviewVideo} onRemovePhoto={removePhoto} />
           </div>
           {locked
             ? <small className="composer-hint">Adding products is locked until the next KES 300 payment — your products stay live for customers.</small>
@@ -341,7 +406,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
                   <label>Product name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Stevo Home Jersey" /></label>
                   <label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="e.g. 2800" /></label>
                 </div>
-                <label>Max price — only if it's a range (KES)<input type="number" min="1" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} placeholder="Leave empty for one price" /></label>
               </div>
               <OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold']} selected={colors} onToggle={(item) => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} />
               <OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42']} selected={sizes} onToggle={(item) => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} />
@@ -368,25 +432,14 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         </div>
       </>}
     </div>
-    {cameraOpen && step === 'video' && <VideoRecorder
-      title="Step 1 · Record your product video"
-      instructions="Point at the product and talk — vertical 9:16, just like TikTok. After the video you will take the product photos."
-      skipLabel="Skip video — photos only"
-      onSkip={() => { setCameraOpen(false); setStep('photo'); setCameraOpen(true); }}
-      onClose={onClose}
-      onDone={finishVideo}
-    />}
-    {cameraOpen && step === 'photo' && <PhotoCapture
-      title="Step 2 · Take the product photo"
-      instructions="These photos create the product in your store. Take up to 7 — the first one is the cover."
-      taken={photoFiles.length}
-      onClose={onClose}
-      onGallery={() => galleryRef.current?.click()}
-      onCapture={() => photoRef.current?.click()}
-      onDone={() => { setCameraOpen(false); setStep('details'); }}
-    />}
-    <input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choosePhotos(event.target.files, false); event.target.value = ''; }} />
-    <input ref={photoRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choosePhotos(event.target.files, true); event.target.value = ''; }} />
+    {/* Woyoyo-009: native capture inputs. capture="environment" opens the
+    phone's own camera app (full quality); gallery inputs take many at once.
+    The composer NEVER auto-advances on change — picks accumulate in the
+    recap and the seller moves on with the buttons above. */}
+    <input ref={videoCameraRef} hidden type="file" accept="video/*" capture="environment" onChange={(event) => { chooseVideo(event.target.files); event.target.value = ''; }} />
+    <input ref={videoGalleryRef} hidden type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.3gp" onChange={(event) => { chooseVideo(event.target.files); event.target.value = ''; }} />
+    <input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choosePhotos(event.target.files); event.target.value = ''; }} />
+    <input ref={photoRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choosePhotos(event.target.files); event.target.value = ''; }} />
   </Modal>;
 }
 
@@ -398,7 +451,7 @@ function MediaRecapCard({ video, uploadingVideo, photoUrls, onRemoveVideo, onRem
   onRemovePhoto: (index: number) => void;
 }) {
   if (!video && !uploadingVideo && !photoUrls.length) {
-    return <small className="composer-hint">No media yet — your video and photos will appear here.</small>;
+    return <small className="composer-hint">No media yet — shoot or pick your video and photos, they will appear here.</small>;
   }
   return <div className="composer-tiktok-strip" role="list" aria-label="Post media">
     {video && <div role="listitem" className="composer-tiktok-cell lead"><video src={video.url} muted playsInline preload="metadata" /><small>Video · leads everywhere</small><span className="composer-video-tag"><Video /></span><button type="button" onClick={onRemoveVideo} aria-label="Remove video"><X /></button></div>}
@@ -411,21 +464,7 @@ function MediaRecapCard({ video, uploadingVideo, photoUrls, onRemoveVideo, onRem
   </div>;
 }
 
-function PhotoCapture({ title, instructions, taken, onClose, onGallery, onCapture, onDone }: { title: string; instructions: string; taken: number; onClose: () => void; onGallery: () => void; onCapture: () => void; onDone: () => void }) {
-  return <div className="recorder-backdrop" role="dialog" aria-modal="true" aria-label={title}>
-    <div className="recorder-shell photo-capture-shell">
-      <div className="recorder-top">
-        <button type="button" onClick={onClose} aria-label="Close"><X /></button>
-        <strong>{title}</strong>
-        <span>9:16 style</span>
-      </div>
-      <p className="recorder-instructions">{instructions}{taken > 0 && <> <b>{taken} taken so far.</b></>}</p>
-      <div className="photo-capture-frame"><Camera /><span>Tip: use Gallery to pick several photos at once (up to 7). Camera takes them one by one.</span></div>
-      <div className="recorder-controls">
-        <button type="button" className="button-primary" onClick={onCapture}><Camera /> {taken > 0 ? 'Take another' : 'Open camera'}</button>
-        <button type="button" className="secondary-button" onClick={onGallery}><ImagePlus /> Gallery (many at once)</button>
-        {taken > 0 && <button type="button" className="secondary-button recorder-skip" onClick={onDone}><Check /> Done — {taken} photo{taken === 1 ? '' : 's'}</button>}
-      </div>
-    </div>
-  </div>;
+function PhotoCapture(_props: { title: string; instructions: string; taken: number; onClose: () => void; onGallery: () => void; onCapture: () => void; onDone: () => void }) {
+  // Woyoyo-009: retired — native capture happens inline (see inputs above).
+  return null;
 }

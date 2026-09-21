@@ -4,7 +4,15 @@ import { ensureDesignRuntime } from '../lib/html-runtime.js';
 const xml = (value) => String(value).replace(/[<>&'"]/g, (character) => ({ '<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;' }[character]));
 const escHtml = xml;
 const clamp = (value, max) => { const text = String(value || '').replace(/\s+/g, ' ').trim(); return text.length > max ? `${text.slice(0, max - 1).trim()}…` : text; };
-const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 55);
+const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '').slice(0, 55);
+// Woyoyo-009: joined subdomains for new stores; hyphen-tolerant resolving so
+// every legacy link keeps working.
+const slugVariants = (value) => {
+  const raw = String(value || '').toLowerCase().trim().slice(0, 60);
+  const joined = raw.replace(/[^a-z0-9]+/g, '');
+  const hyphen = raw.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return [...new Set([joined, hyphen].filter(Boolean))];
+};
 
 function rootDomain(req) {
   if (process.env.ROOT_DOMAIN) return process.env.ROOT_DOMAIN.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
@@ -138,8 +146,14 @@ function injectIntoShell(shell, { title, description, canonical, image, favicon,
 }
 
 async function loadStore(slug) {
-  const { data: store, error } = await supabase.from('stores').select('*').eq('slug', slug).single();
-  if (error || !store) return { store: null, products: [] };
+  // Woyoyo-009: hyphen-tolerant lookup (new joined slug, then legacy twin).
+  const variants = slugVariants(slug);
+  let store = null;
+  for (const variant of variants) {
+    const { data } = await supabase.from('stores').select('*').eq('slug', variant).single();
+    if (data) { store = data; break; }
+  }
+  if (!store) return { store: null, products: [] };
   const { data: products } = await supabase.from('products').select('id,name,price,image_url,views_total').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false }).limit(50);
   const { data: media } = products?.length ? await supabase.from('product_images').select('product_id,url').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [] };
   const liveProducts = (products || []).map((product) => ({ ...product, images: (media || []).filter((image) => image.product_id === product.id).map((image) => image.url) }));
@@ -178,9 +192,10 @@ async function handleStorefrontHtml(req, res) {
   // Subdomain requests arrive with no slug query — derive it from the host label
   // (Vercel forbids host params in rewrite destinations).
   const hostHeader = String(req.headers.host || '').toLowerCase();
-  let slug = slugify(req.query?.slug || '');
+  // Woyoyo-009: resolve joined first, then legacy hyphenated.
+  let slug = slugVariants(req.query?.slug || '')[0] || '';
   if (!slug && hostHeader.includes('.')) {
-    const first = slugify(hostHeader.split('.')[0]);
+    const first = slugVariants(hostHeader.split('.')[0])[0];
     if (first && !['stoyangu', 'www', 'api', 'app', 'localhost'].includes(first)) slug = first;
   }
   const root = rootDomain(req);

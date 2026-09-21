@@ -10,7 +10,8 @@
 //                    POST { op: connect|oauth_pick|disconnect|sync_accounts|
 //                    sync_inbox|publish|save_draft|reply|read|resolve|
 //                    seed_demo })
-//  ?action=social-callback — landing page for official platform OAuth (GET)
+//  ?action=social-callback — landing page for official platform OAuth (GET;
+//                    same-tab friendly: ?s=<state> survives platform hops)
 //
 //  This was originally two files (/api/profile and /api/upload). They were
 //  merged into one serverless function to stay under Vercel's Hobby plan
@@ -145,9 +146,15 @@ async function handleSocialConnect(req, res, profile, storeId) {
     // the authorize URL is returned byte-for-byte. Appending "&state=" to the
     // authorize URL corrupted Repliz's own state param (duplicate state) —
     // TikTok/Repliz then crashed after approval instead of coming back here.
+    // Woyoyo-009: the phone's same-tab return path also travels inside
+    // redirect (param "return_to") so the callback can send the owner back
+    // into the app after approval. Phones capture the result there; the
+    // desktop pop-up still uses postMessage.
     const state = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
     const base = replizCallbackUrl(req);
-    const redirect = `${base}${base.includes('?') ? '&' : '?'}s=${encodeURIComponent(state)}`;
+    const rawReturn = String(req.body?.return_to || '');
+    const safeReturn = rawReturn.startsWith('/') && !rawReturn.startsWith('//') ? rawReturn.slice(0, 300) : '';
+    const redirect = `${base}${base.includes('?') ? '&' : '?'}s=${encodeURIComponent(state)}${safeReturn ? `&return_to=${encodeURIComponent(safeReturn)}` : ''}`;
     const { error: stateError } = await supabase.from('social_oauth_states').insert({
       store_id: storeId,
       token: state,
@@ -220,18 +227,23 @@ async function handleSocialSyncAccounts(req, res, profile, storeId) {
 // Woyoyo-004: pick the Page (Facebook) or channel (YouTube) that completes a
 // two-step OAuth connection. The token and pending state come from the
 // callback page; we bind into Repliz, then store the connection.
+// Woyoyo-009: a phone-resumed picker may arrive without the token in the
+// payload (it never travelled in the URL) — fall back to the copy the
+// callback saved on the state row, after the same store check.
 async function handleSocialOAuthPick(req, res, profile, storeId) {
   const platform = String(req.body?.platform || '').toLowerCase();
   const selectionId = String(req.body?.selection_id || '');
-  const token = String(req.body?.token || '');
+  let token = String(req.body?.token || '');
   const state = String(req.body?.state || '');
-  if (!REPLIZ_TWO_STEP.includes(platform) || !selectionId || !token) {
+  if (!REPLIZ_TWO_STEP.includes(platform) || !selectionId) {
     return res.status(400).json({ error: 'Choose a Page or channel first.' });
   }
   if (state) {
     const { data: saved } = await supabase.from('social_oauth_states').select('*').eq('token', state).limit(1).maybeSingle();
     if (saved && Number(saved.store_id) !== Number(storeId)) return res.status(403).json({ error: 'That connection belongs to another store.' });
+    if (!token && saved?.data?.token) token = String(saved.data.token);
   }
+  if (!token) return res.status(400).json({ error: 'That approval expired. Please tap Connect again.' });
   try {
     const { accountId, account } = await replizConnectOAuth({ platform, token, selectionId });
     if (!accountId) throw new Error('The platform approved, but no account came back. Please try again.');
@@ -542,14 +554,24 @@ async function handleSocialCallback(req, res) {
   const state = first('s', 'stoyangu_state', 'state', 'oauth_state', 'session_state');
   const code = first('code', 'auth_code', 'authorization_code', 'oauth_code');
   const errorParam = first('error_description', 'error_message', 'message', 'error', 'error_code');
+  // Woyoyo-009: same-tab aware finish. On desktop the callback posts back to
+  // the opener pop-up; on phones (same-tab OAuth) there is no opener, so we
+  // redirect straight back into the app's inbox with the result in the URL.
   const finish = (payload) => {
+    const returnTo = String(query.return_to || nested.return_to || '').slice(0, 500);
+    const safeReturn = returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '';
+    const scriptSafe = (value) => String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/</g, '\\u003c').slice(0, 300);
     const safe = JSON.stringify({ source: 'stoyangu-oauth', ...payload }).replace(/</g, '\\u003c');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.status(200).send(
       '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StoYangu</title></head>' +
       '<body style="font-family:Arial,sans-serif;background:#101f30;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0">' +
       '<p>Finishing the connection…</p>' +
-      '<script>try{if(window.opener){window.opener.postMessage(' + safe + ',window.location.origin)}}catch(e){}window.close();setTimeout(function(){var p=document.querySelector("p");if(p)p.textContent="You can close this tab and return to StoYangu."},800);<' + '/script></body></html>'
+      '<script>(function(){var payload=' + safe + ';var back=\'' + scriptSafe(safeReturn) + '\';' +
+      'try{if(window.opener&&!window.opener.closed){window.opener.postMessage(payload,window.location.origin);window.close();}}catch(e){}' +
+      'if(back){var url=back+(back.indexOf(\'?\')>=0?\'&\':\'?\')+\'oauth=\' + (payload.ok?\'ok\':\'fail\') + \'&platform=\' + encodeURIComponent(payload.platform||\'\') + (payload.error?\'&oauth_error=\' + encodeURIComponent(payload.error):\'\') + (payload.needs_pick?\'&oauth_pick=1&oauth_state=\' + encodeURIComponent(payload.state||\'\'):\'\');' +
+      'setTimeout(function(){window.location.replace(url);},payload.ok?400:1200);return;}' +
+      'setTimeout(function(){var p=document.querySelector("p");if(p)p.textContent="You can close this tab and return to StoYangu."},800);})();<' + '/script></body></html>'
     );
   };
   const looksDenied = /denied|cancel|decline|forbidden|unauthor/i.test(errorParam) || /access_denied|unauthorized/i.test(String(query?.error || nested?.error || ''));
