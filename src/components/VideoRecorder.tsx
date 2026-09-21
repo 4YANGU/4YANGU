@@ -8,6 +8,12 @@ import { Camera, Check, FlipHorizontal2, Trash2, Video, X } from 'lucide-react';
 type Props = {
   onDone: (file: File) => void;
   onClose: () => void;
+  // Woyoyo-005: camera-first post flow — custom step title, instructions and
+  // an optional skip (e.g. sellers who only want product photos).
+  title?: string;
+  instructions?: string;
+  skipLabel?: string;
+  onSkip?: () => void;
 };
 
 const MAX_SECONDS = 180;
@@ -18,7 +24,7 @@ function pickMimeType(): string {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
 }
 
-export default function VideoRecorder({ onDone, onClose }: Props) {
+export default function VideoRecorder({ onDone, onClose, title, instructions, skipLabel, onSkip }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -135,9 +141,10 @@ export default function VideoRecorder({ onDone, onClose }: Props) {
     <div className="recorder-shell">
       <div className="recorder-top">
         <button type="button" onClick={onClose} aria-label="Close recorder"><X /></button>
-        <strong>{phase === 'review' ? 'Preview' : phase === 'recording' ? `● REC ${clock}` : 'Record · 9:16 vertical'}</strong>
+        <strong>{phase === 'review' ? 'Preview' : phase === 'recording' ? `● REC ${clock}` : (title || 'Record · 9:16 vertical')}</strong>
         <span>{phase === 'recording' ? `${MAX_SECONDS - seconds}s left` : 'up to 3 min'}</span>
       </div>
+      {instructions && phase !== 'review' && <p className="recorder-instructions">{instructions}</p>}
       <div className="recorder-finder">
         {phase === 'review' && reviewUrl
           ? <video src={reviewUrl} controls playsInline className="recorder-video" />
@@ -156,6 +163,7 @@ export default function VideoRecorder({ onDone, onClose }: Props) {
         </> : <>
           <button type="button" className="secondary-button" onClick={() => setFacing((value) => value === 'environment' ? 'user' : 'environment')}><FlipHorizontal2 /> Flip</button>
           <button type="button" className="button-primary recorder-go" onClick={startRecording} disabled={phase === 'starting' || Boolean(error)}><Camera /> Start recording</button>
+          {onSkip && <button type="button" className="secondary-button recorder-skip" onClick={onSkip}>{skipLabel || 'Skip'}</button>}
         </>}
       </div>
     </div>

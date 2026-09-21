@@ -310,3 +310,20 @@
 .recorder-go { background: #c0392b !important; box-shadow: 0 10px 30px rgba(192,57,43,.3) !important; }
 .recorder-hint { color: #b9c6c2; font-size: .64rem; }
 @media (max-width: 720px) { .composer-product-mode { grid-template-columns: 1fr 1fr 1fr; } .composer-product-mode button { font-size: .6rem; } }
+
+/* ---- Woyoyo-005: small accounts icon, permanent tags, recorder copy, photo capture ---- */
+.inbox-accounts-icon { position: relative; width: 40px; height: 40px; border: 1px solid var(--navy); background: #fff; border-radius: 50%; display: grid; place-items: center; color: var(--navy); box-shadow: 0 4px 16px rgba(16,31,48,.05); }
+.inbox-accounts-icon svg { width: 17px; height: 17px; }
+.inbox-accounts-icon:hover { background: #f8fbf9; }
+.inbox-accounts-icon b { position: absolute; right: -7px; bottom: -7px; background: var(--navy); color: #fff; border-radius: 999px; font-size: .5rem; font-weight: 900; padding: 1px 5px; }
+.inbox-head-copy { min-width: 0; }
+.composer-tags { display: grid; gap: 5px; }
+.composer-tags small { font-size: .64rem; color: #75817a; font-weight: 700; }
+.composer-tags span { display: flex; gap: 7px; flex-wrap: wrap; }
+.composer-tags b { background: #e3f0e7; border: 1px solid #9ec1a9; color: #2e6b44; border-radius: 999px; padding: .3rem .65rem; font-size: .66rem; }
+.recorder-instructions { margin: 0 14px 12px; color: #c9d4d0; font-size: .72rem; line-height: 1.55; }
+.recorder-controls { flex-wrap: wrap; }
+.recorder-skip { flex: 1 1 100% !important; }
+.photo-capture-shell { padding-bottom: 4px; }
+.photo-capture-frame { margin: 0 14px; border: 1px dashed #5a966e; border-radius: 14px; background: rgba(90,150,110,.08); color: #c9d4d0; display: grid; justify-items: center; gap: 8px; padding: 34px 18px; text-align: center; font-size: .72rem; line-height: 1.6; }
+.photo-capture-frame svg { width: 34px; height: 34px; color: #8fd3a7; }

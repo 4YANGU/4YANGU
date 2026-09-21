@@ -273,12 +273,12 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
 
   return <section className="social-inbox" aria-label="Inbox">
     <div className="social-inbox-head">
-      <div>
+      <div className="inbox-head-copy">
         <h2>Inbox</h2>
         <p>DMs and comments from TikTok, Facebook, Instagram, YouTube and Threads — in one place.</p>
       </div>
       <div className="social-head-actions">
-        <button className="secondary-button accounts-button" onClick={() => setAccountsOpen(true)}><Link2 /> Accounts{connectedCount < 5 ? ` · ${connectedCount}/5` : ''}</button>
+        <button className="inbox-accounts-icon" onClick={() => setAccountsOpen(true)} aria-label="Connected accounts" title={`Connected accounts · ${connectedCount} of 5`}><Link2 />{connectedCount < 5 && <b>{connectedCount}/5</b>}</button>
         <button className="inbox-refresh-icon" onClick={() => load(true)} disabled={refreshing} aria-label="Refresh inbox" title="Refresh inbox"><RefreshCw className={refreshing ? 'spin' : ''} /></button>
       </div>
     </div>
