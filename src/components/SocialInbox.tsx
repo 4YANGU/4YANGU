@@ -47,6 +47,8 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState('');
+  const [setup, setSetup] = useState<{ keysPresent: boolean; apiReachable: boolean | null; apiDetail: string; tableReady: boolean | null; tableDetail: string } | null>(null);
+  const [setupLoading, setSetupLoading] = useState(false);
   const [picker, setPicker] = useState<{ platform: string; state: string; token: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null>(null);
   const [picking, setPicking] = useState(false);
   const loadRef = useRef<() => void>(() => undefined);
@@ -375,6 +377,18 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
+  // Woyoyo-010: setup self-test. Runs whenever the Accounts pop-up opens
+  // so a broken setup shows its fix right where Connect is tapped.
+  const checkSetup = useCallback(async () => {
+    setSetupLoading(true);
+    try {
+      const result = await apiFetch<{ keysPresent: boolean; apiReachable: boolean | null; apiDetail: string; tableReady: boolean | null; tableDetail: string }>(`/api/media?action=social&op=setup_check&storeId=${storeId}`);
+      setSetup(result);
+    } catch { setSetup(null); } finally { setSetupLoading(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId]);
+  useEffect(() => { if (accountsOpen) checkSetup(); }, [accountsOpen, checkSetup]);
+
   const syncAccounts = async () => {
     if (syncing) return;
     setSyncing(true);
@@ -408,10 +422,10 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const connectedCount = status?.connections.length || 0;
 
   return <section className="social-inbox" aria-label="Inbox">
-    <div className="social-inbox-head">
-      <div className="inbox-head-copy">
+    <div className="social-inbox-head social-inbox-head-row">
+      <div className="inbox-head-copy inbox-title-row">
         <h2>Inbox</h2>
-        <p>DMs and comments from TikTok, Facebook, Instagram, YouTube and Threads — in one place.</p>
+        <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram, YouTube, Threads">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={20} />)}</span>
       </div>
       <div className="social-head-actions">
         <button className="inbox-accounts-icon" onClick={() => setAccountsOpen(true)} aria-label="Connected accounts" title={`Connected accounts · ${connectedCount} of 5`}><Link2 />{connectedCount < 5 && <b>{connectedCount}/5</b>}</button>
@@ -492,6 +506,13 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
           </div>
         </> : <>
           <p className="form-intro">Connect each platform. Posting and replies use these accounts automatically.</p>
+          {setupLoading && <small className="composer-hint">Checking connection setup…</small>}
+          {setup && (!setup.keysPresent || setup.apiReachable === false || setup.tableReady === false) && <div className="form-error setup-error">
+            <strong>Setup needed before connecting:</strong>
+            <span>{!setup.keysPresent && '• Add REPLIZ_ACCESS_KEY + REPLIZ_SECRET_KEY in Vercel → Settings → Environment Variables, then redeploy.'}</span>
+            {setup.keysPresent && setup.apiReachable === false && <span>• Repliz did not answer ({setup.apiDetail || 'check the keys and redeploy'}).</span>}
+            {setup.tableReady === false && <span>• Run supabase/migrations/202609200004_woyoyo004.sql once in Supabase → SQL Editor.</span>}
+          </div>}
           <div className="accounts-modal-list">
             {PLATFORMS.map((platform) => {
               const connection = status?.connections.find((c) => c.platform === platform);

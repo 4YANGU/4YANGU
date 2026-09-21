@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Check, ImagePlus, Package, Send, Video, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, ImagePlus, Package, Send, Type, Video, X } from 'lucide-react';
 import Modal from './Modal';
 // Woyoyo-009: native phone-camera capture — no in-app recorder.
 import { OptionPicker } from './ProductForm';
@@ -22,6 +22,9 @@ type Attachment = { url: string; kind: 'image' | 'video' };
 // Woyoyo-009: native phone-camera capture. The in-app WebRTC recorder is
 // retired — sellers now shoot video AND photos with their own camera app
 // (full quality) via file inputs, then everything continues in-app.
+// Woyoyo-010: back navigation between steps, TikTok-style words-on-video
+// (burned into the clip at upload), and an in-app photo-burst mode that
+// captures many photos in one camera session (no app-switch loop).
 type VideoChoice = { url: string; file: File } | null;
 type Props = { storeId: number; storeName: string; storeSlug: string; locked?: boolean; onClose: () => void; onPosted: () => void; onProductsChanged?: () => void };
 
@@ -31,6 +34,8 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [step, setStep] = useState<Step>('video');
   const [video, setVideo] = useState<Attachment | null>(null);
   const [videoChoice, setVideoChoice] = useState<VideoChoice>(null);
+  const [videoText, setVideoText] = useState('');
+  const [burstOpen, setBurstOpen] = useState(false);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [name, setName] = useState('');
@@ -214,6 +219,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
             if (Array.isArray(saved.colors)) { setColors(saved.colors); setHasColors(saved.colors.length > 0); }
             if (Array.isArray(saved.sizes)) { setSizes(saved.sizes); setHasSizes(saved.sizes.length > 0); }
             if (typeof saved.caption === 'string' && saved.caption) { setCaption(saved.caption); setCaptionTouched(true); }
+            if (typeof saved.videoText === 'string') setVideoText(saved.videoText.slice(0, 120));
             if (saved.step === 'photo' || saved.step === 'details') setStep(saved.step);
           }
         }
@@ -241,9 +247,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   // Mirror every change to the durable draft (debounced by React batching).
   useEffect(() => {
     try {
-      sessionStorage.setItem(draftKey, JSON.stringify({ step, name, price, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], caption }));
+      sessionStorage.setItem(draftKey, JSON.stringify({ step, name, price, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], caption, videoText }));
     } catch { /* private mode */ }
-  }, [draftKey, step, name, price, hasColors, colors, hasSizes, sizes, caption]);
+  }, [draftKey, step, name, price, hasColors, colors, hasSizes, sizes, caption, videoText]);
   useEffect(() => {
     draftSaved.current = true;
     void draftDbPut(`${draftKey}:files`, { video: videoChoice?.file, photos: photoFiles });
@@ -267,7 +273,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     });
   };
 
-  const choosePhotos = (files: FileList | null) => {
+  const choosePhotos = (files: FileList | File[] | null) => {
     const selected = Array.from(files || []).filter((file) => file.type.startsWith('image/'));
     if (!selected.length) return;
     setError('');
@@ -296,6 +302,84 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     });
   };
 
+  // Woyoyo-010: burn TikTok-style words into the video clip itself, so the
+  // text ships inside the file to every platform. Canvas + captureStream
+  // re-record the clip with the overlay; falls back to the original file if
+  // the browser cannot do it (original still posts fine).
+  const burnTextIntoVideo = (file: File, text: string): Promise<File> => {
+    const clean = text.trim().slice(0, 120);
+    if (!clean) return Promise.resolve(file);
+    return new Promise((resolve) => {
+      const done = (fallback: File) => resolve(fallback);
+      try {
+        const url = URL.createObjectURL(file);
+        const source = document.createElement('video');
+        source.muted = true;
+        (source as HTMLVideoElement & { playsInline?: boolean }).playsInline = true;
+        source.preload = 'auto';
+        source.src = url;
+        const fail = () => { URL.revokeObjectURL(url); done(file); };
+        source.onerror = fail;
+        source.onloadedmetadata = () => {
+          try {
+            const width = source.videoWidth || 720;
+            const height = source.videoHeight || 1280;
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return fail();
+            const stream = canvas.captureStream(30);
+            const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : (MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '');
+            const recorder = mime ? new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 }) : new MediaRecorder(stream);
+            const chunks: Blob[] = [];
+            recorder.ondataavailable = (event) => { if (event.data?.size) chunks.push(event.data); };
+            recorder.onstop = () => {
+              URL.revokeObjectURL(url);
+              cancelAnimationFrame(raf);
+              if (!chunks.length) return done(file);
+              const type = mime.split(';')[0] || 'video/webm';
+              done(new File(chunks, file.name.replace(/\.[^.]+$/, '') + '-captioned.webm', { type }));
+            };
+            const draw = () => {
+              ctx.drawImage(source, 0, 0, width, height);
+              const fontSize = Math.max(28, Math.round(width / 14));
+              ctx.font = `900 ${fontSize}px Manrope, Arial, sans-serif`;
+              ctx.textAlign = 'center';
+              const words = clean.split(/\s+/);
+              const lines: string[] = [];
+              let line = '';
+              for (const word of words) {
+                const trial = line ? `${line} ${word}` : word;
+                if (ctx.measureText(trial).width > width * 0.86 && line) { lines.push(line); line = word; }
+                else line = trial;
+              }
+              if (line) lines.push(line);
+              const capped = lines.slice(0, 4);
+              const top = Math.round(height * 0.08);
+              ctx.lineWidth = Math.max(4, Math.round(fontSize / 8));
+              ctx.strokeStyle = 'rgba(0,0,0,.85)';
+              ctx.fillStyle = '#ffffff';
+              capped.forEach((textLine, index) => {
+                const y = top + index * Math.round(fontSize * 1.25);
+                ctx.strokeText(textLine, width / 2, y);
+                ctx.fillText(textLine, width / 2, y);
+              });
+              raf = requestAnimationFrame(draw);
+            };
+            let raf = 0;
+            source.onended = () => { try { recorder.stop(); } catch { fail(); } };
+            source.onerror = fail;
+            void source.play().then(() => {
+              try { recorder.start(250); } catch { fail(); return; }
+              draw();
+              window.setTimeout(() => { try { if (recorder.state === 'recording') recorder.stop(); } catch { /* onstop handles */ } }, Math.min(185000, (source.duration || 60) * 1000 + 1500));
+            }).catch(fail);
+          } catch { fail(); }
+        };
+      } catch { done(file); }
+    });
+  };
+
   const publish = async () => {
     setError('');
     if (locked) return setError('Adding products is locked until the next KES 300 payment — your products stay live for customers.');
@@ -307,12 +391,14 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     try {
       // 1. Upload the native video first (once — never re-uploaded, so it
       // can never "disappear"), then the product photos, then create the
-      // product in the store.
+      // product in the store. Woyoyo-010: any words the seller added are
+      // burned into the clip before upload.
       let attachedVideo = video;
       if (!attachedVideo && videoChoice) {
         setUploadingVideo(true);
         try {
-          attachedVideo = await uploadPostMedia(videoChoice.file);
+          const finalFile = videoText.trim() ? await burnTextIntoVideo(videoChoice.file, videoText) : videoChoice.file;
+          attachedVideo = await uploadPostMedia(finalFile);
           setVideo(attachedVideo);
         } finally {
           setUploadingVideo(false);
@@ -375,6 +461,11 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
           <div className="composer-recap">
             <MediaRecapCard video={previewVideo} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={clearPreviewVideo} onRemovePhoto={removePhoto} />
           </div>
+          {previewVideo && <div className="composer-video-text">
+            <strong><Type /> Words on the video (like TikTok captions)</strong>
+            <input value={videoText} maxLength={120} onChange={(event) => setVideoText(event.target.value)} placeholder="e.g. New arrival — 2800 only!" aria-label="Words to show on the video" />
+            <div className="composer-text-preview"><div className="composer-tiktok-cell lead"><video src={previewVideo.url} muted playsInline preload="metadata" />{videoText.trim() ? <span className="composer-text-overlay">{videoText.trim().slice(0, 120)}</span> : null}</div></div>
+          </div>}
           <div className="composer-media-actions">
             <button type="button" className="button-primary compact" onClick={() => videoCameraRef.current?.click()} disabled={uploadingVideo || busy}><Camera /> {previewVideo ? 'Re-shoot video' : 'Shoot video'}</button>
             <button type="button" className="secondary-button compact-upload" onClick={() => videoGalleryRef.current?.click()} disabled={uploadingVideo || busy}><ImagePlus /> Pick from gallery</button>
@@ -390,8 +481,10 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
           <div className="composer-media-actions">
             <button type="button" className="button-primary compact" onClick={() => photoRef.current?.click()} disabled={busy}><Camera /> {photoFiles.length ? `Take another (${photoFiles.length}/7)` : 'Take photo'}</button>
             <button type="button" className="secondary-button compact-upload" onClick={() => galleryRef.current?.click()} disabled={busy}><ImagePlus /> Gallery (many at once)</button>
+            <button type="button" className="secondary-button compact-upload" onClick={() => setBurstOpen(true)} disabled={busy || photoFiles.length >= 7}><Camera /> Burst mode</button>
             <button type="button" className="secondary-button compact-upload" onClick={() => setStep('details')} disabled={!photoUrls.length}>Continue to details</button>
           </div>
+          <div className="composer-back-row"><button type="button" className="secondary-button compact-upload" onClick={() => setStep('video')} disabled={busy}><ArrowLeft /> Back to video</button></div>
         </div>}
         {(step === 'details') && <div className="composer-block">
           <strong><Package /> Product details</strong>
@@ -427,10 +520,11 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions">
           {step === 'details'
-            ? <button className="button-primary" onClick={publish} disabled={busy || uploadingVideo}>{busy ? 'Posting…' : 'Post'} <Send /></button>
+            ? <><button type="button" className="secondary-button" onClick={() => setStep('photo')} disabled={busy || uploadingVideo}><ArrowLeft /> Back</button><button className="button-primary" onClick={publish} disabled={busy || uploadingVideo}>{busy ? 'Posting…' : 'Post'} <Send /></button></>
             : <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>}
         </div>
       </>}
+      {burstOpen && <PhotoBurst room={Math.max(0, 7 - photoFiles.length)} onClose={() => setBurstOpen(false)} onShots={(files) => { setBurstOpen(false); choosePhotos(files); }} />}
     </div>
     {/* Woyoyo-009: native capture inputs. capture="environment" opens the
     phone's own camera app (full quality); gallery inputs take many at once.
@@ -467,4 +561,84 @@ function MediaRecapCard({ video, uploadingVideo, photoUrls, onRemoveVideo, onRem
 function PhotoCapture(_props: { title: string; instructions: string; taken: number; onClose: () => void; onGallery: () => void; onCapture: () => void; onDone: () => void }) {
   // Woyoyo-009: retired — native capture happens inline (see inputs above).
   return null;
+}
+
+// Woyoyo-010: burst mode. One live camera session inside the app — the
+// seller taps Shoot, takes N photos back-to-back (still frames grabbed
+// from the live finder), and all of them land in the recap at once. No
+// app-switch loop, no lost progress.
+function PhotoBurst({ room, onClose, onShots }: { room: number; onClose: () => void; onShots: (files: File[]) => void }) {
+  const finderRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [error, setError] = useState('');
+  const [starting, setStarting] = useState(true);
+  const [shots, setShots] = useState<File[]>([]);
+  const [shotUrls, setShotUrls] = useState<string[]>([]);
+  const [want, setWant] = useState(() => Math.min(3, Math.max(1, room)));
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) { if (alive) { setError('This browser cannot open the camera here. Please use the Take photo button instead.'); setStarting(false); } return; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1600 }, height: { ideal: 1600 } } });
+        if (!alive) { stream.getTracks().forEach((track) => track.stop()); return; }
+        streamRef.current = stream;
+        if (finderRef.current) {
+          finderRef.current.srcObject = stream;
+          finderRef.current.muted = true;
+          await finderRef.current.play().catch(() => undefined);
+        }
+        if (alive) setStarting(false);
+      } catch {
+        if (alive) { setError('Camera access was blocked. Allow the camera for this site, or use the Take photo button instead.'); setStarting(false); }
+      }
+    })();
+    return () => { alive = false; streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; };
+  }, []);
+  useEffect(() => () => { shotUrls.forEach((url) => URL.revokeObjectURL(url)); }, [shotUrls]);
+  const shoot = () => {
+    const finder = finderRef.current;
+    if (!finder || !finder.videoWidth) { setError('Camera is still warming up — give it a second and tap Shoot again.'); return; }
+    const count = Math.max(1, Math.min(want, room - shots.length));
+    const canvas = document.createElement('canvas');
+    canvas.width = finder.videoWidth; canvas.height = finder.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { setError('Could not capture right now. Please try again.'); return; }
+    // Stagger the frames so each shot is a genuinely different moment.
+    let taken = 0;
+    const grab = () => {
+      ctx.drawImage(finder, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `burst-${Date.now()}-${taken}.jpg`, { type: 'image/jpeg' });
+          setShots((current) => [...current, file]);
+          setShotUrls((current) => [...current, URL.createObjectURL(file)]);
+        }
+        taken += 1;
+        if (taken < count) window.setTimeout(grab, 450);
+      }, 'image/jpeg', .9);
+    };
+    grab();
+  };
+  const useShots = () => { onShots(shots); };
+  return <div className="recorder-backdrop" role="dialog" aria-modal="true" aria-label="Burst mode">
+    <div className="recorder-shell photo-capture-shell">
+      <div className="recorder-top">
+        <button type="button" onClick={onClose} aria-label="Close burst mode"><X /></button>
+        <strong>Burst mode · {shots.length}/{room} this session</strong>
+        <span>1 session</span>
+      </div>
+      <p className="recorder-instructions">Stay in the camera and take many photos at once — no going back and forth.</p>
+      <div className="photo-burst-live"><video ref={finderRef} playsInline muted /><span className="photo-burst-count">{shots.length} taken</span></div>
+      {error && <div className="form-error recorder-error">{error}</div>}
+      <div className="recorder-controls" style={{ display: 'grid', gap: 8 }}>
+        <div className="photo-burst-row">
+          <button type="button" className="button-primary" onClick={shoot} disabled={starting || shots.length >= room} style={{ flex: 1 }}><Camera /> Shoot</button>
+          <input type="number" min={1} max={room} value={want} onChange={(event) => setWant(Math.max(1, Math.min(room, Number(event.target.value) || 1)))} aria-label="How many photos" />
+        </div>
+        {shotUrls.length > 0 && <div className="composer-tiktok-strip">{shotUrls.map((url, index) => <div key={`${url}-${index}`} className="composer-tiktok-cell"><img src={url} alt={`Burst shot ${index + 1}`} /></div>)}</div>}
+        <button type="button" className="secondary-button" onClick={useShots} disabled={!shots.length}><Check /> Use {shots.length} photo{shots.length === 1 ? '' : 's'}</button>
+      </div>
+    </div>
+  </div>;
 }

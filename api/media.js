@@ -21,7 +21,7 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
-import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, mockPublishResults, mockSeedThreads, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
+import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, mockPublishResults, mockSeedThreads, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizKeys, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
 const ALLOWED_POST_MEDIA_TYPES = /^image\/(jpeg|jpg|png|webp|gif)$/i;
@@ -64,6 +64,47 @@ function resolveSocialStore(req, profile) {
 // =========================================================================
 //  Social (Repliz) handlers
 // =========================================================================
+
+// Woyoyo-010: setup self-test. Reports, in plain language, everything the
+// connect flow needs: Repliz keys present, Repliz reachable, and the
+// social_oauth_states table existing. The Accounts pop-up shows this so
+// the founder can fix setup without guessing.
+async function handleSocialSetupCheck(req, res, profile, storeId) {
+  void profile; void storeId;
+  const { access, secret } = replizKeys();
+  const keysPresent = Boolean(access && secret);
+  let apiReachable = null;
+  let apiDetail = '';
+  if (keysPresent) {
+    try {
+      await replizWorkspaceAccounts({ platform: undefined });
+      apiReachable = true;
+    } catch (err) {
+      apiReachable = false;
+      apiDetail = err instanceof Error ? err.message : 'Repliz did not answer.';
+    }
+  }
+  let tableReady = null;
+  let tableDetail = '';
+  try {
+    const { error } = await supabase.from('social_oauth_states').select('id').limit(1);
+    if (error) {
+      if (/42P01|PGRST205|does not exist|schema cache|relation/i.test(error.message || '')) {
+        tableReady = false;
+        tableDetail = 'Table social_oauth_states is missing.';
+      } else {
+        tableReady = null;
+        tableDetail = error.message || 'Could not check the table.';
+      }
+    } else {
+      tableReady = true;
+    }
+  } catch (err) {
+    tableReady = null;
+    tableDetail = err instanceof Error ? err.message : 'Could not check the table.';
+  }
+  return res.status(200).json({ keysPresent, apiReachable, apiDetail, tableReady, tableDetail });
+}
 
 async function handleSocialStatus(req, res, profile, storeId) {
   const [{ data: connections, error: connError }, { data: unread, error: unreadError }] = await Promise.all([
@@ -163,10 +204,24 @@ async function handleSocialConnect(req, res, profile, storeId) {
       expires_at: new Date(Date.now() + 30 * 60000).toISOString(),
     });
     if (stateError && !/42P01|PGRST205|does not exist|schema cache/i.test(stateError.message || '')) throw stateError;
+    if (stateError) {
+      // Woyoyo-010: the #1 real-world connect failure is the missing
+      // social_oauth_states table (migration never run). Say so plainly.
+      throw new Error('Setup needed: the social_oauth_states table is missing in Supabase. Run supabase/migrations/202609200004_woyoyo004.sql once in SQL Editor, then tap Connect again.');
+    }
     const url = await replizAuthorizeUrl({ platform, redirect });
     return res.status(200).json({ oauth: true, authorize_url: url, state });
   } catch (connectError) {
-    return res.status(502).json({ error: connectError instanceof Error ? connectError.message : 'Could not reach the connect service.' });
+    // Woyoyo-010: translate the scary failures into plain-English fixes.
+    const raw = connectError instanceof Error ? connectError.message : '';
+    const friendly = /not configured/i.test(raw)
+      ? 'Setup needed: add REPLIZ_ACCESS_KEY and REPLIZ_SECRET_KEY in Vercel → Settings → Environment Variables, redeploy, then tap Connect again.'
+      : /redirect|callback|allowlist|whitelist/i.test(raw)
+        ? `Repliz rejected the callback address (${raw.slice(0, 140)}). In your Repliz dashboard, allowlist this exact redirect URL: ${replizCallbackUrl(req)} — then try again.`
+        : /401|403|unauthor|invalid key|wrong/i.test(raw)
+          ? 'Repliz said the keys are wrong (check REPLIZ_ACCESS_KEY / REPLIZ_SECRET_KEY in Vercel, redeploy, then try again).'
+          : (raw || 'Could not reach the connect service.');
+    return res.status(502).json({ error: friendly });
   }
 }
 
@@ -514,7 +569,8 @@ async function handleSocial(req, res) {
     if (op === 'status') return handleSocialStatus(req, res, profile, storeId);
     if (op === 'inbox') return handleSocialInbox(req, res, profile, storeId);
     if (op === 'posts') return handleSocialPosts(req, res, profile, storeId);
-    return res.status(400).json({ error: 'Unknown op. Use ?op=status | inbox | posts' });
+    if (op === 'setup_check') return handleSocialSetupCheck(req, res, profile, storeId);
+    return res.status(400).json({ error: 'Unknown op. Use ?op=status | inbox | posts | setup_check' });
   }
   if (req.method === 'POST') {
     const op = String(req.body?.op || '').toLowerCase();
