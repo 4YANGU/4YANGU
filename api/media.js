@@ -141,8 +141,13 @@ async function handleSocialConnect(req, res, profile, storeId) {
     return res.status(200).json({ connection, oauth: false });
   }
   try {
-    const redirect = replizCallbackUrl(req);
+    // Woyoyo-008: our state travels INSIDE the redirect URL (param "s"), and
+    // the authorize URL is returned byte-for-byte. Appending "&state=" to the
+    // authorize URL corrupted Repliz's own state param (duplicate state) —
+    // TikTok/Repliz then crashed after approval instead of coming back here.
     const state = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+    const base = replizCallbackUrl(req);
+    const redirect = `${base}${base.includes('?') ? '&' : '?'}s=${encodeURIComponent(state)}`;
     const { error: stateError } = await supabase.from('social_oauth_states').insert({
       store_id: storeId,
       token: state,
@@ -152,10 +157,9 @@ async function handleSocialConnect(req, res, profile, storeId) {
     });
     if (stateError && !/42P01|PGRST205|does not exist|schema cache/i.test(stateError.message || '')) throw stateError;
     const url = await replizAuthorizeUrl({ platform, redirect });
-    const joiner = url.includes('?') ? '&' : '?';
-    return res.status(200).json({ oauth: true, authorize_url: `${url}${joiner}state=${encodeURIComponent(state)}`, state });
+    return res.status(200).json({ oauth: true, authorize_url: url, state });
   } catch (connectError) {
-    return res.status(502).json({ error: connectError instanceof Error ? connectError.message : 'Could not reach Repliz.' });
+    return res.status(502).json({ error: connectError instanceof Error ? connectError.message : 'Could not reach the connect service.' });
   }
 }
 
@@ -199,7 +203,7 @@ async function handleSocialSyncAccounts(req, res, profile, storeId) {
   try {
     workspace = await replizWorkspaceAccounts();
   } catch (syncError) {
-    return res.status(502).json({ error: syncError instanceof Error ? syncError.message : 'Could not reach Repliz.' });
+    return res.status(502).json({ error: syncError instanceof Error ? syncError.message : 'Could not reach the connect service.' });
   }
   let synced = 0;
   for (const account of workspace) {
@@ -230,7 +234,7 @@ async function handleSocialOAuthPick(req, res, profile, storeId) {
   }
   try {
     const { accountId, account } = await replizConnectOAuth({ platform, token, selectionId });
-    if (!accountId) throw new Error('Repliz accepted the connection but did not return an account. Please try again.');
+    if (!accountId) throw new Error('The platform approved, but no account came back. Please try again.');
     const connection = await upsertConnection(storeId, platform, account && account.handle ? account : { id: accountId, handle: `@${platform}-account` }, 'connected');
     if (state) await supabase.from('social_oauth_states').delete().eq('token', state);
     return res.status(200).json({ connection });
@@ -524,9 +528,20 @@ async function handleSocial(req, res) {
 // platforms (Facebook / YouTube) exchange the code and return the Page /
 // channel picker to the pop-up, which posts the result back to the inbox.
 async function handleSocialCallback(req, res) {
-  const state = String(req.query?.state || '');
-  const code = String(req.query?.code || '');
-  const errorParam = String(req.query?.error_description || req.query?.error || '');
+  // Woyoyo-007: platforms vary the reply shape (TikTok may nest it inside
+  // `data` or rename fields), so read every known spelling before giving up.
+  const query = req.query || {};
+  const nested = (query.data && typeof query.data === 'object') ? query.data : {};
+  const first = (...keys) => {
+    for (const key of keys) {
+      const value = query[key] ?? nested[key];
+      if (value !== undefined && value !== null && String(value) !== '') return String(value);
+    }
+    return '';
+  };
+  const state = first('s', 'stoyangu_state', 'state', 'oauth_state', 'session_state');
+  const code = first('code', 'auth_code', 'authorization_code', 'oauth_code');
+  const errorParam = first('error_description', 'error_message', 'message', 'error', 'error_code');
   const finish = (payload) => {
     const safe = JSON.stringify({ source: 'stoyangu-oauth', ...payload }).replace(/</g, '\\u003c');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -537,7 +552,8 @@ async function handleSocialCallback(req, res) {
       '<script>try{if(window.opener){window.opener.postMessage(' + safe + ',window.location.origin)}}catch(e){}window.close();setTimeout(function(){var p=document.querySelector("p");if(p)p.textContent="You can close this tab and return to StoYangu."},800);<' + '/script></body></html>'
     );
   };
-  if (errorParam) return finish({ ok: false, error: `The platform did not approve the connection (${errorParam.slice(0, 120)}). Please try again.` });
+  const looksDenied = /denied|cancel|decline|forbidden|unauthor/i.test(errorParam) || /access_denied|unauthorized/i.test(String(query?.error || nested?.error || ''));
+  if (errorParam && (looksDenied || !code)) return finish({ ok: false, error: `The platform did not approve the connection (${errorParam.slice(0, 120)}). Please tap Connect and approve all permissions, then try again.` });
   if (!state || !code) return finish({ ok: false, error: 'The connection reply was incomplete. Please try again.' });
   const { data: saved } = await supabase.from('social_oauth_states').select('*').eq('token', state).limit(1).maybeSingle();
   if (!saved) return finish({ ok: false, error: 'That connection request expired. Please tap Connect again.' });
@@ -550,7 +566,7 @@ async function handleSocialCallback(req, res) {
   try {
     if (REPLIZ_SINGLE_STEP.includes(platform)) {
       const { accountId, account } = await replizConnectOAuth({ platform, code });
-      if (!accountId) throw new Error('Repliz accepted the connection but did not return an account. Please try again.');
+      if (!accountId) throw new Error('The platform approved, but no account came back. Please tap Connect once more and approve all permissions.');
       const connection = await upsertConnection(storeId, platform, account && account.handle ? account : { id: accountId, handle: `@${platform}-account` }, 'connected');
       await supabase.from('social_oauth_states').delete().eq('token', state);
       return finish({ ok: true, platform, connection });
@@ -558,7 +574,7 @@ async function handleSocialCallback(req, res) {
     if (REPLIZ_TWO_STEP.includes(platform)) {
       const token = await replizExchangeCode({ platform, code });
       const choices = await replizListOAuthChoices({ platform, token });
-      if (!choices.length) throw new Error(`No ${REPLIZ_LABELS[platform]} Pages or channels were found on that account.`);
+      if (!choices.length) throw new Error(`No ${REPLIZ_LABELS[platform]} Pages or channels were found on that account. Approve all permissions and try again.`);
       await supabase.from('social_oauth_states').update({ data: { ...(saved.data || {}), token } }).eq('token', state);
       return finish({ ok: true, needs_pick: true, platform, state, token, choices });
     }

@@ -85,3 +85,15 @@
 .order-wa{background:#e3f2e8;color:#1f7a44;border:1px solid #bfe0c9}
 .order-call{background:#e9eefb;color:#274690;border:1px solid #c4d2f2}
 @media(max-width:560px){.owner-header-stats{flex-wrap:nowrap;gap:6px}.owner-mini-stat{font-size:.56rem;padding:.28rem .5rem;white-space:nowrap}.owner-mini-stat svg{width:11px}.owner-cycle-dates{font-size:.55rem;max-width:100%}}
+
+/* ---- Woyoyo-007: cycle pill sits under stats; toggle joins contact row; boxed details inputs ---- */
+.owner-header-copy .owner-cycle-dates{margin:8px 0 0}
+.order-contact-row{display:flex!important;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap}
+.order-card-actions-inline{margin:0}
+.order-contact-row .order-contact-actions{margin-top:0}
+@media(max-width:720px){.order-contact-row{flex-wrap:nowrap}.order-contact-actions{flex-wrap:wrap}}
+.composer-details-box{border:1px solid #d9dfda;border-radius:14px;background:#fff;padding:14px;display:grid;gap:12px}
+.composer-details-box .form-grid{margin:0}
+.composer-details-box label{font-size:.72rem;font-weight:800;color:#4d5c54;display:grid;gap:6px}
+.composer-details-box input{border:1px solid #d9dfda;border-radius:10px;padding:.7rem .8rem;font-size:.8rem;outline:none;background:#fbfdfb}
+.composer-details-box input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(90,150,110,.12);background:#fff}

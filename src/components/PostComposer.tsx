@@ -33,6 +33,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
+  const [priceMax, setPriceMax] = useState('');
   const [hasColors, setHasColors] = useState(false); const [colors, setColors] = useState<string[]>([]); const [customColor, setCustomColor] = useState('');
   const [hasSizes, setHasSizes] = useState(false); const [sizes, setSizes] = useState<string[]>([]); const [customSize, setCustomSize] = useState('');
   const [caption, setCaption] = useState('');
@@ -74,9 +75,16 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   };
 
   // Auto-build the caption from the product details; the seller can edit it.
-  const buildCaption = (productName: string, productPrice: string, productColors: string[], productSizes: string[]) => {
+  const priceDisplay = (lo: string, hi: string) => {
+    const low = Number(lo) || 0; const high = Number(hi) || 0;
+    if (low > 0 && high > low) return `${formatMoney(low)} – ${formatMoney(high)}`;
+    if (low > 0) return formatMoney(low);
+    return '';
+  };
+  const buildCaption = (productName: string, productPrice: string, productPriceMax: string, productColors: string[], productSizes: string[]) => {
     const bits = [productName.trim() || 'New arrival'];
-    if (Number(productPrice) > 0) bits.push(`— ${formatMoney(Number(productPrice))}`);
+    const shown = priceDisplay(productPrice, productPriceMax);
+    if (shown) bits.push(`— ${shown}`);
     const variants = [...(productColors.length ? [`Colours: ${productColors.join(', ')}`] : []), ...(productSizes.length ? [`Sizes: ${productSizes.join(', ')}`] : [])];
     if (variants.length) bits.push(`(${variants.join(' · ')})`);
     bits.push('Order on WhatsApp!');
@@ -84,9 +92,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   };
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
-    if (!captionTouched) setCaption(buildCaption(name, price, colors, sizes));
+    if (!captionTouched) setCaption(buildCaption(name, price, priceMax, colors, sizes));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, price, colors, sizes]);
+  }, [name, price, priceMax, colors, sizes]);
 
   // Woyoyo-006: locked caption box. Editable text lives in state; the sync
   // below only writes to the DOM when state changed elsewhere (auto-build).
@@ -139,21 +147,39 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
 
   // Woyoyo-006: first-post permission primer — camera + microphone are asked
   // once, up front, with a friendly explanation instead of a bare prompt.
+  // Woyoyo-007: verify what each device actually granted (some browsers
+  // grant the camera but silently deny the mic), and remember video-only so
+  // the recorder opens without re-prompting.
   const requestPermissions = async () => {
     setError('');
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('This browser cannot open the camera. Please use Chrome or Safari on your phone — or skip to photos.');
       return;
     }
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      stream.getTracks().forEach((track) => track.stop());
-      try { localStorage.setItem('stoyangu-camera-ok', '1'); } catch { /* private mode */ }
-      setStep('video');
-      setCameraOpen(true);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
     } catch {
-      setError('Camera or microphone was blocked. Allow both for this site to record video — or skip to photos below.');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        setError('Microphone was blocked — video will record without sound. Allow the mic in the address-bar icon to add sound.');
+      } catch {
+        setError('Camera was blocked. Tap the camera icon in the address bar, allow it, then tap Continue — or skip to photos below.');
+        return;
+      }
     }
+    const tracks = stream?.getTracks() || [];
+    const hasVideo = tracks.some((track) => track.kind === 'video' && track.readyState === 'live');
+    const hasAudio = tracks.some((track) => track.kind === 'audio' && track.readyState === 'live');
+    tracks.forEach((track) => track.stop());
+    if (!hasVideo) {
+      setError('Camera was blocked. Tap the camera icon in the address bar, allow it, then tap Continue — or skip to photos below.');
+      return;
+    }
+    try { localStorage.setItem('stoyangu-camera-ok', '1'); } catch { /* private mode */ }
+    try { localStorage.setItem('stoyangu-mic-ok', hasAudio ? '1' : '0'); } catch { /* private mode */ }
+    setStep('video');
+    setCameraOpen(true);
   };
 
   const skipPrimerToPhotos = () => {
@@ -162,7 +188,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     setCameraOpen(true);
   };
 
-  const choosePhotos = (files: FileList | null) => {
+  const choosePhotos = (files: FileList | null, fromCamera = false) => {
     const selected = Array.from(files || []).filter((file) => file.type.startsWith('image/'));
     if (!selected.length) return;
     setPhotoFiles((current) => {
@@ -172,8 +198,20 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       setPhotoUrls((urls) => [...urls, ...kept.map((file) => URL.createObjectURL(file))]);
       return [...current, ...kept];
     });
-    setStep('details');
-    setCameraOpen(false);
+    if (fromCamera) {
+      setPhotoFiles((current) => {
+        if (current.length >= 7) {
+          setStep('details');
+          setCameraOpen(false);
+        } else {
+          setCameraOpen(true);
+        }
+        return current;
+      });
+    } else {
+      setStep('details');
+      setCameraOpen(false);
+    }
   };
 
   const removePhoto = (index: number) => {
@@ -206,7 +244,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       onProductsChanged?.();
       // 2. Post to every connected account. Permanent hashtags are appended
       // here at send time, so they always ship even if the seller edits.
-      const finalCaption = `${caption.trim() || buildCaption(name, price, colors, sizes)}\n\n${permanentTags}`;
+      const finalCaption = `${caption.trim() || buildCaption(name, price, priceMax, colors, sizes)}\n\n${permanentTags}`;
       const mediaUrls = [...(video ? [video.url] : []), ...images];
       const mediaKinds = [...(video ? ['video'] : []), ...images.map(() => 'image')];
       const response = await apiFetch<PublishResult & { mode?: string }>('/api/media?action=social', {
@@ -257,7 +295,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       </div>}
       {result ? <div className="composer-result">
         <strong>Posted to your connected accounts.</strong>
-        <p>StoYangu delivered this post through Repliz. Per-account results:</p>
+        <p>StoYangu delivered this post to your accounts. Per-account results:</p>
         <div className="composer-result-list">
           {Object.entries(result.results).map(([platform, info]) => <div key={platform} className={`composer-result-row ${info.ok ? 'ok' : 'fail'}`}>
             <strong>{platform}</strong>
@@ -298,9 +336,12 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
           {locked
             ? <small className="composer-hint">Adding products is locked until the next KES 300 payment — your products stay live for customers.</small>
             : <>
-              <div className="form-grid">
-                <label>Product name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Stevo Home Jersey" /></label>
-                <label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="e.g. 2800" /></label>
+              <div className="composer-details-box">
+                <div className="form-grid">
+                  <label>Product name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Stevo Home Jersey" /></label>
+                  <label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="e.g. 2800" /></label>
+                </div>
+                <label>Max price — only if it's a range (KES)<input type="number" min="1" value={priceMax} onChange={(event) => setPriceMax(event.target.value)} placeholder="Leave empty for one price" /></label>
               </div>
               <OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold']} selected={colors} onToggle={(item) => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} />
               <OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42']} selected={sizes} onToggle={(item) => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} />
@@ -337,13 +378,15 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     />}
     {cameraOpen && step === 'photo' && <PhotoCapture
       title="Step 2 · Take the product photo"
-      instructions="This photo creates the product in your store. Take up to 7 — the first one is the cover."
+      instructions="These photos create the product in your store. Take up to 7 — the first one is the cover."
+      taken={photoFiles.length}
       onClose={onClose}
       onGallery={() => galleryRef.current?.click()}
       onCapture={() => photoRef.current?.click()}
+      onDone={() => { setCameraOpen(false); setStep('details'); }}
     />}
-    <input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choosePhotos(event.target.files); event.target.value = ''; }} />
-    <input ref={photoRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choosePhotos(event.target.files); event.target.value = ''; }} />
+    <input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choosePhotos(event.target.files, false); event.target.value = ''; }} />
+    <input ref={photoRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choosePhotos(event.target.files, true); event.target.value = ''; }} />
   </Modal>;
 }
 
@@ -368,7 +411,7 @@ function MediaRecapCard({ video, uploadingVideo, photoUrls, onRemoveVideo, onRem
   </div>;
 }
 
-function PhotoCapture({ title, instructions, onClose, onGallery, onCapture }: { title: string; instructions: string; onClose: () => void; onGallery: () => void; onCapture: () => void }) {
+function PhotoCapture({ title, instructions, taken, onClose, onGallery, onCapture, onDone }: { title: string; instructions: string; taken: number; onClose: () => void; onGallery: () => void; onCapture: () => void; onDone: () => void }) {
   return <div className="recorder-backdrop" role="dialog" aria-modal="true" aria-label={title}>
     <div className="recorder-shell photo-capture-shell">
       <div className="recorder-top">
@@ -376,11 +419,12 @@ function PhotoCapture({ title, instructions, onClose, onGallery, onCapture }: { 
         <strong>{title}</strong>
         <span>9:16 style</span>
       </div>
-      <p className="recorder-instructions">{instructions}</p>
-      <div className="photo-capture-frame"><Camera /><span>Your camera opens next — frame the product vertically like a TikTok.</span></div>
+      <p className="recorder-instructions">{instructions}{taken > 0 && <> <b>{taken} taken so far.</b></>}</p>
+      <div className="photo-capture-frame"><Camera /><span>Tip: use Gallery to pick several photos at once (up to 7). Camera takes them one by one.</span></div>
       <div className="recorder-controls">
-        <button type="button" className="button-primary" onClick={onCapture}><Camera /> Open camera</button>
-        <button type="button" className="secondary-button" onClick={onGallery}><ImagePlus /> Gallery</button>
+        <button type="button" className="button-primary" onClick={onCapture}><Camera /> {taken > 0 ? 'Take another' : 'Open camera'}</button>
+        <button type="button" className="secondary-button" onClick={onGallery}><ImagePlus /> Gallery (many at once)</button>
+        {taken > 0 && <button type="button" className="secondary-button recorder-skip" onClick={onDone}><Check /> Done — {taken} photo{taken === 1 ? '' : 's'}</button>}
       </div>
     </div>
   </div>;

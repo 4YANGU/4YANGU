@@ -167,6 +167,50 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   // Woyoyo-004: connect opens the official platform OAuth page in a pop-up.
   // Single-step platforms finish in the pop-up; Facebook/YouTube return a
   // Page/channel picker that is completed inside this modal.
+  // Woyoyo-007: the pop-up is watched so a silent-close or system-browser
+  // redirect is caught, and the opener origin is verified flexibly
+  // (www/host differences) while still same-site only.
+  const sameSite = (origin: string) => {
+    try {
+      const a = new URL(origin);
+      const b = new URL(window.location.origin);
+      const root = (host: string) => host.replace(/^www\./, '');
+      return a.protocol === b.protocol && root(a.hostname) === root(b.hostname);
+    } catch { return false; }
+  };
+  const openPopup = (url: string, platformName: string) => {
+    const width = 560; const height = 680;
+    const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
+    return window.open(url, `stoyangu-connect-${platformName}`, `width=${width},height=${height},left=${left},top=${top}`);
+  };
+  const waitForOAuth = (popup: Window, platformName: string) => new Promise<{ ok: boolean; connection?: SocialConnection; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string; error?: string }>((resolve) => {
+    let done = false;
+    const finish = (value: { ok: boolean; error?: string; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string }) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timeout);
+      window.clearInterval(watchClosed);
+      window.removeEventListener('message', onMessage);
+      resolve(value as { ok: boolean; error?: string; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string });
+    };
+    const timeout = window.setTimeout(() => finish({ ok: false, error: 'The connection window timed out. Please try again.' }), 300000);
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || data.source !== 'stoyangu-oauth') return;
+      if (!sameSite(event.origin)) return;
+      finish(data);
+    };
+    window.addEventListener('message', onMessage);
+    const watchClosed = window.setInterval(async () => {
+      try {
+        if (popup.closed) {
+          finish({ ok: false, error: `The ${platformLabel(platformName)} window closed before finishing. Tap Connect and approve all permissions to link it.` });
+          await load(true);
+        }
+      } catch { /* cross-origin popup — ignore */ }
+    }, 800);
+  });
   const connect = async (platform: string) => {
     if (busyKey) return;
     setBusyKey(`connect-${platform}`);
@@ -177,23 +221,20 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         await load(true);
         return;
       }
-      const popup = window.open(started.authorize_url, `stoyangu-connect-${platform}`, 'width=560,height=680');
+      // Woyoyo-008: use the authorize URL byte-for-byte. Decoding or
+      // appending params corrupts Repliz's own state and crashes approval.
+      let target = started.authorize_url;
+      if (target.startsWith('/')) target = `${window.location.origin}${target}`;
+      if (!/^https?:\/\//i.test(target)) {
+        setError('The connect link was invalid. Please try again.');
+        return;
+      }
+      const popup = openPopup(target, platform);
       if (!popup) {
         setError('Your browser blocked the connect window. Allow pop-ups for this site and try again.');
         return;
       }
-      const outcome = await new Promise<{ ok: boolean; connection?: SocialConnection; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string; error?: string }>((resolve) => {
-        const timeout = window.setTimeout(() => { window.removeEventListener('message', onMessage); resolve({ ok: false, error: 'The connection window timed out. Please try again.' }); }, 300000);
-        const onMessage = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return;
-          const data = event.data;
-          if (!data || data.source !== 'stoyangu-oauth') return;
-          window.clearTimeout(timeout);
-          window.removeEventListener('message', onMessage);
-          resolve(data);
-        };
-        window.addEventListener('message', onMessage);
-      });
+      const outcome = await waitForOAuth(popup, platform);
       try { popup.close(); } catch { /* already closed */ }
       if (!outcome.ok) {
         setError(outcome.error || 'Could not connect that account.');
@@ -247,7 +288,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_accounts', store_id: storeId }) });
       await load(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not refresh from Repliz.');
+      setError(err instanceof Error ? err.message : 'Could not refresh.');
     } finally {
       setSyncing(false);
     }
@@ -354,13 +395,13 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
             <button type="button" className="secondary-button" onClick={() => setPicker(null)}>Back</button>
           </div>
         </> : <>
-          <p className="form-intro">Connect each platform through Repliz. Posting and replies use these accounts automatically.</p>
+          <p className="form-intro">Connect each platform. Posting and replies use these accounts automatically.</p>
           <div className="accounts-modal-list">
             {PLATFORMS.map((platform) => {
               const connection = status?.connections.find((c) => c.platform === platform);
               return <div key={platform} className="account-row">
                 <PlatformBadge platform={platform} />
-                <div><strong>{connection ? connection.account_handle : 'Not connected'}</strong><small>{connection ? 'Linked through Repliz' : `Tap Connect to link your ${platformLabel(platform)} account`}</small></div>
+                <div><strong>{connection ? connection.account_handle : 'Not connected'}</strong><small>{connection ? 'Connected' : `Tap Connect to link your ${platformLabel(platform)} account`}</small></div>
                 {connection
                   ? <button className="social-unlink" onClick={() => disconnect(connection.id)} disabled={busyKey === `conn-${connection.id}`} aria-label={`Disconnect ${platformLabel(platform)}`} title="Disconnect"><Unlink /></button>
                   : <button className="social-link" onClick={() => connect(platform)} disabled={busyKey === `connect-${platform}`}>{busyKey === `connect-${platform}` ? 'Connecting…' : 'Connect'}</button>}
@@ -368,7 +409,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
             })}
           </div>
           <div className="modal-actions">
-            <button type="button" className="secondary-button" onClick={syncAccounts} disabled={syncing}><RefreshCw className={syncing ? 'spin' : ''} /> {syncing ? 'Checking…' : 'Refresh from Repliz'}</button>
+            <button type="button" className="secondary-button" onClick={syncAccounts} disabled={syncing}><RefreshCw className={syncing ? 'spin' : ''} /> {syncing ? 'Checking…' : 'Refresh'}</button>
             <button type="button" className="button-primary compact" onClick={() => setAccountsOpen(false)}>Done <Check /></button>
           </div>
         </>}

@@ -55,10 +55,30 @@ export default function VideoRecorder({ onDone, onClose, title, instructions, sk
         return;
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { facingMode: { ideal: facing }, width: { ideal: 1080 }, height: { ideal: 1920 } },
-        });
+        // Woyoyo-007: honour the primer's result. If the mic was denied there,
+        // don't ask for it again (that re-prompts and fails) — record video.
+        let wantAudio = true;
+        try { wantAudio = localStorage.getItem('stoyangu-mic-ok') !== '0'; } catch { /* private mode */ }
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: wantAudio,
+            video: { facingMode: { ideal: facing }, width: { ideal: 1080 }, height: { ideal: 1920 } },
+          });
+        } catch (firstError) {
+          if (!wantAudio) throw firstError;
+          // Mic blocked but camera fine — fall back to silent video.
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: { ideal: facing }, width: { ideal: 1080 }, height: { ideal: 1920 } },
+          });
+          try { localStorage.setItem('stoyangu-mic-ok', '0'); } catch { /* private mode */ }
+          setError('Microphone is blocked, so this video will have no sound. Allow the mic in the address-bar icon for sound.');
+        }
+        if (!stream.getTracks().length || !stream.getVideoTracks().length) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw new Error('no-live-tracks');
+        }
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
