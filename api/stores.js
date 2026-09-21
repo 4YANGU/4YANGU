@@ -44,9 +44,7 @@ async function authProfile(req) {
   if (!token) return null;
   const { data: { user } } = await supabase.auth.getUser(token);
   if (!user) return null;
-  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
-  const productionHost = host === 'stoyangu.com' || host === 'www.stoyangu.com' || host.endsWith('.stoyangu.com');
-  if (productionHost && String(user.email || '').toLowerCase() === 'founder-demo@stoyangu.com') return null;
+  // WOYOYO-011: no production host block for demos
   const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
   return data ? { ...data, user } : null;
 }
