@@ -14,14 +14,20 @@ type Attachment = { url: string; kind: 'image' | 'video' };
 // (skippable for photos-only posts), then the product-photo camera, then one
 // screen: product name + price (+ optional colours/sizes) with an auto-built
 // caption the seller can edit. Every post creates a product — there is no
-// post-without-product and no use-existing step. Two permanent hashtags
-// (#stoyangu + #storename) are appended at send time and cannot be removed.
+// post-without-product and no use-existing step.
+// Woyoyo-006: first-post permission primer (camera + mic asked once, up
+// front), step progress header, media recap card, and the two permanent
+// hashtags (#stoyangu + #storename) rendered locked INSIDE the caption box
+// itself — visible, but impossible to delete or edit.
 type Props = { storeId: number; storeName: string; storeSlug: string; locked?: boolean; onClose: () => void; onPosted: () => void; onProductsChanged?: () => void };
 
-type Step = 'video' | 'photo' | 'details';
+type Step = 'permissions' | 'video' | 'photo' | 'details';
 
 export default function PostComposer({ storeId, storeName, storeSlug, locked = false, onClose, onPosted, onProductsChanged }: Props) {
-  const [step, setStep] = useState<Step>('video');
+  const [step, setStep] = useState<Step>(() => {
+    try { return localStorage.getItem('stoyangu-camera-ok') === '1' ? 'video' : 'permissions'; }
+    catch { return 'permissions'; }
+  });
   const [video, setVideo] = useState<Attachment | null>(null);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
@@ -32,7 +38,10 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [caption, setCaption] = useState('');
   const [captionTouched, setCaptionTouched] = useState(false);
   const [connectionCount, setConnectionCount] = useState(0);
-  const [cameraOpen, setCameraOpen] = useState(true);
+  const [cameraOpen, setCameraOpen] = useState(() => {
+    try { return localStorage.getItem('stoyangu-camera-ok') === '1'; }
+    catch { return false; }
+  });
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -41,6 +50,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const galleryRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const firstRender = useRef(true);
+  const captionBoxRef = useRef<HTMLDivElement>(null);
 
   const slugTag = `#${String(storeSlug || storeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'}`;
   const permanentTags = `#stoyangu ${slugTag}`;
@@ -77,6 +87,80 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     if (!captionTouched) setCaption(buildCaption(name, price, colors, sizes));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, price, colors, sizes]);
+
+  // Woyoyo-006: locked caption box. Editable text lives in state; the sync
+  // below only writes to the DOM when state changed elsewhere (auto-build).
+  // Typing flows DOM -> state, so the caret is never disturbed.
+  useEffect(() => {
+    const box = captionBoxRef.current;
+    if (!box || step !== 'details') return;
+    const editable = box.querySelector('[data-caption-text]') as HTMLElement | null;
+    if (editable && editable.textContent !== caption) {
+      editable.textContent = caption;
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  }, [caption, step]);
+
+  const handleCaptionInput = () => {
+    const editable = captionBoxRef.current?.querySelector('[data-caption-text]') as HTMLElement | null;
+    if (!editable) return;
+    let text = editable.textContent || '';
+    if (text.length > 2100) {
+      text = text.slice(0, 2100);
+      editable.textContent = text;
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+    setCaptionTouched(true);
+    setCaption(text);
+  };
+
+  const focusCaption = () => {
+    const editable = captionBoxRef.current?.querySelector('[data-caption-text]') as HTMLElement | null;
+    if (editable && document.activeElement !== editable) {
+      editable.focus();
+      const range = document.createRange();
+      range.selectNodeContents(editable);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  };
+
+  // Woyoyo-006: first-post permission primer — camera + microphone are asked
+  // once, up front, with a friendly explanation instead of a bare prompt.
+  const requestPermissions = async () => {
+    setError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('This browser cannot open the camera. Please use Chrome or Safari on your phone — or skip to photos.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      stream.getTracks().forEach((track) => track.stop());
+      try { localStorage.setItem('stoyangu-camera-ok', '1'); } catch { /* private mode */ }
+      setStep('video');
+      setCameraOpen(true);
+    } catch {
+      setError('Camera or microphone was blocked. Allow both for this site to record video — or skip to photos below.');
+    }
+  };
+
+  const skipPrimerToPhotos = () => {
+    setError('');
+    setStep('photo');
+    setCameraOpen(true);
+  };
 
   const choosePhotos = (files: FileList | null) => {
     const selected = Array.from(files || []).filter((file) => file.type.startsWith('image/'));
@@ -127,7 +211,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       const mediaKinds = [...(video ? ['video'] : []), ...images.map(() => 'image')];
       const response = await apiFetch<PublishResult & { mode?: string }>('/api/media?action=social', {
         method: 'POST',
-        body: JSON.stringify({ op: 'publish', store_id: storeId, caption: finalCaption.slice(0, 2200), media_urls: mediaUrls, media_kinds: mediaKinds }),
+        body: JSON.stringify({ op: 'publish', store_id: storeId, caption: finalCaption.slice(0, 2400), media_urls: mediaUrls, media_kinds: mediaKinds }),
       });
       setResult({ results: response.results || {} });
       onPosted();
@@ -157,11 +241,20 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     }
   };
 
-  const heading = step === 'video' ? 'Step 1 of 3 · Product video' : step === 'photo' ? 'Step 2 of 3 · Product photos' : 'Step 3 of 3 · Details & caption';
+  const heading = step === 'permissions' ? 'Quick setup · Camera & microphone' : step === 'video' ? 'Step 1 of 3 · Product video' : step === 'photo' ? 'Step 2 of 3 · Product photos' : 'Step 3 of 3 · Details & caption';
 
   return <Modal title="Post once, everywhere" onClose={onClose} wide>
     <div className="composer-body">
+      <div className="composer-progress" aria-label="Post progress"><span className={step === 'permissions' ? 'active' : 'done'}>1 · Setup</span><span className={step === 'video' ? 'active' : step === 'permissions' ? '' : 'done'}>2 · Video</span><span className={step === 'photo' ? 'active' : step === 'details' ? 'done' : ''}>3 · Photos</span><span className={step === 'details' ? 'active' : ''}>4 · Post</span></div>
       <p className="form-intro">{heading} — every post creates the product in your store and goes to all connected accounts automatically.</p>
+      {step === 'permissions' && <div className="composer-block composer-media-first composer-permissions">
+        <strong><Camera /> Allow camera & microphone</strong>
+        <p>To record product videos, StoYangu needs your camera and microphone. Tap Continue and choose <b>Allow</b> when your phone asks — you only do this once.</p>
+        <div className="composer-media-actions">
+          <button type="button" className="button-primary compact" onClick={requestPermissions}><Check /> Continue</button>
+          <button type="button" className="secondary-button compact-upload" onClick={skipPrimerToPhotos}>Skip video — photos only</button>
+        </div>
+      </div>}
       {result ? <div className="composer-result">
         <strong>Posted to your connected accounts.</strong>
         <p>StoYangu delivered this post through Repliz. Per-account results:</p>
@@ -177,11 +270,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       </div> : <>
         {step === 'video' && !cameraOpen && <div className="composer-block composer-media-first">
           <strong><Video /> Product video</strong>
-          {video
-            ? <div className="composer-tiktok-strip"><div className="composer-tiktok-cell lead"><video src={video.url} muted playsInline preload="metadata" /><small>Video · leads everywhere</small><span className="composer-video-tag"><Video /></span><button type="button" onClick={() => setVideo(null)} aria-label="Remove video"><X /></button></div></div>
-            : uploadingVideo
-              ? <div className="composer-tiktok-strip"><div className="composer-tiktok-cell uploading"><span>Uploading…</span></div></div>
-              : <small className="composer-hint">No video — photos only. You can still record one.</small>}
+          <div className="composer-recap">
+            <MediaRecapCard video={video} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={() => setVideo(null)} onRemovePhoto={removePhoto} />
+          </div>
           <div className="composer-media-actions">
             <button type="button" className="button-primary compact" onClick={() => setCameraOpen(true)} disabled={uploadingVideo || busy}><Camera /> {video ? 'Re-record' : 'Record video'}</button>
             <button type="button" className="secondary-button compact-upload" onClick={() => { setStep('photo'); setCameraOpen(true); }}>Continue to photos</button>
@@ -190,13 +281,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         {step === 'photo' && !cameraOpen && <div className="composer-block composer-media-first">
           <strong><ImagePlus /> Product photos (at least 1)</strong>
           <small className="composer-hint">These photos become the product in your store and lead the post after the video.</small>
-          {photoUrls.length > 0 && <div className="composer-tiktok-strip" role="list" aria-label="Product photos">
-            {photoUrls.map((url, index) => <div key={`${url}-${index}`} role="listitem" className={`composer-tiktok-cell ${index === 0 && !video ? 'lead' : ''}`}>
-              <img src={url} alt={`Product photo ${index + 1}`} />
-              {index === 0 && <small>{video ? 'Cover photo' : 'First · leads everywhere'}</small>}
-              <button type="button" onClick={() => removePhoto(index)} aria-label={`Remove photo ${index + 1}`}><X /></button>
-            </div>)}
-          </div>}
+          <div className="composer-recap">
+            <MediaRecapCard video={video} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={() => setVideo(null)} onRemovePhoto={removePhoto} />
+          </div>
           <div className="composer-media-actions">
             <button type="button" className="button-primary compact" onClick={() => setCameraOpen(true)} disabled={busy}><Camera /> Take photo</button>
             <button type="button" className="secondary-button compact-upload" onClick={() => galleryRef.current?.click()} disabled={busy}><ImagePlus /> Gallery</button>
@@ -205,13 +292,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         </div>}
         {(step === 'details') && <div className="composer-block">
           <strong><Package /> Product details</strong>
-          {photoUrls.length > 0 && <div className="composer-tiktok-strip" role="list" aria-label="Product photos">
-            {photoUrls.map((url, index) => <div key={`${url}-${index}`} role="listitem" className={`composer-tiktok-cell ${index === 0 && !video ? 'lead' : ''}`}>
-              <img src={url} alt={`Product photo ${index + 1}`} />
-              {index === 0 && <small>{video ? 'Cover photo' : 'First · leads everywhere'}</small>}
-              <button type="button" onClick={() => removePhoto(index)} aria-label={`Remove photo ${index + 1}`}><X /></button>
-            </div>)}
-          </div>}
+          <div className="composer-recap">
+            <MediaRecapCard video={video} uploadingVideo={uploadingVideo} photoUrls={photoUrls} onRemoveVideo={() => setVideo(null)} onRemovePhoto={removePhoto} />
+          </div>
           {locked
             ? <small className="composer-hint">Adding products is locked until the next KES 300 payment — your products stay live for customers.</small>
             : <>
@@ -224,8 +307,14 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
             </>}
         </div>}
         {(step === 'details') && <>
-          <label className="composer-caption">Caption (auto-filled from the product — edit if you want)<textarea value={caption} onChange={(event) => { setCaption(event.target.value); setCaptionTouched(true); }} rows={4} maxLength={2100} placeholder="New arrival! Product name — price. Order on WhatsApp!" /><small>{caption.length} / 2100</small></label>
-          <div className="composer-tags"><small>Permanent tags (always added, cannot be removed):</small><span><b>#stoyangu</b><b>{slugTag}</b></span></div>
+          <div className="composer-caption composer-caption-locked">
+            <span className="composer-caption-label">Caption (auto-filled from the product — edit if you want)</span>
+            <div ref={captionBoxRef} className="caption-locked-box" role="textbox" aria-multiline="true" aria-label="Caption" tabIndex={0} onFocus={focusCaption} onClick={focusCaption}>
+              <span data-caption-text contentEditable suppressContentEditableWarning spellCheck onInput={handleCaptionInput} />
+              <span className="caption-locked-tags" contentEditable={false} unselectable="on"><b contentEditable={false}>#stoyangu</b><b contentEditable={false}>{slugTag}</b></span>
+            </div>
+            <small>{caption.length} / 2100</small>
+          </div>
         </>}
         {loadingConnections
           ? <small className="composer-hint">Checking your connected accounts…</small>
@@ -256,6 +345,27 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     <input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choosePhotos(event.target.files); event.target.value = ''; }} />
     <input ref={photoRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choosePhotos(event.target.files); event.target.value = ''; }} />
   </Modal>;
+}
+
+function MediaRecapCard({ video, uploadingVideo, photoUrls, onRemoveVideo, onRemovePhoto }: {
+  video: Attachment | null;
+  uploadingVideo: boolean;
+  photoUrls: string[];
+  onRemoveVideo: () => void;
+  onRemovePhoto: (index: number) => void;
+}) {
+  if (!video && !uploadingVideo && !photoUrls.length) {
+    return <small className="composer-hint">No media yet — your video and photos will appear here.</small>;
+  }
+  return <div className="composer-tiktok-strip" role="list" aria-label="Post media">
+    {video && <div role="listitem" className="composer-tiktok-cell lead"><video src={video.url} muted playsInline preload="metadata" /><small>Video · leads everywhere</small><span className="composer-video-tag"><Video /></span><button type="button" onClick={onRemoveVideo} aria-label="Remove video"><X /></button></div>}
+    {uploadingVideo && !video && <div className="composer-tiktok-cell uploading"><span>Uploading…</span></div>}
+    {photoUrls.map((url, index) => <div key={`${url}-${index}`} role="listitem" className={`composer-tiktok-cell ${index === 0 && !video ? 'lead' : ''}`}>
+      <img src={url} alt={`Product photo ${index + 1}`} />
+      {index === 0 && <small>{video ? 'Cover photo' : 'First · leads everywhere'}</small>}
+      <button type="button" onClick={() => onRemovePhoto(index)} aria-label={`Remove photo ${index + 1}`}><X /></button>
+    </div>)}
+  </div>;
 }
 
 function PhotoCapture({ title, instructions, onClose, onGallery, onCapture }: { title: string; instructions: string; onClose: () => void; onGallery: () => void; onCapture: () => void }) {

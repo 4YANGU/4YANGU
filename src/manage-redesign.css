@@ -214,8 +214,10 @@
 }
 @media (max-width: 720px) {
   .social-inbox { padding: 16px; }
-  .social-inbox-head { flex-direction: column; }
-  .social-inbox-head .secondary-button { width: 100%; }
+  /* Woyoyo-006: icons stay beside the description on phones */
+  .social-inbox-head { flex-direction: row; align-items: flex-start; }
+  .social-inbox-head .inbox-head-copy { flex: 1; min-width: 0; }
+  .social-inbox-head .social-head-actions { flex-direction: column; }
   .social-threads { grid-template-columns: 1fr; }
   .social-thread-list { max-height: none; }
   .social-threads.show-detail .social-thread-list { display: none; }
@@ -256,7 +258,6 @@
 .composer-product-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .composer-product-row .secondary-button { min-height: 44px; white-space: nowrap; }
 @media (max-width: 720px) {
-  .social-head-actions { width: 100%; }
   .social-head-actions .secondary-button { flex: 1; }
   .account-row { grid-template-columns: 1fr auto; }
   .account-row .platform-badge { grid-column: 1 / -1; width: max-content; }
@@ -327,3 +328,20 @@
 .photo-capture-shell { padding-bottom: 4px; }
 .photo-capture-frame { margin: 0 14px; border: 1px dashed #5a966e; border-radius: 14px; background: rgba(90,150,110,.08); color: #c9d4d0; display: grid; justify-items: center; gap: 8px; padding: 34px 18px; text-align: center; font-size: .72rem; line-height: 1.6; }
 .photo-capture-frame svg { width: 34px; height: 34px; color: #8fd3a7; }
+
+/* ---- Woyoyo-006: post-flow polish — progress, recap, locked caption tags ---- */
+.composer-progress { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.composer-progress span { text-align: center; font-size: .58rem; font-weight: 900; color: #84918a; background: #f1f4f1; border: 1px solid #e0e4df; border-radius: 999px; padding: .4rem .3rem; }
+.composer-progress span.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+.composer-progress span.done { background: #e3f0e7; border-color: #9ec1a9; color: #2e6b44; }
+.composer-permissions p { margin: 0; font-size: .74rem; color: #4d5c54; line-height: 1.6; }
+.composer-recap { border: 1px solid #e4e8e2; border-radius: 12px; background: #fff; padding: 10px; }
+.composer-recap .composer-tiktok-strip { padding: 0; }
+.composer-caption-locked { display: grid; gap: 6px; font-size: .72rem; font-weight: 800; color: #4d5c54; }
+.composer-caption-label { font-size: .72rem; font-weight: 800; color: #4d5c54; }
+.caption-locked-box { border: 1px solid #d9dfda; border-radius: 12px; padding: .8rem; font-size: .8rem; line-height: 1.6; background: #fff; min-height: 96px; outline: none; cursor: text; }
+.caption-locked-box:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(90, 150, 110, .12); }
+.caption-locked-box [data-caption-text] { outline: none; white-space: pre-wrap; word-break: break-word; }
+.caption-locked-box [data-caption-text]:empty::before { content: 'New arrival! Product name — price. Order on WhatsApp!'; color: #9aa6a0; }
+.caption-locked-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; user-select: none; -webkit-user-select: none; pointer-events: none; }
+.caption-locked-tags b { background: #e3f0e7; border: 1px solid #9ec1a9; color: #2e6b44; border-radius: 999px; padding: .22rem .6rem; font-size: .68rem; user-select: none; -webkit-user-select: none; }

@@ -45,7 +45,7 @@
 .order-delete{border:1px solid #efd2cf;background:#fff;color:#a74a43;border-radius:50%;width:34px;height:34px;display:grid;place-items:center;flex:0 0 auto}
 .order-delete svg{width:15px}
 .order-delete:hover{background:#fdf0ef}
-@media(max-width:720px){.incoming-order{grid-template-columns:auto 1fr;gap:10px}.order-delete{grid-column:2;justify-self:end}}
+@media(max-width:720px){.incoming-order{grid-template-columns:auto 1fr;gap:10px}.order-card-actions{grid-column:1/-1;justify-content:flex-end}}
 /* Woyoyo-004: polished manage-store header — store logo left, name + details right. */
 .owner-header{display:grid;grid-template-columns:1fr;justify-items:center}
 .owner-header-actions{width:100%;max-width:1040px}
@@ -66,16 +66,22 @@
 /* ---- Woyoyo-005: header stats replace the store link; copy sits by the name ---- */
 .owner-name-row{display:flex;align-items:center;gap:8px}
 .owner-name-row h1{margin:.1rem 0}
-.owner-copy-link{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#c9d4d0;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;flex:0 0 auto}
-.owner-copy-link svg{width:14px}
-.owner-copy-link:hover{background:rgba(255,255,255,.14);color:#fff}
+.owner-open-store{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#c9d4d0;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;flex:0 0 auto}
+.owner-open-store svg{width:14px}
+.owner-open-store:hover{background:rgba(255,255,255,.14);color:#fff}
 .owner-header-stats{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
 .owner-mini-stat{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:999px;padding:.32rem .6rem;color:#e8efe9;font-size:.62rem;font-weight:800}
 .owner-mini-stat svg{width:13px;color:#8fd3a7}
 .owner-mini-stat small{color:#8fd3a7;font-weight:800}
-.owner-visit-store{border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#c9d4d0;border-radius:50%;width:30px;height:30px;display:grid;place-items:center}
-.owner-visit-store svg{width:14px}
-.owner-visit-store:hover{background:rgba(255,255,255,.14);color:#fff}
 /* ---- Woyoyo-005: Orders/Products switch (same box as DMs/Comments) ---- */
 .shop-view-tabs{margin:2px 0 16px}
 .incoming-orders,.products-panel{margin-top:0}
+
+/* ---- Woyoyo-006: order action cell, customer contact buttons, header stats row ---- */
+.order-card-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.order-contact-actions{display:flex!important;gap:6px;margin-top:7px}
+.order-wa,.order-call{display:inline-flex!important;align-items:center;gap:4px;border-radius:999px;padding:.32rem .55rem;font-size:.58rem;font-weight:900;text-decoration:none}
+.order-wa svg,.order-call svg{width:12px}
+.order-wa{background:#e3f2e8;color:#1f7a44;border:1px solid #bfe0c9}
+.order-call{background:#e9eefb;color:#274690;border:1px solid #c4d2f2}
+@media(max-width:560px){.owner-header-stats{flex-wrap:nowrap;gap:6px}.owner-mini-stat{font-size:.56rem;padding:.28rem .5rem;white-space:nowrap}.owner-mini-stat svg{width:11px}.owner-cycle-dates{font-size:.55rem;max-width:100%}}
