@@ -1,0 +1,261 @@
+import supabase from '../lib/db-client.js';
+import { selfHostStorefrontAssets, scanStorefrontWarnings } from '../lib/html-assets.js';
+import { ensureDesignRuntime } from '../lib/html-runtime.js';
+import { billingPeriod } from '../lib/billing.js';
+
+// Woyoyo-009: joined subdomains — "Stevo Jerseys" → stevojerseys.stoyangu.com
+// (no hyphens). Store NAMES keep their spaces everywhere in the UI; only the
+// URL slug is joined. Old hyphenated slugs keep working via store_aliases and
+// the hyphen-tolerant lookups below, so nothing already shared ever breaks.
+const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '').slice(0, 55);
+// Accept both spellings when RESOLVING (new joined + legacy hyphenated).
+const slugVariants = (value) => {
+  const raw = String(value || '').toLowerCase().trim().slice(0, 60);
+  const joined = raw.replace(/[^a-z0-9]+/g, '');
+  const hyphen = raw.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return [...new Set([joined, hyphen].filter(Boolean))];
+};
+const normalizePhone = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  const normalized = digits.startsWith('0') ? `254${digits.slice(1)}` : digits;
+  return normalized.length >= 10 && normalized.length <= 15 ? `+${normalized}` : '';
+};
+const ownerAuthEmail = (phone) => `phone-${String(phone).replace(/\D/g, '')}@owners.stoyangu.invalid`;
+const safeDesign = (value, extraHtml) => {
+  let design;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('<') || trimmed.toLowerCase().startsWith('<!doctype')) {
+      design = { storefront_html: trimmed };
+    } else {
+      if (value.length > 2000000) throw new Error('Design JSON is too large.');
+      design = JSON.parse(value);
+    }
+  } else {
+    const text = JSON.stringify(value || {});
+    if (text.length > 2000000) throw new Error('Design JSON is too large.');
+    design = value && typeof value === 'object' ? { ...value } : {};
+  }
+  if (typeof extraHtml === 'string' && extraHtml.trim()) design.storefront_html = extraHtml;
+  return design;
+};
+async function authProfile(req) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return null;
+  const { data: { user } } = await supabase.auth.getUser(token);
+  if (!user) return null;
+  const { data } = await supabase.from('profiles').select('*').eq('user_id', user.id).single();
+  return data ? { ...data, user } : null;
+}
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  try {
+    if (req.method === 'GET' && (req.query?.slug || req.query?.featured)) {
+      // Wozaa fix: keep the storefront JSON almost never-stale. A long CDN cache
+      // (it used to be s-maxage=30 + stale-while-revalidate=300) meant that after
+      // the founder changed the store's WhatsApp number, customers kept receiving
+      // the OLD number for minutes and the wa.me order link stopped working.
+      res.setHeader('Cache-Control', req.query?.fresh ? 'no-store, max-age=0' : 'public, s-maxage=10');
+      let result;
+      if (req.query.slug) {
+        // Woyoyo-009: try the joined slug, then the legacy hyphenated one,
+        // then aliases under either spelling.
+        const variants = slugVariants(req.query.slug);
+        result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', variants[0] || '').single();
+        if ((result.error || !result.data) && variants[1]) {
+          result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', variants[1]).single();
+        }
+        if (result.error || !result.data) {
+          for (const variant of variants) {
+            const { data: alias } = await supabase.from('store_aliases').select('store_id').eq('slug', variant).eq('active', true).single();
+            if (alias?.store_id) {
+              result = await supabase.from('stores').select('*').eq('is_active', true).eq('id', alias.store_id).single();
+              if (!result.error && result.data) break;
+            }
+          }
+        }
+      }
+      else {
+        result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', slugify(process.env.FEATURED_STORE_SLUG || 'stevojerseys')).single();
+        if (result.error || !result.data) {
+          const legacy = slugVariants(process.env.FEATURED_STORE_SLUG || 'stevojerseys')[1];
+          if (legacy) result = await supabase.from('stores').select('*').eq('is_active', true).eq('slug', legacy).single();
+        }
+        if (result.error || !result.data) result = await supabase.from('stores').select('*').eq('is_active', true).order('created_at', { ascending: true }).limit(1).single();
+      }
+      const { data: store, error } = result;
+      if (error || !store) return res.status(404).json({ error: 'Store not found or currently offline.' });
+      const { data: products, error: productsError } = await supabase.from('products').select('*').eq('store_id', store.id).eq('active', true).order('created_at', { ascending: false });
+      if (productsError) throw productsError;
+      const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
+      if (mediaError) throw mediaError;
+      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) }; });
+      return res.status(200).json({ store, products: liveProducts });
+    }
+    const profile = await authProfile(req);
+    if (!profile) return res.status(401).json({ error: 'Please login again.' });
+    if (req.method === 'GET') {
+      let query = supabase.from('stores').select('*').order('created_at', { ascending: false });
+      if (profile.role !== 'founder') query = query.eq('id', profile.store_id);
+      const { data, error } = await query; if (error) throw error; return res.status(200).json(data);
+    }
+    if (req.method === 'POST') {
+      if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+      const body = req.body || {}; const name = String(body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(body.whatsapp); const password = String(body.owner_password || '');
+      if (name.length < 2 || !whatsapp || password.length < 8) return res.status(400).json({ error: 'Store name, owner WhatsApp number and a temporary password of at least 8 characters are required.' });
+      let slug = slugify(name); if (!slug) return res.status(400).json({ error: 'Store name needs letters or numbers.' });
+      const { data: taken } = await supabase.from('stores').select('slug').like('slug', `${slug}%`);
+      // Woyoyo-009: joined uniqueness — "Stevo Jerseys" twice becomes
+      // stevojerseys, stevojerseys2 (no hyphen in new slugs).
+      if (taken?.some((item) => item.slug === slug)) { let suffix = 2; while (taken.some((item) => item.slug === `${slug}${suffix}`)) suffix++; slug = `${slug}${suffix}`; }
+      const sourceHtml = String(body.storefront_html || '').trim();
+      const { data: store, error } = await supabase.from('stores').insert({ name, slug, owner_name: 'Store owner', owner_email: '', whatsapp, phone: whatsapp, logo_url: String(body.logo_url || '').slice(0, 1000), design_json: safeDesign(body.design_json), is_active: true, billing_started_at: new Date().toISOString(), visitor_total: 0, visitor_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10) }).select().single();
+      if (error) throw error;
+      let savedStore = store;
+      if (sourceHtml) {
+        const warnings = scanStorefrontWarnings(sourceHtml);
+        const mirrored = await selfHostStorefrontAssets(sourceHtml, store.id);
+        const design = safeDesign(body.design_json);
+        design.storefront_source_html = sourceHtml;
+        design.storefront_html = ensureDesignRuntime(mirrored.html);
+        design.storefront_warnings = warnings;
+        const updated = await supabase.from('stores').update({ design_json: design, updated_at: new Date().toISOString() }).eq('id', store.id).select().single();
+        if (updated.error) { await supabase.from('stores').delete().eq('id', store.id); throw updated.error; }
+        savedStore = updated.data;
+      }
+      const authEmail = ownerAuthEmail(whatsapp);
+      const { data: created, error: userError } = await supabase.auth.admin.createUser({ email: authEmail, password, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp } });
+      if (userError) { await supabase.from('stores').delete().eq('id', store.id); throw userError; }
+      const { error: profileError } = await supabase.from('profiles').insert({ user_id: created.user.id, email: authEmail, phone: whatsapp, full_name: 'Store owner', role: 'owner', store_id: store.id });
+      if (profileError) throw profileError;
+      return res.status(201).json(savedStore);
+    }
+    if (req.method === 'PUT') {
+      const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Store is required.' });
+      if (profile.role !== 'founder' && profile.store_id !== id) return res.status(403).json({ error: 'You cannot change this store.' });
+      if (req.body.action === 'details') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data: existing } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (!existing) return res.status(404).json({ error: 'Store not found.' });
+        const name = String(req.body.name || '').trim().slice(0, 100); const whatsapp = normalizePhone(req.body.whatsapp); const newPassword = String(req.body.owner_password || '');
+        if (name.length < 2 || !whatsapp || newPassword && newPassword.length < 8) return res.status(400).json({ error: 'Add a valid store name, WhatsApp number and optional password of at least 8 characters.' });
+        let slug = slugify(name); const { data: taken } = await supabase.from('stores').select('id').eq('slug', slug).neq('id', id).limit(1); if (taken?.length) return res.status(400).json({ error: 'Another store already uses that name or subdomain.' });
+        if (existing.slug !== slug) {
+          // Woyoyo-009: keep BOTH old spellings alive (current + hyphen twin)
+          // so every previously shared link keeps opening this store.
+          const oldVariants = [...new Set([existing.slug, ...slugVariants(existing.slug)])].filter(Boolean);
+          for (const oldSlug of oldVariants) {
+            const { data: alias, error: aliasReadError } = await supabase.from('store_aliases').select('id,store_id').eq('slug', oldSlug).limit(1).maybeSingle();
+            if (aliasReadError) throw aliasReadError;
+            if (alias && Number(alias.store_id) !== id) throw new Error('This store address is already reserved.');
+            const savedAlias = alias
+              ? await supabase.from('store_aliases').update({ active: true }).eq('id', alias.id).select('*')
+              : await supabase.from('store_aliases').insert({ store_id: id, slug: oldSlug, active: true }).select('*');
+            if (savedAlias.error) throw savedAlias.error;
+          }
+        }
+        const changes = { name, slug, whatsapp, phone: whatsapp, owner_name: 'Store owner', owner_email: '', logo_url: String(req.body.logo_url ?? existing.logo_url).slice(0, 1000), updated_at: new Date().toISOString() };
+        const { data: ownerProfile } = await supabase.from('profiles').select('user_id').eq('store_id', id).eq('role', 'owner').single();
+        if (ownerProfile?.user_id) {
+          const authEmail = ownerAuthEmail(whatsapp);
+          const attributes = { email: authEmail, email_confirm: true, user_metadata: { role: 'owner', store_name: name, whatsapp }, ...(newPassword ? { password: newPassword } : {}) };
+          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(ownerProfile.user_id, attributes); if (authUpdateError) throw authUpdateError;
+          await supabase.from('profiles').update({ phone: whatsapp, email: authEmail }).eq('user_id', ownerProfile.user_id);
+        }
+        const { data, error } = await supabase.from('stores').update(changes).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+      }
+      if (req.body.action === 'billing') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data: existing, error: existingError } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (existingError || !existing) return res.status(404).json({ error: 'Store not found.' });
+        const active = Boolean(req.body.is_active);
+        if (!active) {
+          // Turning OFF: archive every order safely, then clear the live orders.
+          const { data: ordersToArchive, error: ordersError } = await supabase.from('orders').select('*').eq('store_id', id).order('created_at', { ascending: false });
+          if (ordersError) throw ordersError;
+          if (ordersToArchive?.length) {
+            const { error: archiveError } = await supabase.from('order_archives').insert({ store_id: id, store_name: existing.name, orders: ordersToArchive, order_count: ordersToArchive.length });
+            if (archiveError) throw archiveError;
+            const { error: clearError } = await supabase.from('orders').delete().eq('store_id', id);
+            if (clearError) throw clearError;
+          }
+          // Clear the store's latest-update/notification cards too, so a store
+          // never shows an update for a day that technically never happened.
+          const { error: clearNotesError } = await supabase.from('notifications').delete().eq('store_id', id);
+          if (clearNotesError) throw clearNotesError;
+          const { data, error } = await supabase.from('stores').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+          if (error) throw error;
+          return res.status(200).json({ ...data, archived_orders: ordersToArchive || [] });
+        }
+        // Turning ON: optionally restore the most recent archived orders.
+        if (req.body.restore_orders === true) {
+          const { data: latestArchive, error: archiveFetchError } = await supabase.from('order_archives').select('*').eq('store_id', id).order('archived_at', { ascending: false }).limit(1).maybeSingle();
+          if (archiveFetchError) throw archiveFetchError;
+          if (latestArchive?.orders?.length) {
+            const rows = latestArchive.orders.map((order) => { const { id: _dropId, ...rest } = order; return rest; });
+            const { data: currentOrders, error: currentError } = await supabase.from('orders').select('order_key').eq('store_id', id);
+            if (currentError) throw currentError;
+            const keys = new Set((currentOrders || []).map(order => order.order_key));
+            const missingRows = rows.filter(order => !keys.has(order.order_key));
+            if (missingRows.length) {
+              const { error: restoreError } = await supabase.from('orders').insert(missingRows).select('*');
+              if (restoreError) throw restoreError;
+            }
+            const { error: consumedError } = await supabase.from('order_archives').delete().eq('id', latestArchive.id);
+            if (consumedError) throw consumedError;
+          }
+        }
+        const { data, error } = await supabase.from('stores').update({ is_active: true, billing_started_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
+        if (error) throw error;
+        return res.status(200).json(data);
+      }
+      if (req.body.action === 'paid') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data: existing, error: existingError } = await supabase.from('stores').select('*').eq('id', id).single();
+        if (existingError || !existing) return res.status(404).json({ error: 'Store not found.' });
+        // KES 300 model: one payment covers the current 30-day period and
+        // unlocks the owner's product management immediately.
+        const period = billingPeriod(existing);
+        const { data, error } = await supabase.from('stores').update({ billing_paid_until: new Date(period.endsAt).toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
+        if (error) throw error;
+        return res.status(200).json(data);
+      }
+      if (req.body.action === 'archived-orders') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data, error } = await supabase.from('order_archives').select('*').eq('store_id', id).order('archived_at', { ascending: false });
+        if (error) throw error;
+        return res.status(200).json(data || []);
+      }
+      if (req.body.action === 'design') {
+        if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+        const { data, error } = await supabase.from('stores').update({ design_json: safeDesign(req.body.design_json, req.body.storefront_html), updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return res.status(200).json(data);
+      }
+      return res.status(400).json({ error: 'Unknown store update.' });
+    }
+    if (req.method === 'DELETE') {
+      if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
+      const id = Number(req.body?.id || req.query?.id);
+      if (!id) return res.status(400).json({ error: 'Store is required.' });
+      const { data: target, error: targetError } = await supabase.from('stores').select('id,slug,name').eq('id', id).single();
+      if (targetError || !target) return res.status(404).json({ error: 'Store not found.' });
+      const { data: ownerProfiles } = await supabase.from('profiles').select('user_id').eq('store_id', id);
+      // Deleting the store row cascades to products, product images, aliases, events,
+      // notifications, highlights, push subscriptions and PWA installations.
+      const { error: deleteError } = await supabase.from('stores').delete().eq('id', id);
+      if (deleteError) throw deleteError;
+      for (const ownerProfile of ownerProfiles || []) {
+        const { error: userError } = await supabase.auth.admin.deleteUser(ownerProfile.user_id);
+        if (userError) console.error(`Could not delete login for store ${target.slug}:`, userError.message);
+      }
+      if (ownerProfiles?.length) await supabase.from('profiles').delete().in('user_id', ownerProfiles.map(owner => owner.user_id));
+      return res.status(200).json({ ok: true, freed: target.slug });
+    }
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    console.error('Stores API error:', err);
+    return res.status(500).json({ error: err.message === 'Design JSON is too large.' ? err.message : 'Could not process that store.' });
+  }
+}

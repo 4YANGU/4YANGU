@@ -47,16 +47,13 @@ export async function uploadImage(file: File, scope: 'logos' | 'products') {
   const prepared = scope === 'products' ? await compressProductImage(typedFile) : typedFile;
   if (prepared.size > 6 * 1024 * 1024) throw new Error('Please choose an image smaller than 6 MB.');
   if (!prepared.type.startsWith('image/')) throw new Error('Please choose a supported photo file.');
-  const base64 = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read that image.'));
-    reader.onload = () => resolve(String(reader.result).split(',')[1]);
-    reader.readAsDataURL(prepared);
+  // Upload directly to storage; base64 would exceed Vercel's request limit on phone photos.
+  const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=image-upload-url', {
+    method: 'POST', body: JSON.stringify({ contentType: prepared.type, scope, size: prepared.size }),
   });
-  return apiFetch<{ url: string }>('/api/media?action=upload', {
-    method: 'POST',
-    body: JSON.stringify({ fileName: prepared.name, fileBase64: base64, contentType: prepared.type, scope }),
-  });
+  const uploaded = await fetch(signed.signedUrl, { method: 'PUT', headers: { 'Content-Type': prepared.type }, body: prepared });
+  if (!uploaded.ok) throw new Error('Could not upload that photo. Check your connection and retry.');
+  return { url: signed.url };
 }
 
 let webpEncodingSupport: boolean | null = null;

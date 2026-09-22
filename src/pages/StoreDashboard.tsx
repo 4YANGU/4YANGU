@@ -55,7 +55,7 @@ export default function StoreDashboard() {
   // Woyoyo-009: after same-tab OAuth the callback redirects back with
   // ?inbox=1 — land straight in the inbox so the result is visible at once.
   const [activeTab, setActiveTab] = useState<'orders' | 'inbox'>(() => {
-    try { return new URLSearchParams(window.location.search).get('inbox') === '1' ? 'inbox' : 'orders'; }
+    try { const params = new URLSearchParams(window.location.search); return params.get('inbox') === '1' || params.has('oauth_state') ? 'inbox' : 'orders'; }
     catch { return 'orders'; }
   });
   const [composerOpen, setComposerOpen] = useState(false);
@@ -130,7 +130,7 @@ export default function StoreDashboard() {
     return () => window.removeEventListener('appinstalled', installed);
   }, [profile?.role]);
   const remove = async (product: Product) => { if (!window.confirm(`Delete ${product.name}? This cannot be undone.`)) return; try { await apiFetch('/api/products', { method: 'DELETE', body: JSON.stringify({ id: product.id }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete product.'); } };
-  const updateOrderStatus = async (order: Order, status: Order['status']) => { const previous = order.status; setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status } : item) } : current); try { await apiFetch('/api/orders', { method: 'PUT', body: JSON.stringify({ id: order.id, status }) }); } catch (reason) { setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status: previous } : item) } : current); setError(reason instanceof Error ? reason.message : 'Could not update that order.'); } };
+  const updateOrderStatus = async (order: Order, status: Order['status']) => { const previous = order.status; setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status } : item) } : current); try { await apiFetch('/api/orders', { method: 'PUT', body: JSON.stringify({ id: order.id, status }) }); await load(); } catch (reason) { setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status: previous } : item) } : current); setError(reason instanceof Error ? reason.message : 'Could not update that order.'); } };
   const removeOrder = async (order: Order) => {
     if (!window.confirm(`Delete this order for ${order.product_name} (${order.customer_phone})? This cannot be undone.`)) return;
     const previous = data?.orders || [];

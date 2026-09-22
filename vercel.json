@@ -5,6 +5,7 @@
   ],
   "headers": [
     {
+      "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
@@ -13,26 +14,25 @@
         { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
         { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" },
         { "key": "X-Permitted-Cross-Domain-Policies", "value": "none" }
-      ],
-      "source": "/(.*)"
+      ]
     }
   ],
   "rewrites": [
-    { "destination": "/api/seo?type=storefront-html", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "source": "/:path*" },
-    { "destination": "/api/seo?type=robots", "source": "/robots.txt" },
-    { "destination": "/api/seo?type=sitemap", "source": "/sitemap.xml" },
-    { "destination": "/api/seo?type=catalog", "source": "/catalog.json" },
-    { "destination": "/api/seo?type=llms-full", "source": "/llms-full.txt" },
-    { "destination": "/api/seo?type=storefront-html&slug=:slug", "source": "/s/:slug" },
-    { "destination": "/index.html", "source": "/login" },
-    { "destination": "/index.html", "source": "/founder" },
-    { "destination": "/index.html", "source": "/owner" },
-    { "destination": "/index.html", "source": "/manage/:storeId" },
-    { "destination": "/index.html", "source": "/app" },
-    { "destination": "/index.html", "source": "/about" },
-    { "destination": "/index.html", "source": "/contact" },
-    { "destination": "/index.html", "source": "/pricing" },
-    { "destination": "/index.html", "source": "/stores" },
-    { "destination": "/index.html", "source": "/faq" }
+    { "source": "/:path*", "has": [{ "type": "host", "value": ":slug.stoyangu.com" }], "destination": "/api/seo?type=storefront-html" },
+    { "source": "/robots.txt", "destination": "/api/seo?type=robots" },
+    { "source": "/sitemap.xml", "destination": "/api/seo?type=sitemap" },
+    { "source": "/catalog.json", "destination": "/api/seo?type=catalog" },
+    { "source": "/llms-full.txt", "destination": "/api/seo?type=llms-full" },
+    { "source": "/s/:slug", "destination": "/api/seo?type=storefront-html&slug=:slug" },
+    { "source": "/login", "destination": "/index.html" },
+    { "source": "/founder", "destination": "/index.html" },
+    { "source": "/owner", "destination": "/index.html" },
+    { "source": "/manage/:storeId", "destination": "/index.html" },
+    { "source": "/app", "destination": "/index.html" },
+    { "source": "/about", "destination": "/index.html" },
+    { "source": "/contact", "destination": "/index.html" },
+    { "source": "/pricing", "destination": "/index.html" },
+    { "source": "/stores", "destination": "/index.html" },
+    { "source": "/faq", "destination": "/index.html" }
   ]
 }

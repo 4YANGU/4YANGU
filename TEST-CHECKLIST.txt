@@ -1,0 +1,33 @@
+WOYOYO-012 ACCEPTANCE CHECKLIST
+=============================
+
+1. Sign in with a real store-owner account on a phone.
+2. Tap +. Choose a video or Skip. Add seven photos.
+3. Confirm the media wraps downward: 3, 3, 2 with a video, or 3, 3, 1 without.
+   No part of the dialog should extend beyond the phone screen.
+4. Remove the first and last photos. Re-add a photo. Confirm previews stay visible.
+5. Continue. Type and change the product name and price. Caption updates while
+   typing without clicking a refresh/generate button.
+6. Enable colours/sizes, choose some, then disable them. Caption matches only
+   enabled details. Add a personal note, then change the price again. Note stays.
+7. Save a draft. Open Inbox -> Saved drafts. Edit the caption and save. Reload.
+   Confirm the change remains. Delete the draft and confirm it disappears.
+8. With configured Repliz test credentials, connect each platform. Approve.
+   Confirm the original store remains open and the account appears.
+9. For Facebook/YouTube, approve and reload before selecting. Return to Inbox.
+   Confirm the Page/channel picker returns, then select an account.
+10. Repeat with a pop-up, with blocked pop-ups in a full browser tab, and on
+    iOS Safari / Android Chrome / an installed PWA. OS-level behavior needs
+    a real-device check and was not validated by the desktop browser tests.
+11. Cancel permission. Confirm a readable error; no account becomes connected.
+12. Disconnect and reconnect. Check the account belongs only to the right store.
+13. Make a test post. Repliz accepts a scheduled post; verify delivery in the
+    actual platform rather than assuming the API acceptance means published.
+14. Sign out. The dashboard should require sign-in again.
+15. On the production branch, confirm the login page has NO password-free
+    buttons. This archive intentionally excludes all test-access code.
+
+Automated local tests cover persistent auth and data flows, media wrapping,
+caption updates, draft storage, and OAuth state recovery/security. Live Repliz
+consent, real delivery, push notifications and device camera permissions require
+appropriate external credentials and/or a real device.

@@ -1,6 +1,9 @@
+import { clearOAuthReturn, getPendingState, resumeConnection, startConnection } from '../lib/socialOAuth';
+import type { OAuthOutcome } from '../lib/socialOAuth';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
 import Modal from './Modal';
+import SavedPosts from './SavedPosts';
 import { apiFetch } from '../lib/api';
 import PlatformLogo, { PlatformBadge, platformLabel } from './PlatformLogo';
 import type { SocialConnection, SocialMessage, SocialThread } from '../types';
@@ -43,20 +46,19 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
   const [busyKey, setBusyKey] = useState('');
-  const [seeding, setSeeding] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [draftsOpen, setDraftsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState('');
   const [setup, setSetup] = useState<{ keysPresent: boolean; apiReachable: boolean | null; apiDetail: string; tableReady: boolean | null; tableDetail: string } | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
-  const [picker, setPicker] = useState<{ platform: string; state: string; token: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null>(null);
+  const [picker, setPicker] = useState<{ platform: string; state: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null>(null);
   const [picking, setPicking] = useState(false);
   const loadRef = useRef<() => void>(() => undefined);
   // Woyoyo-009: single-flight OAuth resume. After same-tab approval the
   // callback redirects back here with ?oauth=…&platform=… — we pick it up
   // once, show the result, capture any pending Page/channel choice, and then
   // scrub the params so refresh never replays it.
-  const oauthResumeKey = `stoyangu-oauth-resume-${storeId}`;
   const oauthHandled = useRef(false);
 
   const load = useCallback(async (silent = false, background = false) => {
@@ -88,49 +90,33 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadRef.current = () => load(true, true); }, [load]);
 
+  const acceptOAuth = (outcome: OAuthOutcome) => {
+    setAccountsOpen(true);
+    if (outcome.status === 'needs_pick' && outcome.choices?.length) {
+      setPicker({ platform: outcome.platform, state: outcome.state, choices: outcome.choices });
+      setNotice('Permission received. Choose your Page or channel to finish.');
+      clearOAuthReturn(storeId, false);
+    } else if (outcome.status === 'complete') {
+      setNotice(`${platformLabel(outcome.platform)} connected.`); setPicker(null); clearOAuthReturn(storeId);
+    } else if (outcome.status === 'failed') {
+      setError(outcome.error || 'Connection failed. Please try again.'); clearOAuthReturn(storeId);
+    } else setNotice('Approval is still in progress. Finish in the connection window, then tap Refresh.');
+  };
   useEffect(() => {
-    // Woyoyo-009: consume the same-tab OAuth result exactly once.
     if (oauthHandled.current) return;
+    const state = getPendingState(storeId);
     oauthHandled.current = true;
-    let params: URLSearchParams | null = null;
-    try { params = new URLSearchParams(window.location.search); } catch { return; }
-    const outcome = params.get('oauth');
-    if (!outcome) return;
-    const platform = params.get('platform') || '';
-    const label = platform ? platformLabel(platform) : 'Account';
-    const failed = outcome !== 'ok'
-      ? (params.get('oauth_error') || `Could not connect that account.`)
-      : '';
-    const resumed: { state: string; token: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null = (() => {
-      try {
-        const raw = sessionStorage.getItem(oauthResumeKey);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!parsed || parsed.platform !== platform || !parsed.state) return null;
-        if (Date.now() - Number(parsed.savedAt || 0) > 30 * 60 * 1000) return null;
-        return parsed;
-      } catch { return null; }
-    })();
-    try {
-      sessionStorage.removeItem(oauthResumeKey);
-      params.delete('oauth'); params.delete('platform'); params.delete('oauth_error'); params.delete('oauth_pick'); params.delete('oauth_state');
-      const rest = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
-    } catch { /* URL stays — result still shows */ }
-    if (!failed && params.get('oauth_pick') === '1' && resumed?.token && resumed.choices?.length) {
-      setPicker({ platform, state: params.get('oauth_state') || resumed.state || '', token: resumed.token, choices: resumed.choices });
-      setAccountsOpen(true);
-      setNotice(`${label} approved — pick the ${platform === 'facebook' ? 'Page' : 'channel'} to finish.`);
-    } else if (!failed) {
-      setAccountsOpen(true);
-      setNotice(`${label} connected.`);
-    } else {
-      setAccountsOpen(true);
-      setError(failed);
+    if (!state) {
+      apiFetch<{ pending: OAuthOutcome | null }>(`/api/media?action=social&op=oauth_pending&storeId=${storeId}`)
+        .then(result => { if (result.pending) acceptOAuth(result.pending); })
+        .catch(() => undefined);
+      return;
     }
-    load(true);
+    resumeConnection(storeId, state).then(async outcome => { await load(true); acceptOAuth(outcome); })
+      .catch(err => { setAccountsOpen(true); setError(err instanceof Error ? err.message : 'Could not restore approval. Please reconnect.'); });
+    // The saved approval is read before any URL parameters are removed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [storeId]);
 
   // Woyoyo-004: social-style auto-refresh — the inbox quietly checks for new
   // DMs and comments every 20 seconds (only when the tab is visible and the
@@ -178,7 +164,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'read', store_id: storeId, thread_key: thread.thread_key }) });
         setThreads((current) => current.map((t) => t.thread_key === thread.thread_key ? { ...t, unread: 0, messages: t.messages.map((m) => ({ ...m, is_read: true })) } : t));
         setStatus((current) => current ? { ...current, unread: { total: Math.max(0, current.unread.total - thread.unread) } } : current);
-        onActivity?.();
+        await load(true, true); onActivity?.();
       } catch { /* conversation still opens for reading */ }
     }
   };
@@ -194,7 +180,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         body: JSON.stringify({ op: 'reply', store_id: storeId, thread_key: selected.thread_key, body: reply.trim() }),
       });
       setThreads((current) => current.map((t) => t.thread_key === selected.thread_key ? { ...t, last_at: result.message.created_at, last_body: result.message.body, resolved: false, messages: [...t.messages, result.message] } : t));
-      setReply('');
+      setReply(''); await load(true);
       if (result.delivery && result.delivery.ok === false) setError(`Saved, but sending failed: ${result.delivery.error || 'please try again.'}`);
       onActivity?.();
     } catch (err) {
@@ -209,7 +195,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     setBusyKey('resolve');
     try {
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'resolve', store_id: storeId, thread_key: selected.thread_key, resolved: !selected.resolved }) });
-      setThreads((current) => current.map((t) => t.thread_key === selected.thread_key ? { ...t, resolved: !t.resolved } : t));
+      await load(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update that conversation.');
     } finally {
@@ -217,151 +203,21 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
-  // Woyoyo-004: connect opens the official platform OAuth page in a pop-up.
-  // Single-step platforms finish in the pop-up; Facebook/YouTube return a
-  // Page/channel picker that is completed inside this modal.
-  // Woyoyo-007: the pop-up is watched so a silent-close or system-browser
-  // redirect is caught, and the opener origin is verified flexibly
-  // (www/host differences) while still same-site only.
-  const sameSite = (origin: string) => {
-    try {
-      const a = new URL(origin);
-      const b = new URL(window.location.origin);
-      const root = (host: string) => host.replace(/^www\./, '');
-      return a.protocol === b.protocol && root(a.hostname) === root(b.hostname);
-    } catch { return false; }
-  };
-  const openPopup = (url: string, platformName: string) => {
-    const width = 560; const height = 680;
-    const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
-    const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
-    return window.open(url, `stoyangu-connect-${platformName}`, `width=${width},height=${height},left=${left},top=${top}`);
-  };
-  const waitForOAuth = (popup: Window, platformName: string) => new Promise<{ ok: boolean; connection?: SocialConnection; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string; error?: string }>((resolve) => {
-    let done = false;
-    const finish = (value: { ok: boolean; error?: string; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string }) => {
-      if (done) return;
-      done = true;
-      window.clearTimeout(timeout);
-      window.clearInterval(watchClosed);
-      window.removeEventListener('message', onMessage);
-      resolve(value as { ok: boolean; error?: string; needs_pick?: boolean; state?: string; token?: string; choices?: Array<{ id: string; name: string; username: string; picture: string }>; platform?: string });
-    };
-    const timeout = window.setTimeout(() => finish({ ok: false, error: 'The connection window timed out. Please try again.' }), 300000);
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || data.source !== 'stoyangu-oauth') return;
-      if (!sameSite(event.origin)) return;
-      finish(data);
-    };
-    window.addEventListener('message', onMessage);
-    const watchClosed = window.setInterval(async () => {
-      try {
-        if (popup.closed) {
-          finish({ ok: false, error: `The ${platformLabel(platformName)} window closed before finishing. Tap Connect and approve all permissions to link it.` });
-          await load(true);
-        }
-      } catch { /* cross-origin popup — ignore */ }
-    }, 800);
-  });
   const connect = async (platform: string) => {
     if (busyKey) return;
-    setBusyKey(`connect-${platform}`);
-    setError('');
-    setNotice('');
-    // Woyoyo-009: phones do OAuth in the SAME tab (a pop-up gets killed and
-    // the OAuth session cookie never comes back — that was the "failed to
-    // fetch" / silent-return bug). Same-tab also lets the OS offer the
-    // installed TikTok/Facebook/Instagram/YouTube app instead of forcing a
-    // Chrome login. Desktop keeps the pop-up flow.
-    const isPhone = (() => {
-      try {
-        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-          (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches && Math.min(window.screen.width, window.screen.height) < 820);
-      } catch { return false; }
-    })();
-    // Where the callback must send a same-tab phone back to. Owners manage
-    // from /owner; founders manage one store from /manage/:storeId — detect
-    // from the current path so both land back in their inbox.
-    const returnTo = (() => {
-      try {
-        const path = window.location.pathname || '/owner';
-        const base = path.startsWith('/manage/') ? path : '/owner';
-        return `${base}?storeId=${storeId}&inbox=1`;
-      } catch { return `/owner?storeId=${storeId}&inbox=1`; }
-    })();
-    try {
-      const started = await apiFetch<{ connection?: SocialConnection; oauth?: boolean; authorize_url?: string; state?: string }>(
-        '/api/media?action=social',
-        { method: 'POST', body: JSON.stringify({ op: 'connect', store_id: storeId, platform, return_to: returnTo }) },
-      );
-      if (!started.oauth || !started.authorize_url) {
-        await load(true);
-        return;
-      }
-      // Woyoyo-008: use the authorize URL byte-for-byte. Decoding or
-      // appending params corrupts Repliz's own state and crashes approval.
-      let target = started.authorize_url;
-      if (target.startsWith('/')) target = `${window.location.origin}${target}`;
-      if (!/^https?:\/\//i.test(target)) {
-        setError('The connect link was invalid. Please try again.');
-        return;
-      }
-      if (isPhone) {
-        // Same-tab handoff: remember the pending platform/state, then go.
-        // sessionStorage (not localStorage) so a stale entry can never leak
-        // into a later store's session, and it dies with the tab.
-        try { sessionStorage.setItem(oauthResumeKey, JSON.stringify({ platform, state: started.state || '', savedAt: Date.now() })); } catch { /* resume still works without it */ }
-        window.location.assign(target);
-        return;
-      }
-      const popup = openPopup(target, platform);
-      if (!popup) {
-        setError('Your browser blocked the connect window. Allow pop-ups for this site and try again.');
-        return;
-      }
-      const outcome = await waitForOAuth(popup, platform);
-      try { popup.close(); } catch { /* already closed */ }
-      if (!outcome.ok) {
-        setError(outcome.error || 'Could not connect that account.');
-        return;
-      }
-      if (outcome.needs_pick && outcome.token && outcome.choices?.length) {
-        // Remember the Page/channel choice too — if the phone killed this
-        // tab mid-approval, the resume effect above restores the picker.
-        try { sessionStorage.setItem(oauthResumeKey, JSON.stringify({ platform: outcome.platform || platform, state: outcome.state || started.state || '', token: outcome.token, choices: outcome.choices, savedAt: Date.now() })); } catch { /* picker still shows now */ }
-        setPicker({ platform: outcome.platform || platform, state: outcome.state || started.state || '', token: outcome.token, choices: outcome.choices });
-        return;
-      }
-      await load(true);
-    } catch (err) {
-      // Woyoyo-009: never show a bare "Failed to fetch" — say what happened.
-      const message = err instanceof Error ? err.message : '';
-      setError(/failed to fetch|networkerror|load failed/i.test(message)
-        ? 'Connection interrupted — check your internet and tap Connect again.'
-        : (message || 'Could not connect that account.'));
-    } finally {
-      setBusyKey('');
-    }
+    setBusyKey(`connect-${platform}`); setError(''); setNotice('');
+    try { const outcome = await startConnection(storeId, platform); await load(true); acceptOAuth(outcome); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to connect. Please retry.'); }
+    finally { setBusyKey(''); }
   };
-
   const finishPick = async (selectionId: string) => {
     if (!picker || picking) return;
-    setPicking(true);
-    setError('');
+    setPicking(true); setError('');
     try {
-      // Woyoyo-009: server falls back to the token saved at callback time,
-      // so a phone-resumed picker (no token in the URL) still finishes.
-      await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'oauth_pick', store_id: storeId, platform: picker.platform, selection_id: selectionId, token: picker.token, state: picker.state }) });
-      setPicker(null);
-      try { sessionStorage.removeItem(oauthResumeKey); } catch { /* harmless */ }
-      setNotice(`${platformLabel(picker.platform)} connected.`);
-      await load(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not finish that connection.');
-    } finally {
-      setPicking(false);
-    }
+      const outcome = await apiFetch<OAuthOutcome>('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'oauth_pick', store_id: storeId, state: picker.state, selection_id: selectionId }) });
+      await load(true); acceptOAuth(outcome);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not finish the connection.'); }
+    finally { setPicking(false); }
   };
 
   const disconnect = async (connectionId: number) => {
@@ -394,26 +250,15 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     setSyncing(true);
     setError('');
     try {
+      const pending = getPendingState(storeId);
+      const outcome = pending ? await resumeConnection(storeId, pending) : (await apiFetch<{ pending: OAuthOutcome | null }>(`/api/media?action=social&op=oauth_pending&storeId=${storeId}`)).pending;
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_accounts', store_id: storeId }) });
       await load(true);
+      if (outcome) acceptOAuth(outcome);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not refresh.');
     } finally {
       setSyncing(false);
-    }
-  };
-
-  const seedDemo = async () => {
-    if (seeding) return;
-    setSeeding(true);
-    setError('');
-    try {
-      await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'seed_demo', store_id: storeId }) });
-      await load(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load sample messages.');
-    } finally {
-      setSeeding(false);
     }
   };
 
@@ -434,6 +279,8 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     </div>
     {error && <div className="form-error">{error}</div>}
     {!error && notice && <div className="form-success">{notice}</div>}
+    <div className="saved-draft-box"><span>Not quite ready to post?</span><button onClick={() => setDraftsOpen(true)}>Saved drafts</button></div>
+    {draftsOpen && <SavedPosts storeId={storeId} onClose={() => setDraftsOpen(false)} />}
     <div className="social-view-tabs" role="tablist" aria-label="Message types">
       <button className={kindFilter === 'dm' ? 'active' : ''} onClick={() => switchKind('dm')}><MessageCircle /> DMs{dmUnread > 0 && <b className="tab-unread">{dmUnread}</b>}</button>
       <button className={kindFilter === 'comment' ? 'active' : ''} onClick={() => switchKind('comment')}><MessagesSquare /> Comments{commentUnread > 0 && <b className="tab-unread">{commentUnread}</b>}</button>
@@ -447,7 +294,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     </div>
 
     {!threads.length
-      ? <div className="social-empty"><InboxIcon /><h3>No conversations yet</h3><p>Tap Accounts above to connect your platforms, then load sample messages to see how the inbox works — or wait for real DMs and comments to arrive.</p><button className="button-primary" onClick={seedDemo} disabled={seeding}>{seeding ? 'Loading…' : 'Load sample messages'} <MessagesSquare /></button></div>
+      ? <div className="social-empty"><InboxIcon /><h3>No conversations yet</h3><p>Connect your accounts above. New DMs and comments will appear here.</p></div>
       : !visibleThreads.length
         ? <div className="orders-empty">{kindFilter === 'dm' ? 'No DMs match these filters.' : 'No comments match these filters.'}</div>
         : <div className={`social-threads ${detailOpen && selected ? 'show-detail' : ''}`}>
@@ -491,7 +338,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
           </div>
         </div>}
     {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 5`} onClose={() => { setAccountsOpen(false); setPicker(null); setNotice(''); }}>
-      <div className="accounts-modal-body">
+      <div className="accounts-modal-body">{error && <div className="form-error" role="alert">{error}</div>}{!error && notice && <div className="form-success">{notice}</div>}
         {picker ? <>
           <p className="form-intro">{picker.platform === 'facebook' ? 'Choose the Facebook Page to connect.' : 'Choose the YouTube channel to connect.'}</p>
           <div className="accounts-modal-list">
@@ -509,9 +356,9 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
           {setupLoading && <small className="composer-hint">Checking connection setup…</small>}
           {setup && (!setup.keysPresent || setup.apiReachable === false || setup.tableReady === false) && <div className="form-error setup-error">
             <strong>Setup needed before connecting:</strong>
-            <span>{!setup.keysPresent && '• Add REPLIZ_ACCESS_KEY + REPLIZ_SECRET_KEY in Vercel → Settings → Environment Variables, then redeploy.'}</span>
+            <span>{!setup.keysPresent && '• Add REPLIZ_ACCESS_KEY + REPLIZ_SECRET_KEY in Vercel → Settings → Environment Variables, then try again.'}</span>
             {setup.keysPresent && setup.apiReachable === false && <span>• Repliz did not answer ({setup.apiDetail || 'check the keys and redeploy'}).</span>}
-            {setup.tableReady === false && <span>• Run supabase/migrations/202609200004_woyoyo004.sql once in Supabase → SQL Editor.</span>}
+            {setup.tableReady === false && <span>• Run supabase/migrations/202609220012_woyoyo012.sql once in Supabase → SQL Editor.</span>}
           </div>}
           <div className="accounts-modal-list">
             {PLATFORMS.map((platform) => {

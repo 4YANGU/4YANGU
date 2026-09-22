@@ -1,0 +1,72 @@
+WOYOYO-012 — YOUR STOYANGU UPDATE
+================================
+
+This is a source-code update of your GitHub app, based on commit
+f54cc5460a2c248048aa4ce4eec4b7fe0b3a7584 (reviewed 22 September 2026).
+
+WHAT CHANGED
+1. Photos and video now share a grid of no more than 3 items per row.
+   Four to eight items wrap downwards, including on 375-pixel phones.
+2. Posting screens say only: Add a video / Add photos / Product details.
+3. The caption is derived immediately from name, price and enabled colours
+   and sizes. Your optional personal note stays when product details change.
+4. Account approvals are stored on the server and can be resumed after a
+   reload, an app restart, or loss of the pop-up opener. Facebook and YouTube
+   Page/channel selection is restored securely. Provider tokens stay on the
+   server. Missing credentials never create a pretend connected account.
+5. Drafts can be saved, viewed, edited and deleted from Inbox.
+6. Direct login/dashboard links now have Vercel routes, and the favicon
+   uses your original StoYangu logo instead of the generic shop icon.
+
+IMPORTANT: THIS ZIP CANNOT CONNECT A THIRD-PARTY ACCOUNT BY ITSELF
+Your real Repliz keys, the correct redirect allowlist, and the database
+migration below are required. No live platform consent was verified because
+no Repliz credentials were available in the isolated test environment.
+
+SAFEST UPDATE STEPS (no programming needed)
+1. Keep a backup of your current repository. Create a new GitHub branch
+   called woyoyo-012 so you can test before changing your live app.
+2. Unzip this file. Upload the CONTENTS of this folder to the ROOT of that
+   branch (the same folder as package.json), replacing matching files.
+   Do not upload the ZIP itself and expect GitHub to extract it.
+   Do not put the files inside the duplicate 4YANGU subfolder.
+3. Open your EXISTING Supabase project, then SQL Editor -> New query.
+   Open supabase/migrations/202609220012_woyoyo012.sql from this ZIP,
+   paste its contents into the editor, and click Run. This is additive and
+   does not replace stores, accounts, products or passwords.
+4. Keep your existing .env, Vercel environment variables and domain settings.
+   The included vercel.json preserves your repository's production routes,
+   headers and schedules, including the login route. It contains no keys.
+   If you have since customized vercel.json, merge its route entries rather
+   than replacing your custom settings.
+   Do NOT point production at the public testing database.
+5. In Vercel, confirm REPLIZ_ACCESS_KEY and REPLIZ_SECRET_KEY are present
+   for the deployment you are testing. Redeploy after editing environment
+   variables in your own Vercel project. Use separate Repliz test accounts
+   for a publicly accessible test workspace.
+6. In Repliz, allow the callback on the EXACT domain used to sign in:
+   https://YOUR-APP-DOMAIN/api/media?action=social-callback
+   The application appends a one-time s parameter. Repliz must preserve
+   that parameter in its redirect. Do not alter Repliz's own state parameter.
+   If Repliz requires a different callback registration format, confirm that
+   in your Repliz dashboard/support; the private provider documentation was
+   not accessible during this build.
+7. Let Vercel build the branch. Open its preview. Test the checklist in
+   TEST-CHECKLIST.txt before merging that branch into your live branch.
+
+PRODUCTION SECURITY
+- src/pages/LoginPage.tsx has no demo accounts, credentials or bypass.
+- Password-free preview files and server handlers are NOT in this ZIP.
+- No preview users, preview table seed, database URLs, keys or passwords
+  are included. The login still requires your normal account credentials.
+- Your original production 12 API endpoint paths are preserved.
+- Existing account roles and server-side store ownership checks remain.
+- OAuth state rows have RLS enabled and are service-role only.
+- Refresh Accounts updates only accounts already bound to that store;
+  it no longer attaches every account in a shared Repliz workspace.
+- No promise can be made that unrelated existing app behavior is bug-free.
+  Check the deployment with your actual configuration before going live.
+
+ROLLBACK
+Revert the GitHub commit or redeploy your preceding Vercel deployment.
+The migration is additive; the extra status column can remain safely.

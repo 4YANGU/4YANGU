@@ -1,126 +1,15 @@
-// Vfixed: bumped cache generation so every client drops the old broken caches
-// (the ones that referenced icon files that no longer existed) and re-installs
-// a clean, fully-installable app shell.
-const CACHE = 'stoyangu-app-v500-1';
-const SHELL = '/';
-
-// ---- Install: precache the app shell + core brand assets ----
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then((cache) => cache.addAll([SHELL, '/manifest.webmanifest', '/stoyangu-logo.png', '/favicon-192.png', '/favicon-512.png', '/icon-maskable-512.png']))
-      .catch(() => null)
-  );
-  self.skipWaiting();
+// WOYOYO-012: never cache API requests, authorization returns, or authenticated navigation.
+const CACHE = 'stoyangu-static-v12';
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil((async () => { for (const key of await caches.keys()) if (key !== CACHE) await caches.delete(key); await self.clients.claim(); })()));
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/') || event.request.mode === 'navigate' || url.searchParams.has('oauth_state') || url.pathname.endsWith('.zip')) return;
+  if (!/\.(png|jpg|jpeg|webp|svg|woff2)$/.test(url.pathname)) return;
+  event.respondWith((async () => { const cached = await caches.match(event.request); if (cached) return cached; const response = await fetch(event.request); if (response.ok) { const cache = await caches.open(CACHE); await cache.put(event.request, response.clone()); } return response; })());
 });
-
-// ---- Activate: clean old caches, take control ----
-self.addEventListener('activate', (event) => {
-  event.waitUntil(Promise.all([
-    self.clients.claim(),
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
-  ]));
+self.addEventListener('push', event => {
+  let data = {}; try { data = event.data?.json() || {}; } catch { data = { body: event.data?.text() || '' }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'StoYangu', { body: data.body || '', icon: '/favicon-192.png', badge: '/favicon-32.png', data: { url: data.url || '/owner' } }));
 });
-
-// ---- Fetch ----
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-
-  // Never cache sensitive account/dashboard API calls.
-  if (url.pathname.startsWith('/api/profile') || url.pathname.startsWith('/api/dashboard')) return;
-
-  // FIX (stoyangu-500): storefront iframes navigate to /api/storefront?...
-  // Those subframe navigations must NEVER be cached as the app shell (they
-  // used to poison the '/' cache entry, so the app could later boot the
-  // wrong document). Only top-level document navigations touch the shell.
-  if (request.mode === 'navigate' && (request.destination === 'iframe' || url.pathname.startsWith('/api/'))) {
-    event.respondWith(fetch(request));
-    return;
-  }
-
-  // App navigations: network-first, fall back to the cached shell so the app
-  // still opens (and stays installable) when offline.
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok && request.destination === 'document') {
-            const copy = response.clone();
-            caches.open(CACHE).then((cache) => cache.put(SHELL, copy)).catch(() => null);
-          }
-          return response;
-        })
-        .catch(() => caches.match(SHELL).then((cached) => cached || Response.error()))
-    );
-    return;
-  }
-
-  // Live storefront data (existing behaviour).
-  if (url.pathname === '/api/stores' && url.searchParams.get('storefront') === '1') {
-    if (url.searchParams.get('fresh')) { event.respondWith(fetch(request)); return; }
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) { const copy = response.clone(); caches.open(CACHE).then((cache) => cache.put(request, copy)); }
-          return response;
-        })
-        .catch(() => caches.match(request).then((cached) => cached || Promise.reject(new Error('offline'))))
-    );
-    return;
-  }
-
-  // Static assets (JS/CSS/images/manifest): cache-first, populate on the fly.
-  if (
-    url.pathname.startsWith('/images/') ||
-    url.pathname.startsWith('/assets/') ||
-    url.pathname.startsWith('/favicon') ||
-    url.pathname === '/stoyangu-logo.png' ||
-    url.pathname === '/icon-maskable-512.png' ||
-    url.pathname === '/manifest.webmanifest' ||
-    url.pathname.endsWith('.js') ||
-    url.pathname.endsWith('.css') ||
-    url.pathname.endsWith('.png') ||
-    url.pathname.endsWith('.svg') ||
-    url.pathname.endsWith('.webmanifest')
-  ) {
-    event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-        if (response.ok) { const copy = response.clone(); caches.open(CACHE).then((cache) => cache.put(request, copy)); }
-        return response;
-      })).catch(() => Response.error())
-    );
-  }
-});
-
-// ---- Push notifications (daily update / instant order) ----
-self.addEventListener('push', (event) => {
-  let data = { title: 'StoYangu daily update', body: 'Your store update is ready.', url: '/owner' };
-  try { data = { ...data, ...event.data.json() }; } catch {}
-  const actions = [];
-  if (data.winner) actions.push({ action: 'open', title: `Today's champion: ${data.winner}` });
-  if (data.needs) actions.push({ action: 'open', title: `Needs a look: ${data.needs}` });
-  event.waitUntil(self.registration.showNotification(data.title, {
-    body: data.body,
-    icon: data.icon || '/favicon-192.png',
-    badge: '/favicon-32.png',
-    image: data.image,
-    actions,
-    tag: data.tag || 'stoyangu-update',
-    data: { url: data.url, product: data.product, customer_phone: data.customer_phone },
-    vibrate: [120, 60, 120]
-  }));
-});
-
-// ---- Notification click: focus/open the app ----
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-    for (const client of list) {
-      if ('focus' in client) { client.navigate(event.notification.data.url || '/owner'); return client.focus(); }
-    }
-    return clients.openWindow(event.notification.data.url || '/owner');
-  }));
-});
+self.addEventListener('notificationclick', event => { event.notification.close(); const target = new URL(event.notification.data?.url || '/owner', self.location.origin); if (target.origin !== self.location.origin) return; event.waitUntil(self.clients.openWindow(target.href)); });

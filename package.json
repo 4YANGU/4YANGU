@@ -1,5 +1,5 @@
 {
-  "name": "stoyangu",
+  "name": "vite-react-ts-fullstack",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -23,7 +23,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@types/node": "^24.13.3",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.13.6",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
@@ -34,8 +35,5 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
     "vite": "^7.3.1"
-  },
-  "allowScripts": {
-    "esbuild": true
   }
 }

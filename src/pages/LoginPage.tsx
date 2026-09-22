@@ -1,18 +1,19 @@
 import { ArrowLeft, ArrowRight, Eye, EyeOff, LockKeyhole, Store } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import supabase from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { signInWithGoogle } from '../lib/googleAuth';
 
 export default function LoginPage() {
   const [path, setPath] = useState<'choose' | 'login'>('choose');
   const [identifier, setIdentifier] = useState(''); const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const { profile } = useAuth(); const navigate = useNavigate();
+  const { profile, error: profileError, refreshProfile } = useAuth(); const navigate = useNavigate(); const location = useLocation();
 
-  useEffect(() => { if (profile) navigate(profile.role === 'founder' ? '/founder' : '/owner', { replace: true }); }, [profile, navigate]);
+  useEffect(() => { if (profile) { const from = location.state?.from; const allowed = typeof from === 'string' && (from.startsWith('/owner') || profile.role === 'founder' && /^\/(founder|manage\/\d+)(\?|$)/.test(from)); navigate(allowed ? from : profile.role === 'founder' ? '/founder' : '/owner', { replace: true }); } }, [profile, navigate]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('');
@@ -46,12 +47,15 @@ export default function LoginPage() {
           <button className="tiny-back" onClick={() => setPath('choose')}><ArrowLeft /> Choose another option</button>
           <span className="eyebrow">Secure login</span><h2>Karibu back</h2><p>Enter the WhatsApp number you used when your store was created.</p>
           <form className="form-stack" onSubmit={submit}>
-            <label>WhatsApp number<input type="text" inputMode="tel" autoComplete="username tel" value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="0712 345 678" autoFocus /><small>Type your number the Kenyan way, starting with 07 — no +254 needed.</small></label>
+            <label>WhatsApp number or email<input type="text" autoComplete="username" value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="0712 345 678 or your email" autoFocus /><small>Use your store's WhatsApp number, or your founder email.</small></label>
             <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" /><button type="button" onClick={() => setShowPassword((show) => !show)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label>
             {error && <div className="form-error">{error}</div>}
             <button className="button-primary full" disabled={busy}>{busy ? 'Checking…' : 'Login securely'} <ArrowRight /></button>
+            <span style={{ textAlign: 'center', color: '#879184', fontSize: 11 }}>or</span>
+            <button type="button" className="secondary-button" disabled={busy} onClick={async () => { setError(''); setBusy(true); try { await signInWithGoogle('StoYangu'); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to sign in.'); } finally { setBusy(false); } }}>Sign in with Google</button>
           </form>
         </>}
+        {profileError && <div className="form-error" role="alert">{profileError} <button type="button" onClick={refreshProfile}>Retry</button></div>}
       </div>
     </main>
   </div>;
