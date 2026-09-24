@@ -134,6 +134,7 @@ export type SocialThread = {
   kind: string;
   sender_name: string;
   sender_handle: string | null;
+  sender_avatar?: string | null;
   last_body: string;
   last_at: string;
   unread: number;
