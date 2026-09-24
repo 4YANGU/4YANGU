@@ -1,4 +1,4 @@
-import { ArrowLeft, BellRing, Check, Edit3, ExternalLink, Eye, EyeOff, Inbox as InboxIcon, KeyRound, LogOut, MessageCircle, Phone, Plus, RefreshCw, ShoppingBag, Smartphone, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, MessageCircle, Package, Phone, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -60,11 +60,8 @@ export default function StoreDashboard() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
-  // Vfixed: one persistent "is the app installed" flag for the whole page. It combines
-  // (a) actually running as an installed app, (b) the local record written the moment
-  // an install completes, and (c) the server-side installation record — so refreshing
-  // the manage page never brings the "Install app" button back after a real install.
-  const [appInstalled, setAppInstalled] = useState(() => isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1');
+  // App-installed flag kept for any PWA-aware logic elsewhere.
+  const appInstalled = isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1';
   const load = useCallback(async () => {
     setError('');
     try {
@@ -103,7 +100,6 @@ export default function StoreDashboard() {
     if (isStandaloneApp()) {
       localStorage.setItem('stoyangu-installed', '1');
       markAppInstalled();
-      setAppInstalled(true);
     }
     // Vfixed: also trust the platform's installation record. Even on a brand-new
     // browser session with an empty localStorage, a store whose app is already
@@ -112,14 +108,12 @@ export default function StoreDashboard() {
       .then((config) => {
         if (config.installation?.installed) {
           localStorage.setItem('stoyangu-installed', '1');
-          setAppInstalled(true);
         }
       })
       .catch(() => undefined);
     const installed = () => {
       localStorage.setItem('stoyangu-installed', '1');
       markAppInstalled();
-      setAppInstalled(true);
       enableStoreNotifications().catch((reason) => console.warn('Notification setup will continue from the dashboard reminder:', reason));
     };
     window.addEventListener('appinstalled', installed);
@@ -167,70 +161,19 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
   const cycleLabel = cycleStart && cycleEnd ? `Day ${cycleDay}/30 · ends ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : 'Free trial';
-  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'owner' && !appInstalled && <button onClick={() => setInstallOpen(true)}><Smartphone /> Install app</button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}</a><button className="owner-open-storefront-btn" onClick={() => window.open(storeLink(store.slug), '_blank')} aria-label="Open storefront"><ExternalLink /></button><div className="owner-header-stats"><span className="owner-mini-stat"><Users /> {store.visitor_total.toLocaleString()} visitors <small>+{store.visitor_today} today</small></span><span className="owner-mini-stat"><MessageCircle /> {upkeepOrders} orders <small>+{store.orders_today} today</small></span></div><span className="owner-cycle-dates">{cycleLabel}</span></div></div></header><main className="owner-main">
+  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'owner' && <button className="header-icon-btn" onClick={() => { const p = (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT; if (p) { p.prompt(); } else { alert('App install will be available soon.'); } }} aria-label="Download app"><Download /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}</a><button className="owner-open-storefront-btn" onClick={() => window.open(storeLink(store.slug), '_blank')} aria-label="Open storefront"><ExternalLink /></button><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span></div></div><span className="owner-cycle-dates">{cycleLabel}</span></div></div></header><main className="owner-main">
     {/* WOYOYO-013: My Products and My Customers pages */}
     {error && <div className="dashboard-error">{error}</div>}
     {activeTab === 'customers'
     ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
     : <>
-    {profile?.role === 'owner' && <InstallAppCard forceOpen={installOpen} installed={appInstalled} onInstalled={() => setAppInstalled(true)} onDismiss={() => setInstallOpen(false)} />}
     {profile?.role === 'owner' && <NotificationSetupCard />}
     {cycleDay >= 27 && !locked && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 30 days are ending' : 'Your 30 days are ending'}</h3><p>To keep {store.name} live for the next 30 days, pay KES 300{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
     {locked && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 30 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 300 for the next 30 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
     {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
     <section className="products-panel"><div className="dash-section-head"><h2>My Products</h2><span className="order-status-count">{(data.products || []).length}</span></div><div className="owner-product-list">{data.products?.map((product) => <article key={product.id}><img src={product.image_url || '/stoyangu-logo.png'} alt={product.name} />{product.images && product.images.length > 1 && <div className="product-media-strip">{product.images.slice(1, 4).map((img, i) => <img key={i} src={img} alt={`${product.name} ${i + 2}`} className="product-thumb" />)}</div>}<div className="owner-product-name"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong></div><div className="word-stats"><p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p><p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p></div><div className="product-actions"><button onClick={() => setEditing(product)} disabled={locked}><Edit3 /> Edit</button><button className="danger" onClick={() => remove(product)} disabled={locked}><Trash2 /> Delete</button></div></article>)}</div>{!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}</section>
     </>}
-  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><ShoppingBag /><span>My Products</span></button><button className="manage-nav-post" onClick={() => setComposerOpen(true)} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><InboxIcon /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={() => setComposerOpen(false)} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
-}
-
-function InstallAppCard({ forceOpen, installed, onInstalled, onDismiss }: { forceOpen: boolean; installed: boolean; onInstalled: () => void; onDismiss: () => void }) {
-  const [promptEvent, setPromptEvent] = useState<{ prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> } | null>(() => (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
-  const [done, setDone] = useState(false);
-  const [hidden, setHidden] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [manual, setManual] = useState(false);
-  const iOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) || ((navigator as any).platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1);
-  const onPhone = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-  useEffect(() => {
-    const ready = () => setPromptEvent((window as any).__STOYANGU_NATIVE_INSTALL_PROMPT || null);
-    window.addEventListener('stoyangu-install-ready', ready);
-    return () => window.removeEventListener('stoyangu-install-ready', ready);
-  }, []);
-  const close = () => { sessionStorage.setItem('stoyangu-install-dismissed', '1'); setHidden(true); onDismiss(); };
-  if (hidden || installed || isStandaloneApp()) return null;
-  const actionable = Boolean(promptEvent) || iOS || onPhone;
-  if (!forceOpen && (!actionable || sessionStorage.getItem('stoyangu-install-dismissed') === '1')) return null;
-  const install = async () => {
-    if (!promptEvent) { setManual(true); return; }
-    setBusy(true);
-    try {
-      await promptEvent.prompt();
-      const choice = await promptEvent.userChoice;
-      if (choice?.outcome === 'accepted') {
-        localStorage.setItem('stoyangu-installed', '1');
-        markAppInstalled();
-        onInstalled();
-        setDone(true);
-      } else {
-        setManual(true);
-      }
-    } catch (reason) {
-      console.warn('The browser did not allow the install prompt this time:', reason);
-      setManual(true);
-    } finally {
-      (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
-      setPromptEvent(null);
-      setBusy(false);
-    }
-  };
-  const showManual = manual || iOS || (!promptEvent && !done);
-  let title = 'Install the StoYangu app';
-  let body: React.ReactNode = iOS
-    ? <ol className="install-steps"><li>Tap the <b>Share</b> button at the bottom of Safari (the box with an arrow pointing up).</li><li>Scroll down and tap <b>“Add to Home Screen”</b>, then tap <b>Add</b>.</li><li>Open StoYangu from your new home screen icon and sign in. Done!</li></ol>
-    : <ol className="install-steps"><li>Tap the <b>⋮ menu</b> at the top right of Chrome.</li><li>Tap <b>“Install app”</b> (or <b>“Add to Home screen”</b>).</li><li>Open StoYangu from your home screen icon like a real app. If you opened this from TikTok or Instagram, first tap <b>⋮</b> and choose <b>“Open in browser”</b>.</li></ol>;
-  if (!showManual && promptEvent) body = 'Get StoYangu on this phone as a real app — one tap installs it, and it opens full-screen from your home screen.';
-  if (done) { title = 'App installed — asante!'; body = 'Open StoYangu from your home screen any time, like a real app. Turn on notifications below so your daily updates reach you.'; }
-  return <section className={`notification-setup install-app ${done ? 'done' : ''}`}><div className="notification-setup-icon"><Smartphone /></div><div className="notification-setup-copy"><strong>{title}</strong>{typeof body === 'string' ? <p>{body}</p> : body}</div>{!done && Boolean(promptEvent) && !iOS && !manual && <button className="button-primary" onClick={install} disabled={busy}>{busy ? 'Installing…' : 'Install app'}</button>}{done && <span className="notification-setup-ok"><Check /> Installed</span>}<button className="dismiss-notify" onClick={close} aria-label="Hide install message"><X /></button></section>;
+  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={() => setComposerOpen(true)} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={() => setComposerOpen(false)} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
 }
 
 function NotificationSetupCard() {

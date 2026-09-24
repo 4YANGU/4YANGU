@@ -58,7 +58,9 @@ export default async function handler(req, res) {
       const fallbackNeeds = [...liveProducts].filter((product) => product.id !== fallbackWinner?.id).sort((a, b) => (Number(b.views_today) - Number(b.orders_today) * 3) - (Number(a.views_today) - Number(a.orders_today) * 3))[0] || null;
       const quietDay = Number(store.visitor_today || 0) === 0 && Number(store.orders_today || 0) === 0;
       const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); const isCustomMessage = String(item.batch_key || '').startsWith('custom-'); const noProduct = isCustomMessage || quietDay; return { ...item, body: item.edited_body || item.body, winner_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
-      return res.status(200).json({ profile, store: addPlan(store, orders), products: liveProducts, orders: orders || [], notifications: enrichedNotifications });
+      const { data: incomingMessages } = await supabase.from('social_messages').select('thread_key').eq('store_id', storeId).eq('direction', 'in');
+      const customersTotal = new Set(incomingMessages?.map((m) => m.thread_key) || []).size;
+      return res.status(200).json({ profile, store: addPlan(store, orders), products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
     const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([

@@ -134,7 +134,7 @@ export type SocialThread = {
   kind: string;
   sender_name: string;
   sender_handle: string | null;
-  sender_avatar?: string | null;
+  sender_avatar: string | null;
   last_body: string;
   last_at: string;
   unread: number;
@@ -163,4 +163,5 @@ export type DashboardData = {
   products?: Product[];
   orders?: Order[];
   notifications?: Array<{ id: number; batch_key?: string; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
+  customers?: number;
 };
