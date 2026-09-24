@@ -90,7 +90,17 @@ export default async function handler(req, res) {
     }
     const storesWithPlans = (stores || []).map((store) => addPlan(store, (allOrders || []).filter((order) => order.store_id === store.id)));
     const liveProducts = (products || []).filter((product) => product.active);
-    const analytics = { activeStores: storesWithPlans.filter((store) => store.is_active).length, visitors: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: storesWithPlans.reduce((sum, store) => sum + Number(store.actual_orders_total || 0), 0), ordersToday: storesWithPlans.reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length };
+    const storeIds = storesWithPlans.map((s) => s.id);
+    let customersTotal = 0;
+    let customersToday = 0;
+    if (storeIds.length) {
+      const { data: msgData } = await supabase.from('social_messages').select('store_id,created_at,direction').in('store_id', storeIds).eq('direction', 'in');
+      const allMessages = msgData || [];
+      customersTotal = allMessages.length;
+      const todayStart = new Date(dayStart).getTime();
+      customersToday = allMessages.filter((m) => new Date(m.created_at).getTime() >= todayStart).length;
+    }
+    const analytics = { activeStores: storesWithPlans.filter((store) => store.is_active).length, visitors: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: storesWithPlans.reduce((sum, store) => sum + Number(store.actual_orders_total || 0), 0), ordersToday: storesWithPlans.reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length, customers: customersTotal, customersToday };
     const productCounts = liveProducts.reduce((map, product) => ({ ...map, [product.store_id]: (map[product.store_id] || 0) + 1 }), {});
     const installationStatus = (installations || []).reduce((map, item) => ({ ...map, [item.store_id]: item }), {});
     return res.status(200).json({ profile, analytics, stores: storesWithPlans, applications: applications || [], productCounts, installations: installationStatus });

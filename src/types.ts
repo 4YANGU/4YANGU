@@ -153,6 +153,8 @@ export type DashboardData = {
     orders: number;
     ordersToday: number;
     products: number;
+    customers: number;
+    customersToday: number;
   };
   stores?: Store[];
   applications?: Application[];

@@ -1,7 +1,3 @@
-// Brand glyphs for the 5 Repliz-connected platforms.
-// Tiny inline SVGs (no external assets) used as per-message origin labels
-// across the DMs and Comments tabs.
-
 import type { ReactNode } from 'react';
 
 export function platformLabel(id: string) {
@@ -9,8 +5,6 @@ export function platformLabel(id: string) {
     tiktok: 'TikTok',
     facebook: 'Facebook',
     instagram: 'Instagram',
-    youtube: 'YouTube',
-    threads: 'Threads',
   };
   return map[String(id).toLowerCase()] || String(id);
 }
@@ -27,12 +21,6 @@ export default function PlatformLogo({ platform, size = 14 }: { platform: string
   }
   if (id === 'instagram') {
     return <svg {...frame} aria-hidden="true"><defs><linearGradient id="sy-ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stopColor="#f09433" /><stop offset=".45" stopColor="#dc2743" /><stop offset=".75" stopColor="#cc2366" /><stop offset="1" stopColor="#bc1888" /></linearGradient></defs><rect width="24" height="24" rx="6" fill="url(#sy-ig)" /><rect x="5" y="5" width="14" height="14" rx="4" fill="none" stroke="#ffffff" strokeWidth="1.8" /><circle cx="12" cy="12" r="3.2" fill="none" stroke="#ffffff" strokeWidth="1.8" /><circle cx="16.4" cy="7.6" r="1.3" fill="#ffffff" /></svg>;
-  }
-  if (id === 'youtube') {
-    return <svg {...frame} aria-hidden="true"><rect width="24" height="24" rx="6" fill="#FF0000" /><rect x="4.5" y="7" width="15" height="10.5" rx="3" fill="#ffffff" /><path fill="#FF0000" d="M10.4 9.4v5.2l4.6-2.6z" /></svg>;
-  }
-  if (id === 'threads') {
-    return <svg {...frame} aria-hidden="true"><rect width="24" height="24" rx="6" fill="#111111" /><text x="12" y="17" textAnchor="middle" fontSize="14" fontWeight="900" fill="#ffffff" fontFamily="Arial, sans-serif">@</text></svg>;
   }
   return <svg {...frame} aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#5a966e" /><text x="12" y="16" textAnchor="middle" fontSize="11" fontWeight="900" fill="#ffffff" fontFamily="Arial, sans-serif">{(platformLabel(platform)[0] || '?').toUpperCase()}</text></svg>;
 }

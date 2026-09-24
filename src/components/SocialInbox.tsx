@@ -3,12 +3,11 @@ import type { OAuthOutcome } from '../lib/socialOAuth';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
 import Modal from './Modal';
-import SavedPosts from './SavedPosts';
 import { apiFetch } from '../lib/api';
 import PlatformLogo, { PlatformBadge, platformLabel } from './PlatformLogo';
 import type { SocialConnection, SocialMessage, SocialThread } from '../types';
 
-const PLATFORMS = ['tiktok', 'facebook', 'instagram', 'youtube', 'threads'];
+const PLATFORMS = ['tiktok', 'facebook', 'instagram'];
 
 type StatusResponse = { connections: SocialConnection[]; unread: { total: number; by_platform?: Record<string, number> } };
 type InboxResponse = { threads: SocialThread[] };
@@ -38,7 +37,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [kindFilter, setKindFilter] = useState<'dm' | 'comment'>('dm');
+  const [kindFilter, setKindFilter] = useState<'all'>('all');
   const [query, setQuery] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -47,7 +46,6 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [sending, setSending] = useState(false);
   const [busyKey, setBusyKey] = useState('');
   const [accountsOpen, setAccountsOpen] = useState(false);
-  const [draftsOpen, setDraftsOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState('');
   const [setup, setSetup] = useState<{ keysPresent: boolean; apiReachable: boolean | null; apiDetail: string; tableReady: boolean | null; tableDetail: string } | null>(null);
@@ -141,14 +139,13 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const visibleThreads = useMemo(() => {
     const q = query.trim().toLowerCase();
     return threads.filter((t) => {
-      if (t.kind !== kindFilter) return false;
       if (unreadOnly && t.unread === 0) return false;
       if (q && !`${t.sender_name} ${t.sender_handle || ''} ${t.last_body}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [threads, kindFilter, query, unreadOnly]);
+  }, [threads, query, unreadOnly]);
 
-  const switchKind = (kind: 'dm' | 'comment') => {
+  const switchKind = (kind: 'all') => {
     setKindFilter(kind);
     setSelectedKey(null);
     setDetailOpen(false);
@@ -269,8 +266,8 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   return <section className="social-inbox" aria-label="Inbox">
     <div className="social-inbox-head social-inbox-head-row">
       <div className="inbox-head-copy inbox-title-row">
-        <h2>Inbox</h2>
-        <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram, YouTube, Threads">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={20} />)}</span>
+        <h2>My Customers</h2>
+        <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={20} />)}</span>
       </div>
       <div className="social-head-actions">
         <button className="inbox-accounts-icon" onClick={() => setAccountsOpen(true)} aria-label="Connected accounts" title={`Connected accounts · ${connectedCount} of 5`}><Link2 />{connectedCount < 5 && <b>{connectedCount}/5</b>}</button>
@@ -279,31 +276,27 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     </div>
     {error && <div className="form-error">{error}</div>}
     {!error && notice && <div className="form-success">{notice}</div>}
-    <div className="saved-draft-box"><span>Not quite ready to post?</span><button onClick={() => setDraftsOpen(true)}>Saved drafts</button></div>
-    {draftsOpen && <SavedPosts storeId={storeId} onClose={() => setDraftsOpen(false)} />}
-    <div className="social-view-tabs" role="tablist" aria-label="Message types">
-      <button className={kindFilter === 'dm' ? 'active' : ''} onClick={() => switchKind('dm')}><MessageCircle /> DMs{dmUnread > 0 && <b className="tab-unread">{dmUnread}</b>}</button>
-      <button className={kindFilter === 'comment' ? 'active' : ''} onClick={() => switchKind('comment')}><MessagesSquare /> Comments{commentUnread > 0 && <b className="tab-unread">{commentUnread}</b>}</button>
-    </div>
-
     <div className="social-filters">
       <div className="social-filters-row">
-        <label className="social-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name or message…" /></label>
+        <label className="social-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search customers…" /></label>
         <button className={`social-unread-toggle ${unreadOnly ? 'on' : ''}`} onClick={() => setUnreadOnly((value) => !value)}><CheckCheck /> Unread</button>
       </div>
     </div>
 
     {!threads.length
-      ? <div className="social-empty"><InboxIcon /><h3>No conversations yet</h3><p>Connect your accounts above. New DMs and comments will appear here.</p></div>
+      ? <div className="social-empty"><InboxIcon /><h3>No customers yet</h3><p>Connect your accounts above. New messages and comments will appear here.</p></div>
       : !visibleThreads.length
-        ? <div className="orders-empty">{kindFilter === 'dm' ? 'No DMs match these filters.' : 'No comments match these filters.'}</div>
-        : <div className={`social-threads ${detailOpen && selected ? 'show-detail' : ''}`}>
+        ? <div className="orders-empty">No customers match these filters.</div>
+        : <div className={`social-threads ${detailOpen && selected ? 'show-detail fullscreen-chat' : ''}`}>
           <div className="social-thread-list" role="list">
             {visibleThreads.map((thread) => <button key={thread.thread_key} role="listitem" className={`social-thread ${selectedKey === thread.thread_key ? 'active' : ''} ${thread.unread ? 'unread' : ''} ${thread.resolved ? 'resolved' : ''}`} onClick={() => openThread(thread)}>
-              <span className="social-avatar">{(thread.sender_name || '?')[0]?.toUpperCase()}</span>
+              <span className="social-avatar-wrap">
+                {thread.sender_avatar ? <img className="social-avatar" src={thread.sender_avatar} alt="" /> : <span className="social-avatar">{(thread.sender_name || '?')[0]?.toUpperCase()}</span>}
+                <span className="social-avatar-platform"><PlatformLogo platform={thread.platform} size={12} /></span>
+              </span>
               <span className="social-thread-body">
                 <span className="social-thread-top"><strong>{thread.sender_name}</strong><small>{timeAgo(thread.last_at)}</small></span>
-                <span className="social-thread-meta"><PlatformBadge platform={thread.platform} small />{thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
+                <span className="social-thread-meta">{thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
                 {thread.kind === 'comment' && (thread.source_title || thread.source_ref) && <span className="thread-source-line"><Play />{thread.source_title || thread.source_ref}</span>}
                 <span className="social-thread-preview">{thread.last_body}</span>
               </span>
@@ -313,9 +306,12 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
           <div className="social-thread-detail">
             {selected ? <>
               <div className="social-detail-head">
-                <button className="social-back" onClick={() => setDetailOpen(false)} aria-label="Back to conversations"><ArrowLeft /></button>
-                <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>
-                <div><strong>{selected.sender_name}</strong><small><PlatformBadge platform={selected.platform} small /> {selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
+                <button className="social-back" onClick={() => setDetailOpen(false)} aria-label="Back to customers"><ArrowLeft /></button>
+                <span className="social-avatar-wrap">
+                  {selected.sender_avatar ? <img className="social-avatar" src={selected.sender_avatar} alt="" /> : <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>}
+                  <span className="social-avatar-platform"><PlatformLogo platform={selected.platform} size={12} /></span>
+                </span>
+                <div><strong>{selected.sender_name}</strong><small>{selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
                 <button className={`social-resolve ${selected.resolved ? 'done' : ''}`} onClick={toggleResolve} disabled={busyKey === 'resolve'}>{selected.resolved ? 'Reopen' : 'Resolve'} <Check /></button>
               </div>
               {selected.kind === 'comment' && (selected.source_title || selected.source_ref) && <div className="comment-source-card">
@@ -334,10 +330,10 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
                 <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={`Reply to ${selected.sender_name}…`} rows={2} maxLength={2000} />
                 <button className="button-primary" disabled={sending || !reply.trim()}>{sending ? 'Sending…' : 'Send'} <Send /></button>
               </form>
-            </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a conversation to read and reply.</p></div>}
+            </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
           </div>
         </div>}
-    {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 5`} onClose={() => { setAccountsOpen(false); setPicker(null); setNotice(''); }}>
+    {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 3`} onClose={() => { setAccountsOpen(false); setPicker(null); setNotice(''); }}>
       <div className="accounts-modal-body">{error && <div className="form-error" role="alert">{error}</div>}{!error && notice && <div className="form-success">{notice}</div>}
         {picker ? <>
           <p className="form-intro">{picker.platform === 'facebook' ? 'Choose the Facebook Page to connect.' : 'Choose the YouTube channel to connect.'}</p>

@@ -1,0 +1,195 @@
+/* === WOYOYO-013: TikTok-style redesign pack === */
+
+/* ---- Smaller bottom nav (TikTok style) ---- */
+.manage-bottom-nav-tiktok {
+  padding: 6px 10px calc(8px + env(safe-area-inset-bottom));
+}
+.manage-bottom-nav-tiktok .manage-bottom-nav-inner {
+  max-width: 420px;
+  gap: 4px;
+}
+.manage-bottom-nav-tiktok .manage-nav-item {
+  padding: 6px 2px 4px;
+  font-size: 0.55rem;
+  gap: 2px;
+}
+.manage-bottom-nav-tiktok .manage-nav-item svg {
+  width: 20px;
+  height: 20px;
+}
+.manage-bottom-nav-tiktok .manage-nav-post {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  transform: translateY(-10px);
+}
+.manage-bottom-nav-tiktok .manage-nav-post svg {
+  width: 22px;
+  height: 22px;
+}
+.manage-bottom-nav-tiktok .manage-nav-badge {
+  top: 1px;
+  margin-left: 28px;
+  min-width: 16px;
+  height: 16px;
+  font-size: 0.52rem;
+}
+
+/* ---- Store details: TikTok-style header ---- */
+.owner-store-link {
+  display: block;
+  color: #9cb0ba;
+  font-size: 0.68rem;
+  font-weight: 700;
+  margin: 3px 0 6px;
+  text-decoration: none;
+}
+.owner-open-storefront-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #c9d4d0;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.owner-open-storefront-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.owner-open-storefront-btn svg {
+  width: 11px;
+}
+
+/* ---- My Customers: platform logo on avatar ---- */
+.social-avatar-wrap {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+.social-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--cream);
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 0.85rem;
+}
+.social-avatar-platform {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  border: 1.5px solid #fff;
+}
+.social-avatar-platform svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ---- Full-screen chat on mobile ---- */
+@media (max-width: 720px) {
+  .social-threads.fullscreen-chat .social-thread-detail {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    border-radius: 0;
+    max-height: 100vh;
+    background: #fbfaf6;
+  }
+  .social-threads.fullscreen-chat .social-thread-detail .social-detail-head {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  .social-threads.fullscreen-chat .social-thread-detail .social-messages {
+    max-height: calc(100vh - 180px);
+  }
+}
+
+/* ---- TikTok-style analytics ---- */
+.analytics-grid.tiktok-analytics {
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.analytics-grid.tiktok-analytics .metric-card {
+  aspect-ratio: auto;
+  min-height: 140px;
+  padding: 18px;
+  text-align: center;
+  align-items: center;
+}
+.analytics-grid.tiktok-analytics .metric-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.analytics-grid.tiktok-analytics .metric-icon svg {
+  width: 16px;
+}
+.analytics-grid.tiktok-analytics .metric-card > span {
+  font-size: 0.62rem;
+  color: #8a958e;
+  margin-bottom: 6px;
+}
+.analytics-grid.tiktok-analytics .metric-card > strong {
+  font-size: 1.8rem;
+  letter-spacing: -0.04em;
+}
+.analytics-grid.tiktok-analytics .metric-card > small {
+  font-size: 0.58rem;
+  margin-top: 6px;
+}
+@media (max-width: 1000px) {
+  .analytics-grid.tiktok-analytics {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .analytics-grid.tiktok-analytics {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .analytics-grid.tiktok-analytics .metric-card {
+    min-height: 120px;
+    padding: 14px;
+  }
+  .analytics-grid.tiktok-analytics .metric-card > strong {
+    font-size: 1.5rem;
+  }
+}
+
+/* ---- Product media strip (videos/images) ---- */
+.product-media-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.product-media-strip .product-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #edf0ec;
+}
+
+/* ---- My Customers merged view tweaks ---- */
+.social-thread-meta .platform-badge {
+  display: none;
+}
