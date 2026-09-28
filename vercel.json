@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api/store-apk",
-      "destination": "/api/stores?apk=1"
-    },
-    {
       "source": "/login",
       "destination": "/index.html"
     },
