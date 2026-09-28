@@ -1,0 +1,10 @@
+StoYangu WOYOYO-015 — extract into your existing repository
+
+1. Extract the archive over the existing StoYangu repository, replacing matching files. No account-test code or environment files are included.
+2. In your existing Supabase SQL Editor, run supabase/migrations/202609280014_woyoyo014.sql if you have not already. Then run supabase/migrations/202609280015_woyoyo015.sql to allow chat attachments including PDF and video.
+3. Keep your current Vercel and Supabase environment settings. Run npm ci && npm run build, then deploy using your existing Vercel workflow.
+4. To receive background push notifications, configure VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT in Vercel, and allow notifications on the owner's device. Without keys or permission, background phone notifications cannot be delivered.
+5. Social comments, messages and publishing require connected authorized platform accounts and REPLIZ_ACCESS_KEY and REPLIZ_SECRET_KEY. Each feed/story attempt has an independent result; a provider may reject a story, and no story is marked successful unless its API request succeeds.
+6. Browsers cannot force a native share sheet to select WhatsApp or WhatsApp Status automatically, nor guarantee that WhatsApp carries over the caption. On compatible phones, tapping Post offers the video and caption via the phone share sheet; select WhatsApp then Status and check the caption before confirming.
+
+Updates include a compact WhatsApp-style chat composer, exact message times and dates, order-inbox repair, comment deduplication, post and inbox notification wiring, safer media upload retries, posting draft recovery and mobile back handling.

@@ -1,7 +1,7 @@
 import { clearOAuthReturn, getPendingState, resumeConnection, startConnection } from '../lib/socialOAuth';
 import type { OAuthOutcome } from '../lib/socialOAuth';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Camera, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
 import Modal from './Modal';
 import { apiFetch } from '../lib/api';
 import PlatformLogo, { PlatformBadge, platformLabel } from './PlatformLogo';
@@ -15,21 +15,24 @@ type InboxResponse = { threads: SocialThread[] };
 
 type Props = { storeId: number; storeName: string; onActivity?: () => void };
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(diff) || diff < 0) return '';
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' });
+function dateLabel(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  if (messageDay === start) return 'Today';
+  if (messageDay === new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).getTime()) return 'Yesterday';
+  return date.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function timeLabel(iso: string) {
+  const day = dateLabel(iso);
+  return day === 'Today' ? new Date(iso).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false }) : day;
 }
 
 function fullTime(iso: string) {
-  return new Date(iso).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export default function SocialInbox({ storeId, onActivity }: Props) {
@@ -46,6 +49,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [reply, setReply] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
   const attachmentInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const chatOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [busyKey, setBusyKey] = useState('');
@@ -57,6 +61,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [picker, setPicker] = useState<{ platform: string; state: string; choices: Array<{ id: string; name: string; username: string; picture: string }> } | null>(null);
   const [picking, setPicking] = useState(false);
   const loadRef = useRef<() => void>(() => undefined);
+  const knownInbound = useRef<Set<number> | null>(null);
   // Woyoyo-009: single-flight OAuth resume. After same-tab approval the
   // callback redirects back here with ?oauth=…&platform=… — we pick it up
   // once, show the result, capture any pending Page/channel choice, and then
@@ -79,6 +84,13 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       ]);
       setStatus(s);
       setThreads(inbox.threads || []);
+      const incoming = (inbox.threads || []).flatMap(thread => thread.messages.filter(message => message.direction === 'in'));
+      if (knownInbound.current && 'Notification' in window && Notification.permission === 'granted') {
+        for (const message of incoming.filter(item => !knownInbound.current?.has(item.id)).slice(0, 4)) {
+          new Notification(message.platform === 'storefront' ? 'Website Order' : message.kind === 'comment' ? 'New comment' : 'New message', { body: readableMessage(message.body).slice(0, 140), icon: '/favicon-192.png', tag: `inbox-${message.id}` });
+        }
+      }
+      knownInbound.current = new Set(incoming.map(message => message.id));
       onActivity?.();
     } catch (err) {
       if (!background) setError(err instanceof Error ? err.message : 'Could not load the inbox.');
@@ -196,10 +208,11 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     try {
       let attachmentUrl = '';
       if (attachment) {
-        if (attachment.size > 15 * 1024 * 1024) throw new Error('Attachments must be under 15 MB.');
-        const contentType = attachment.type;
-        if (!/^(image\/(jpeg|png|webp|gif)|application\/pdf)$/.test(contentType)) throw new Error('Choose a JPG, PNG, WebP, GIF or PDF attachment.');
-        const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=post-upload-url', { method: 'POST', body: JSON.stringify({ fileName: attachment.name, contentType, kind: contentType === 'application/pdf' ? 'document' : 'image' }) });
+        const contentType = attachment.type || (/\.(mp4|m4v)$/i.test(attachment.name) ? 'video/mp4' : /\.mov$/i.test(attachment.name) ? 'video/quicktime' : /\.webm$/i.test(attachment.name) ? 'video/webm' : 'image/jpeg');
+        const video = contentType.startsWith('video/');
+        if (attachment.size > (video ? 75 : 15) * 1024 * 1024) throw new Error(video ? 'Videos must be under 75 MB.' : 'Attachments must be under 15 MB.');
+        if (!/^(image\/(jpeg|png|webp|gif)|video\/(mp4|quicktime|webm)|application\/pdf)$/.test(contentType)) throw new Error('Choose a photo, video or PDF attachment.');
+        const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=post-upload-url', { method: 'POST', body: JSON.stringify({ fileName: attachment.name, contentType, kind: video ? 'video' : contentType === 'application/pdf' ? 'document' : 'image' }) });
         const uploaded = await fetch(signed.signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: attachment });
         if (!uploaded.ok) throw new Error('Attachment upload failed. Please try again.');
         attachmentUrl = signed.url;
@@ -327,7 +340,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
                 <span className="social-avatar-platform"><PlatformLogo platform={thread.platform} size={12} /></span>
               </span>
               <span className="social-thread-body">
-                <span className="social-thread-top"><strong>{thread.sender_name}</strong><small>{timeAgo(thread.last_at)}</small></span>
+                <span className="social-thread-top"><strong>{thread.sender_name}</strong><small>{timeLabel(thread.last_at)}</small></span>
                 <span className="social-thread-meta">{thread.platform === 'storefront' ? 'Website Order' : thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
                 {thread.kind === 'comment' && (thread.source_title || thread.source_ref) && <span className="thread-source-line"><Play />{thread.source_title || thread.source_ref}</span>}
                 <span className="social-thread-preview">{readableMessage(thread.last_body)}</span>
@@ -352,15 +365,14 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
                 {selected.source_url && <a href={selected.source_url} target="_blank" rel="noreferrer"><ExternalLink /> View</a>}
               </div>}
               <div className="social-messages">
-                {selected.messages.map((message) => <div key={message.id} className={`social-bubble ${message.direction}`}>
+                {selected.messages.map((message, index) => <Fragment key={message.id}>{(index === 0 || dateLabel(message.created_at) !== dateLabel(selected.messages[index - 1].created_at)) && <div className="chat-day-divider">{dateLabel(message.created_at)}</div>}<div className={`social-bubble ${message.direction}`}>
                   <span className="bubble-platform"><PlatformLogo platform={message.platform} size={11} />{platformLabel(message.platform)}</span>
                   <p>{readableMessage(message.body)}</p>{message.attachment_url && <a className="chat-attachment" href={message.attachment_url} target="_blank" rel="noreferrer">{message.attachment_url.match(/\.(png|jpe?g|webp|gif)(\?|$)/i) ? <img src={message.attachment_url} alt={message.attachment_name || "Attached photo"} loading="lazy" /> : <><Paperclip size={16} /> {message.attachment_name || "View attachment"}</>}</a>}
                   <small>{fullTime(message.created_at)}{message.direction === 'out' ? ' · you' : ''}</small>
-                </div>)}
+                </div></Fragment>)}
               </div>
               <form className="social-reply" onSubmit={sendReply}>
-                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={`Reply to ${selected.sender_name}…`} rows={2} maxLength={2000} /><input ref={attachmentInput} hidden type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><button className="social-attach" type="button" onClick={() => attachmentInput.current?.click()} aria-label="Add photo or attachment"><Paperclip size={18} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
-                <button className="button-primary" disabled={sending || (!reply.trim() && !attachment)}>{sending ? 'Sending…' : 'Send'} <Send /></button>
+                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><input ref={attachmentInput} hidden type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><input ref={cameraInput} hidden type="file" accept="image/*,video/*" capture="environment" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><button className="social-attach" type="button" onClick={() => attachmentInput.current?.click()} aria-label="Add attachment"><Paperclip size={20} /></button><button className="social-camera" type="button" onClick={() => cameraInput.current?.click()} aria-label="Take a photo or video"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
               </form>
             </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
           </div>

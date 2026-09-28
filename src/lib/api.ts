@@ -5,10 +5,24 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
-  const response = await fetch(path, { ...init, headers });
+  let response: Response;
+  try { response = await fetch(path, { ...init, headers, credentials: 'same-origin' }); }
+  catch { throw new Error('Connection interrupted. Your work is saved; check your internet and retry.'); }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || 'Something went wrong. Please try again.');
   return payload as T;
+}
+
+async function putWithRetry(signedUrl: string, file: File, contentType = file.type) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+      if (result.ok) return;
+      if (result.status >= 400 && result.status < 500 && result.status !== 429) break;
+    } catch { /* A temporary phone network drop can be retried safely with the same signed upload URL. */ }
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+  }
+  throw new Error('Upload interrupted. Check your connection and retry; your work is saved.');
 }
 
 export function formatMoney(value: number | string) {
@@ -51,8 +65,7 @@ export async function uploadImage(file: File, scope: 'logos' | 'products') {
   const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=image-upload-url', {
     method: 'POST', body: JSON.stringify({ contentType: prepared.type, scope, size: prepared.size }),
   });
-  const uploaded = await fetch(signed.signedUrl, { method: 'PUT', headers: { 'Content-Type': prepared.type }, body: prepared });
-  if (!uploaded.ok) throw new Error('Could not upload that photo. Check your connection and retry.');
+  await putWithRetry(signed.signedUrl, prepared);
   return { url: signed.url };
 }
 
@@ -107,7 +120,6 @@ export async function uploadPostMedia(file: File): Promise<{ url: string; kind: 
     '/api/media?action=post-upload-url',
     { method: 'POST', body: JSON.stringify({ fileName: prepared.name, contentType, kind: isVideo ? 'video' : 'image' }) },
   );
-  const put = await fetch(prep.signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: prepared });
-  if (!put.ok) throw new Error('Could not upload that file. Please try again.');
+  await putWithRetry(prep.signedUrl, prepared, contentType);
   return { url: prep.url, kind: prep.kind };
 }

@@ -21,6 +21,8 @@
 // =========================================================================
 
 import supabase from '../lib/db-client.js';
+import { storeOrders } from '../lib/order-fallback.js';
+import { pushStoreEvent } from '../lib/push-events.js';
 import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizKeys, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
@@ -119,15 +121,39 @@ async function handleSocialStatus(req, res, profile, storeId) {
 }
 
 async function handleSocialInbox(req, res, profile, storeId) {
-  const { data: messages, error } = await supabase
+  let { data: messages, error } = await supabase
     .from('social_messages')
     .select('*')
     .eq('store_id', storeId)
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
+  // Repair older checkouts whose order was saved but their inbox side-effect failed.
+  const orders = await storeOrders(supabase, storeId, 200);
+  const existingOrders = new Set((messages || []).map(row => row.thread_key));
+  const missing = (orders || []).filter(order => order.order_key && !existingOrders.has(`order:${order.order_key}`)).map(order => ({
+    store_id: storeId, platform: 'storefront', kind: 'dm', thread_key: `order:${order.order_key}`,
+    sender_name: order.customer_phone, sender_handle: order.customer_phone,
+    body: `Website Order: ${order.product_name} · KES ${Number(order.product_price || 0).toLocaleString('en-KE')}${order.color ? ` · ${order.color}` : ''}${order.size ? ` · ${order.size}` : ''}. ${order.fulfilment || 'Delivery'}. ${order.note || ''}`.trim(),
+    direction: 'in', is_read: false, is_resolved: false, external_id: order.order_key,
+    post_title: order.product_name, created_at: order.created_at,
+  }));
+  if (missing.length) {
+    const inserted = await supabase.from('social_messages').insert(missing).select('id');
+    if (inserted.error) console.error('Order inbox repair failed:', inserted.error);
+    const latest = await supabase.from('social_messages').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(500);
+    if (!latest.error) messages = latest.data;
+  }
+  const distinct = new Set();
   const groups = new Map();
   for (const message of messages || []) {
+    if (message.kind === 'comment' && (groups.get(message.thread_key) || []).some(row => row.platform === message.platform && (row.sender_handle || row.sender_name) === (message.sender_handle || message.sender_name) && String(row.body).trim().toLowerCase() === String(message.body).trim().toLowerCase() && Math.abs(new Date(row.created_at).getTime() - new Date(message.created_at).getTime()) < 60000)) continue;
+    const minute = Math.floor(new Date(message.created_at).getTime() / 60000);
+    const key = message.kind === 'comment'
+      ? `${message.platform}:${message.thread_key}:${message.sender_handle || message.sender_name}:${String(message.body).trim().toLowerCase()}:${minute}`
+      : message.platform === 'storefront' ? `${message.store_id}:${message.thread_key}:${message.direction}:${message.body}` : `id:${message.id}`;
+    if (distinct.has(key)) continue;
+    distinct.add(key);
     if (!groups.has(message.thread_key)) groups.set(message.thread_key, []);
     groups.get(message.thread_key).push(message);
   }
@@ -235,17 +261,16 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   if (!asDraft) {
     if (mode !== 'live') return res.status(503).json({ error: 'Publishing is not configured. Your product is saved; add the Repliz credentials to publish.' });
     {
-      for (const platform of platforms) {
-        const connection = (connections || []).find((c) => c.platform === platform);
-        for (const placement of ['feed', 'story']) {
-          try {
-            const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title, placement });
-            results[`${platform} ${placement}`] = { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() };
-          } catch (publishError) {
-            results[`${platform} ${placement}`] = { ok: false, mode: 'live', error: publishError instanceof Error ? publishError.message : 'Publish failed.' };
-          }
+      const jobs = platforms.flatMap(platform => ['feed', 'story'].map(placement => ({ platform, placement, connection: (connections || []).find(c => c.platform === platform) })));
+      const delivered = await Promise.all(jobs.map(async ({ platform, placement, connection }) => {
+        try {
+          const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title, placement });
+          return { key: `${platform} ${placement}`, result: { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() } };
+        } catch (publishError) {
+          return { key: `${platform} ${placement}`, result: { ok: false, mode: 'live', error: publishError instanceof Error ? publishError.message : 'Publish failed.' } };
         }
-      }
+      }));
+      results = Object.fromEntries(delivered.map(({ key, result }) => [key, result]));
     }
   }
   const { data, error } = await supabase.from('social_posts').insert({
@@ -258,6 +283,7 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
     posted_at: asDraft ? null : new Date().toISOString(),
   }).select().single();
   if (error) throw error;
+  if (!asDraft && Object.values(results).some(r => r.ok)) await pushStoreEvent(storeId, 'Post accepted', 'Your connected accounts accepted your new post. Check each platform for delivery.', `post-${data.id}`);
   return res.status(201).json({ post: data, mode, results });
 }
 
@@ -353,12 +379,13 @@ async function handleSocialSyncInbox(req, res, profile, storeId) {
   const storeName = store?.name || 'Store';
   const { data: known } = await supabase
     .from('social_messages')
-    .select('external_id,thread_key,body,created_at')
+    .select('external_id,thread_key,body,created_at,sender_handle,sender_name,kind,platform')
     .eq('store_id', storeId)
     .order('created_at', { ascending: false })
     .limit(500);
   const seenExternal = new Set((known || []).map((row) => row.external_id).filter(Boolean));
   const seenCombo = new Set((known || []).map((row) => `${row.thread_key}::${row.body}::${row.created_at}`));
+  const knownComments = (known || []).filter(row => row.kind === 'comment');
   const candidates = [];
   const errors = [];
   for (const connection of connections || []) {
@@ -414,6 +441,7 @@ async function handleSocialSyncInbox(req, res, profile, storeId) {
   const fresh = [];
   for (const candidate of candidates) {
     const key = `${candidate.thread_key}::${candidate.body}::${candidate.created_at}`;
+    if (candidate.kind === 'comment' && knownComments.some(row => row.platform === candidate.platform && row.thread_key === candidate.thread_key && (row.sender_handle || row.sender_name) === (candidate.sender_handle || candidate.sender_name) && String(row.body).trim().toLowerCase() === String(candidate.body).trim().toLowerCase() && Math.abs(new Date(row.created_at).getTime() - new Date(candidate.created_at).getTime()) < 60000)) continue;
     if (candidate.external_id && seenExternal.has(candidate.external_id)) continue;
     if (seenCombo.has(key)) continue;
     seenCombo.add(key);
@@ -436,6 +464,7 @@ async function handleSocialSyncInbox(req, res, profile, storeId) {
       sender_avatar: candidate.sender_avatar ? String(candidate.sender_avatar).slice(0, 1000) : null,
       created_at: candidate.created_at || new Date().toISOString(),
     });
+    if (candidate.kind === 'comment') knownComments.push(candidate);
   }
   if (fresh.length) {
     const attempt = await supabase.from('social_messages').insert(fresh);
@@ -448,6 +477,7 @@ async function handleSocialSyncInbox(req, res, profile, storeId) {
         throw attempt.error;
       }
     }
+    await Promise.allSettled(fresh.filter(row => row.direction === 'in').map(row => pushStoreEvent(storeId, row.kind === 'comment' ? 'New comment' : 'New message', `${row.sender_name}: ${row.body.slice(0, 110)}`, `inbox-${row.external_id || `${row.thread_key}-${row.created_at}`}`, '/owner?inbox=1')));
   }
   return res.status(200).json({ ok: true, mode: 'live', added: fresh.length, errors });
 }
@@ -475,7 +505,7 @@ async function handleSocial(req, res) {
     if (op === 'reply') return await handleSocialReply(req, res, profile, storeId);
     if (op === 'read') return await handleSocialRead(req, res, profile, storeId);
     if (op === 'resolve') return await handleSocialResolve(req, res, profile, storeId);
-    return res.status(400).json({ error: 'Unknown op. Use connect | oauth_pick | disconnect | sync_accounts | sync_inbox | publish | save_draft | reply | read | resolve' });
+    return res.status(400).json({ error: 'Unknown op. Use connect | oauth_pick | disconnect | sync_accounts | sync_inbox | publish | save_draft | reply | read | resolve | resolve' });
   }
   return res.status(405).json({ error: 'Method not allowed' });
 }

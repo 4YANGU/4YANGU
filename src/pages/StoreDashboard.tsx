@@ -54,10 +54,10 @@ export default function StoreDashboard() {
   // WOYOYO-013: My Products and My Customers are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
-    try { const params = new URLSearchParams(window.location.search); return params.get('inbox') === '1' || params.has('oauth_state') ? 'customers' : 'products'; }
+    try { const params = new URLSearchParams(window.location.search); return params.get('inbox') === '1' || params.has('oauth_state') ? 'customers' : sessionStorage.getItem(`stoyangu-tab-${storeId || 'owner'}`) === 'customers' ? 'customers' : 'products'; }
     catch { return 'products'; }
   });
-  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(() => sessionStorage.getItem(`stoyangu-composer-${storeId || 'owner'}`) === '1');
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
   // App-installed flag kept for any PWA-aware logic elsewhere.
@@ -73,6 +73,15 @@ export default function StoreDashboard() {
     }
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
+  useEffect(() => {
+    if (composerOpen && !window.history.state?.stoyanguComposer) window.history.pushState({ ...window.history.state, stoyanguComposer: true }, '', window.location.href);
+    const onBack = () => { if (composerOpen) { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); } };
+    window.addEventListener('popstate', onBack);
+    return () => window.removeEventListener('popstate', onBack);
+  }, [composerOpen, storeId]);
+  const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
+  const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); if (window.history.state?.stoyanguComposer) window.history.back(); else setComposerOpen(false); };
   // Woyoyo-009: scrub the same-tab OAuth landing params once the dashboard
   // has them, so a refresh never replays the resume.
   useEffect(() => {
@@ -95,6 +104,17 @@ export default function StoreDashboard() {
     const id = data?.store?.id;
     if (id) refreshSocialUnread(id);
   }, [data?.store?.id, refreshSocialUnread]);
+  useEffect(() => {
+    const id = data?.store?.id;
+    if (!id || activeTab !== 'products') return;
+    const sync = async () => {
+      if (document.hidden) return;
+      await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: id }) }).catch(() => undefined);
+      await refreshSocialUnread(id);
+    };
+    const timer = window.setInterval(sync, 30000);
+    return () => window.clearInterval(timer);
+  }, [data?.store?.id, activeTab, refreshSocialUnread]);
   useEffect(() => {
     if (profile?.role !== 'owner') return;
     if (isStandaloneApp()) {
@@ -173,7 +193,7 @@ export default function StoreDashboard() {
     {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
     <section className="products-panel"><div className="dash-section-head"><h2>My Products</h2><span className="order-status-count">{(data.products || []).length}</span></div><div className="owner-product-list">{data.products?.map((product) => <article key={product.id}><div className="product-media-group"><img className="product-cover" loading="lazy" src={product.image_url || '/stoyangu-logo.png'} alt={product.name} />{product.images && product.images.length > 1 && <div className="product-media-strip">{product.images.slice(1, 4).map((img, i) => <img key={i} src={img} alt={`${product.name} ${i + 2}`} className="product-thumb" />)}</div>}</div><div className="owner-product-name"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong></div><div className="word-stats"><p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p><p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p></div><div className="product-actions"><button onClick={() => setEditing(product)} disabled={locked}><Edit3 /> Edit</button><button className="danger" onClick={() => remove(product)} disabled={locked}><Trash2 /> Delete</button></div></article>)}</div>{!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}</section>
     </>}
-  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={() => setComposerOpen(true)} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={() => setComposerOpen(false)} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
+  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
 }
 
 function NotificationSetupCard() {

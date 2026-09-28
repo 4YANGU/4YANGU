@@ -232,7 +232,7 @@
         + '<div data-size-options></div>'
         + '<div data-fulfilment-options></div>'
         + '<textarea data-note maxlength="300" placeholder="Any colour preference, delivery area, or question?"></textarea>'
-        + '<a class="order" data-whatsapp href="#">Place Website Order</a>'
+        + '<a class="order" data-whatsapp href="#">Order</a>'
         + '</div></div>';
       document.body.appendChild(popup);
     }
@@ -283,7 +283,7 @@
     }
     var orderButton = popup.querySelector('[data-whatsapp], a.order');
     if (orderButton) {
-      orderButton.textContent = 'Place Website Order';
+      orderButton.textContent = 'Order';
       orderButton.setAttribute('href', '#');
       orderButton.style.setProperty('background', '#19A45B', 'important');
       orderButton.style.setProperty('background-color', '#19A45B', 'important');
@@ -664,7 +664,7 @@
     if (phoneStep) phoneStep.remove();
     phoneStep = document.createElement('div');
     phoneStep.className = 'sty-phone-step';
-    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Enter your WhatsApp number. The store will contact you about your website order.</p><label class="sty-phone-field">WhatsApp number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Place Website Order</button></div>';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Enter WhatsApp number</h3><p>We will contact you via WhatsApp or call to confirm your order.</p><label class="sty-phone-field">WhatsApp number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Finish</button></div>';
     document.body.appendChild(phoneStep);
     return phoneStep;
   }
@@ -699,7 +699,7 @@
       var result = await submitOrderToParent({ product_id: lastProduct.id, customer_phone: customerPhone, color: extras.color, size: extras.size, fulfilment: extras.fulfilment, note: extras.note, order_key: orderKey });
       if (!result.ok) throw new Error(result.error || 'order-not-saved');
     } catch (error) {
-      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Confirm'; }
+      if (confirmButton) { confirmButton.disabled = false; confirmButton.textContent = 'Finish'; }
       window.alert('We could not confirm this order. Please check your connection and try again.');
       return;
     }
