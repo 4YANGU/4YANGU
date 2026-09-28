@@ -27,7 +27,7 @@
 //  are removed, old data-store-live-grid mounts are converted to real live
 //  sockets, one authoritative hidden card template is guaranteed, and the
 //  render-time CSP allowlists the asset/CDN hosts real AI output uses
-//  (Tailwind CDNs, https images/fonts/styles, Maps/YouTube embeds) so a page
+//  (Tailwind CDNs, https images/fonts/styles, Maps embeds) so a page
 //  can never again ship half-styled because a stylesheet, font or photo was
 //  blocked. Live products are additionally server-painted into the socket,
 //  so first paint is never an empty grid.
@@ -423,9 +423,9 @@ function isSelfContainedVisualDesign(html) {
     || /<link\b[^>]*rel=["']stylesheet["']/i.test(text);
 }
 
-const IFRAME_ALLOW_HOST = /^(?:www\.|)(?:maps\.google\.com|google\.com|youtube\.com|youtu\.be)$/i;
+const IFRAME_ALLOW_HOST = /^(?:www\.|)(?:maps\.google\.com|google\.com)$/i;
 
-// Keep Maps/YouTube embeds (explicitly allowed by the render CSP); drop every
+// Keep Maps embeds (explicitly allowed by the render CSP); drop every
 // other iframe so a blocked embed can never render as a broken box.
 function filterIframes(html) {
   return String(html || '').replace(/<iframe\b[^>]*>(?:[\s\S]*?<\/iframe\s*>)?|<iframe\b[^>]*\/?>/gi, (tag) => {
@@ -815,7 +815,7 @@ function renderTemplate(templateHtml, store, products, host) {
   let assetOrigin = '';
   try { assetOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').origin; } catch {}
   // FIX (stoyangu-500): the old CSP blocked the exact hosts real AI output
-  // uses (Tailwind CDNs, https stylesheets/fonts/photos, Maps/YouTube
+  // uses (Tailwind CDNs, https stylesheets/fonts/photos, Maps
   // embeds), which stripped layers off new designs until only naked markup
   // was left. The storefront still runs in a sandboxed iframe with network
   // fetch disabled, so allowing asset hosts restores designs without
@@ -827,7 +827,7 @@ function renderTemplate(templateHtml, store, products, host) {
   // while the sandbox keeps AI scripts fully contained.
   const pageHost = String(host || '').split(',')[0].trim().split(':')[0].toLowerCase();
   const pageOrigins = pageHost ? `https://${pageHost} http://${pageHost}` : '';
-  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net ${assetOrigin} ${pageOrigins}; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'none'; frame-src https://maps.google.com https://www.google.com https://www.youtube.com https://youtu.be; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net ${assetOrigin} ${pageOrigins}; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'none'; frame-src https://maps.google.com https://www.google.com; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">`;
   const storeMeta = `${csp}<meta name="stoyangu-store" data-slug="${escapeAttr(store.slug)}" data-name="${escapeAttr(store.name)}" data-whatsapp="${phoneDigits}" data-currency="KES"><meta name="stoyangu-slug" content="${escapeAttr(store.slug)}"><meta name="stoyangu-server-products" content="${(products || []).length ? 'static-first-paint' : 'empty'}">`;
   let stamped = /<head/i.test(newHtml) ? newHtml.replace(/<head([^>]*)>/i, `<head$1>${storeMeta}`) : `<!doctype html><html><head>${storeMeta}</head><body>${newHtml}</body></html>`;
   if (!/stoyangu-runtime-css/.test(stamped)) {

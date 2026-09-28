@@ -9,7 +9,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   try { response = await fetch(path, { ...init, headers, credentials: 'same-origin' }); }
   catch { throw new Error('Connection interrupted. Your work is saved; check your internet and retry.'); }
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'Something went wrong. Please try again.');
+  if (!response.ok) {
+    const message = typeof payload.error === 'string' && payload.error.trim().length > 2 ? payload.error.trim() : 'The request could not be completed. Your work is saved; please retry.';
+    throw new Error(message);
+  }
   return payload as T;
 }
 

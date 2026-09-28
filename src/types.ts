@@ -81,7 +81,7 @@ export type Application = {
   created_at: string;
 };
 
-export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram' | 'youtube' | 'threads';
+export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram';
 
 export type SocialConnection = {
   id: number;

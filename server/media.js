@@ -110,8 +110,8 @@ async function handleSocialSetupCheck(req, res, profile, storeId) {
 
 async function handleSocialStatus(req, res, profile, storeId) {
   const [{ data: connections, error: connError }, { data: unread, error: unreadError }] = await Promise.all([
-    supabase.from('social_connections').select('*').eq('store_id', storeId).order('platform', { ascending: true }),
-    supabase.from('social_messages').select('platform').eq('store_id', storeId).eq('direction', 'in').eq('is_read', false),
+    supabase.from('social_connections').select('*').eq('store_id', storeId).in('platform', REPLIZ_PLATFORMS).order('platform', { ascending: true }),
+    supabase.from('social_messages').select('platform').eq('store_id', storeId).in('platform', [...REPLIZ_PLATFORMS, 'storefront']).eq('direction', 'in').eq('is_read', false),
   ]);
   if (connError) throw connError;
   if (unreadError) throw unreadError;
@@ -125,6 +125,7 @@ async function handleSocialInbox(req, res, profile, storeId) {
     .from('social_messages')
     .select('*')
     .eq('store_id', storeId)
+    .in('platform', [...REPLIZ_PLATFORMS, 'storefront'])
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
@@ -134,19 +135,20 @@ async function handleSocialInbox(req, res, profile, storeId) {
   const missing = (orders || []).filter(order => order.order_key && !existingOrders.has(`order:${order.order_key}`)).map(order => ({
     store_id: storeId, platform: 'storefront', kind: 'dm', thread_key: `order:${order.order_key}`,
     sender_name: order.customer_phone, sender_handle: order.customer_phone,
-    body: `Website Order: ${order.product_name} · KES ${Number(order.product_price || 0).toLocaleString('en-KE')}${order.color ? ` · ${order.color}` : ''}${order.size ? ` · ${order.size}` : ''}. ${order.fulfilment || 'Delivery'}. ${order.note || ''}`.trim(),
+    body: `Store Order: ${order.product_name} · KES ${Number(order.product_price || 0).toLocaleString('en-KE')}${order.color ? ` · ${order.color}` : ''}${order.size ? ` · ${order.size}` : ''}. ${order.fulfilment || 'Delivery'}. ${order.note || ''}`.trim(),
     direction: 'in', is_read: false, is_resolved: false, external_id: order.order_key,
     post_title: order.product_name, created_at: order.created_at,
   }));
   if (missing.length) {
     const inserted = await supabase.from('social_messages').insert(missing).select('id');
     if (inserted.error) console.error('Order inbox repair failed:', inserted.error);
-    const latest = await supabase.from('social_messages').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(500);
+    const latest = await supabase.from('social_messages').select('*').eq('store_id', storeId).in('platform', [...REPLIZ_PLATFORMS, 'storefront']).order('created_at', { ascending: false }).limit(500);
     if (!latest.error) messages = latest.data;
   }
   const distinct = new Set();
   const groups = new Map();
   for (const message of messages || []) {
+    if (message.platform === 'storefront' && typeof message.body === 'string') message.body = message.body.replace(/^(New order|Website Order):/i, 'Store Order:');
     if (message.kind === 'comment' && (groups.get(message.thread_key) || []).some(row => row.platform === message.platform && (row.sender_handle || row.sender_name) === (message.sender_handle || message.sender_name) && String(row.body).trim().toLowerCase() === String(message.body).trim().toLowerCase() && Math.abs(new Date(row.created_at).getTime() - new Date(message.created_at).getTime()) < 60000)) continue;
     const minute = Math.floor(new Date(message.created_at).getTime() / 60000);
     const key = message.kind === 'comment'
@@ -186,7 +188,7 @@ async function handleSocialInbox(req, res, profile, storeId) {
 async function handleSocialPosts(req, res, profile, storeId) {
   const { data, error } = await supabase.from('social_posts').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(50);
   if (error) throw error;
-  return res.status(200).json({ posts: data || [] });
+  return res.status(200).json({ posts: (data || []).map(post => ({ ...post, platforms: (post.platforms || []).filter(platform => REPLIZ_PLATFORMS.includes(platform)), results: Object.fromEntries(Object.entries(post.results || {}).filter(([key]) => key === 'media_kinds' || REPLIZ_PLATFORMS.some(platform => key === platform || key.startsWith(`${platform} `)))) })) });
 }
 
 async function upsertConnection(storeId, platform, account, status) {
@@ -221,20 +223,21 @@ async function handleSocialDisconnect(req, res, profile, storeId) {
 async function handleSocialSyncAccounts(req, res, profile, storeId) {
   const { data: existing, error } = await supabase.from('social_connections').select('*').eq('store_id', storeId);
   if (error) throw error;
-  if (replizMode() !== 'live') return res.status(200).json({ connections: existing || [], synced: 0 });
+  if (replizMode() !== 'live') return res.status(200).json({ connections: (existing || []).filter(row => REPLIZ_PLATFORMS.includes(row.platform)), synced: 0 });
   let synced = 0;
   for (const row of existing || []) {
+    if (!REPLIZ_PLATFORMS.includes(row.platform)) continue;
     if (!row.account_id || row.connection_status !== 'connected') continue;
     const account = await replizGetAccount(row.account_id);
     if (account.platform !== row.platform) continue;
     await upsertConnection(storeId, row.platform, account, 'connected'); synced++;
   }
-  const { data: connections, error: readError } = await supabase.from('social_connections').select('*').eq('store_id', storeId).order('platform');
+  const { data: connections, error: readError } = await supabase.from('social_connections').select('*').eq('store_id', storeId).in('platform', REPLIZ_PLATFORMS).order('platform');
   if (readError) throw readError;
   return res.status(200).json({ connections, synced });
 }
 
-// Woyoyo-004: pick the Page// Woyoyo-004: pick the Page (Facebook) or channel (YouTube) that completes a
+// Woyoyo-004: pick the Page that completes a
 // two-step OAuth connection. The token and pending state come from the
 // callback page; we bind into Repliz, then store the connection.
 // Woyoyo-009: a phone-resumed picker may arrive without the token in the
@@ -255,7 +258,7 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   if (connError) throw connError;
   // Woyoyo-003: publishing ALWAYS goes to every connected platform —
   // the composer never asks which ones (any legacy `platforms` payload ignored).
-  const platforms = (connections || []).map((c) => String(c.platform).toLowerCase()).filter((p) => REPLIZ_PLATFORMS.includes(p));
+  const platforms = [...new Set((connections || []).map((c) => String(c.platform).toLowerCase()).filter((p) => REPLIZ_PLATFORMS.includes(p)))];
   if (!platforms.length && !asDraft) return res.status(400).json({ error: 'Connect at least one account first — open the Inbox tab and tap Accounts.' });
   let results = {};
   if (!asDraft) {
@@ -263,11 +266,13 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
     {
       const jobs = platforms.flatMap(platform => ['feed', 'story'].map(placement => ({ platform, placement, connection: (connections || []).find(c => c.platform === platform) })));
       const delivered = await Promise.all(jobs.map(async ({ platform, placement, connection }) => {
+        if (platform === 'tiktok' && placement === 'story') return { key: 'tiktok story', result: { ok: false, manual: true, error: 'TikTok Story is not supported by this connected publisher. Use Share story manually to finish in TikTok.' } };
         try {
           const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title, placement });
           return { key: `${platform} ${placement}`, result: { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() } };
         } catch (publishError) {
-          return { key: `${platform} ${placement}`, result: { ok: false, mode: 'live', error: publishError instanceof Error ? publishError.message : 'Publish failed.' } };
+          const detail = publishError instanceof Error ? publishError.message : '';
+          return { key: `${platform} ${placement}`, result: { ok: false, mode: 'live', error: detail.trim().length > 2 ? detail : 'The connected platform could not accept this post. Please check the account and retry.' } };
         }
       }));
       results = Object.fromEntries(delivered.map(({ key, result }) => [key, result]));
@@ -512,8 +517,7 @@ async function handleSocial(req, res) {
 
 // Woyoyo-004: OAuth landing page. The platform sends the owner back here
 // after they approve on the official authorization page. Single-step
-// platforms (TikTok / Instagram / Threads) finish immediately; two-step
-// platforms (Facebook / YouTube) exchange the code and return the Page /
+// platforms (TikTok / Instagram) finish immediately; Facebook exchanges the code and returns the Page /
 // channel picker to the pop-up, which posts the result back to the inbox.
 // Woyoyo-004: signed upload URL// Woyoyo-004: signed upload URL for composer photos/videos. The browser PUTs
 // the file bytes straight to Supabase storage, so TikTok-style videos never

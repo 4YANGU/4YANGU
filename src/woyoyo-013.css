@@ -166,6 +166,9 @@
 .social-reply .social-send:disabled { opacity: .45; cursor: not-allowed; }
 .social-reply .attachment-chip { grid-column: 1 / -1; grid-row: 2; background: #e9f5ec; border-radius: 8px; padding: 3px 8px; }
 .caption-auto-variants { white-space: pre-line; border-top: 1px solid #dbe7da; margin-top: 8px; padding-top: 8px; color: #326f49; font-size: 12px; line-height: 1.6; font-weight: 700; }
+.copy-caption-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #b8d9bf; background: #e9f6ea; color: #236c43; border-radius: 8px; padding: 7px 10px; font-size: 11px; font-weight: 800; cursor: pointer; }
+.caption-variants-label { display: grid; gap: 5px; border-top: 1px solid #dbe7da; margin-top: 8px; padding-top: 8px; color: #326f49; font-size: 11px; font-weight: 700; }
+.composer-v12 .caption-variants-label textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid #cee5d3; border-radius: 8px; background: white; padding: 8px; color: #254e34; font-size: 12px; line-height: 1.55; }
 @media (max-width: 450px) {
   .social-detail-head { flex-wrap: wrap; }
   .social-detail-head .website-order-actions { order: 3; width: 100%; padding-left: 43px; }

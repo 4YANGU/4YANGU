@@ -1,13 +1,13 @@
 -- StoYangu social inbox (Repliz) tables.
 -- Run once in Supabase Dashboard → SQL Editor → New query.
 -- Safe to run more than once. Lets each store connect TikTok, Facebook,
--- Instagram, YouTube and Threads, post once to all of them, and manage
+-- Instagram, post once to them, and manage
 -- every DM + comment from one inbox.
 
 create table if not exists public.social_accounts (
   id serial primary key,
   store_id integer not null references public.stores(id) on delete cascade,
-  platform text not null check (platform in ('tiktok','facebook','instagram','youtube','threads')),
+  platform text not null check (platform in ('tiktok','facebook','instagram')),
   handle text not null,
   display_name text not null default '',
   avatar_url text not null default '',

@@ -6,6 +6,7 @@ export function platformLabel(id: string) {
     facebook: 'Facebook',
     instagram: 'Instagram',
     whatsapp: 'WhatsApp',
+    storefront: 'Store Order',
   };
   return map[String(id).toLowerCase()] || String(id);
 }

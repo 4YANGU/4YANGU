@@ -5,7 +5,7 @@ import { ArrowLeft, Camera, Check, CheckCheck, ExternalLink, Inbox as InboxIcon,
 import Modal from './Modal';
 import { apiFetch } from '../lib/api';
 import PlatformLogo, { PlatformBadge, platformLabel } from './PlatformLogo';
-import type { SocialConnection, SocialMessage, SocialThread } from '../types';
+import type { Order, SocialConnection, SocialMessage, SocialThread } from '../types';
 import { readableMessage } from '../lib/messageText';
 
 const PLATFORMS = ['tiktok', 'facebook', 'instagram'];
@@ -78,16 +78,27 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         // Quiet live sync: pull newest Repliz comments/chats, then re-read.
         await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: storeId }) }).catch(() => undefined);
       }
-      const [s, inbox] = await Promise.all([
+      const [s, inbox, orderResult] = await Promise.allSettled([
         apiFetch<StatusResponse>(`/api/media?action=social&op=status&storeId=${storeId}`),
         apiFetch<InboxResponse>(`/api/media?action=social&op=inbox&storeId=${storeId}`),
+        apiFetch<Order[]>(`/api/orders?storeId=${storeId}`),
       ]);
-      setStatus(s);
-      setThreads(inbox.threads || []);
-      const incoming = (inbox.threads || []).flatMap(thread => thread.messages.filter(message => message.direction === 'in'));
+      if (inbox.status === 'rejected' && orderResult.status === 'rejected') throw inbox.reason;
+      if (s.status === 'fulfilled') setStatus(s.value);
+      const allThreads = inbox.status === 'fulfilled' ? [...(inbox.value.threads || [])] : [];
+      if (orderResult.status === 'fulfilled') for (const order of orderResult.value) {
+        const threadKey = `order:${order.order_key || order.id}`;
+        if (allThreads.some(thread => thread.thread_key === threadKey)) continue;
+        const body = `Store Order: ${order.product_name} · KES ${Number(order.product_price || 0).toLocaleString('en-KE')}${order.color ? ` · ${order.color}` : ''}${order.size ? ` · ${order.size}` : ''}. ${order.fulfilment || 'Delivery'}. ${order.note || ''}`.trim();
+        const message: SocialMessage = { id: -Math.abs(order.id), store_id: storeId, platform: 'storefront', kind: 'dm', thread_key: threadKey, sender_name: order.customer_phone, sender_handle: order.customer_phone, sender_avatar: null, body, direction: 'in', is_read: false, is_resolved: false, external_id: order.order_key, post_ref: '', post_title: order.product_name, post_url: '', created_at: order.created_at };
+        allThreads.push({ thread_key: threadKey, platform: 'storefront', kind: 'dm', sender_name: order.customer_phone, sender_handle: order.customer_phone, sender_avatar: null, last_body: body, last_at: order.created_at, unread: 1, resolved: false, source_ref: '', source_title: order.product_name, source_url: '', messages: [message] });
+      }
+      allThreads.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+      setThreads(allThreads);
+      const incoming = allThreads.flatMap(thread => thread.messages.filter(message => message.direction === 'in'));
       if (knownInbound.current && 'Notification' in window && Notification.permission === 'granted') {
         for (const message of incoming.filter(item => !knownInbound.current?.has(item.id)).slice(0, 4)) {
-          new Notification(message.platform === 'storefront' ? 'Website Order' : message.kind === 'comment' ? 'New comment' : 'New message', { body: readableMessage(message.body).slice(0, 140), icon: '/favicon-192.png', tag: `inbox-${message.id}` });
+          new Notification(message.platform === 'storefront' ? 'Store Order' : message.kind === 'comment' ? 'New comment' : 'New message', { body: readableMessage(message.body).slice(0, 140), icon: '/favicon-192.png', tag: `inbox-${message.id}` });
         }
       }
       knownInbound.current = new Set(incoming.map(message => message.id));
@@ -341,7 +352,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
               </span>
               <span className="social-thread-body">
                 <span className="social-thread-top"><strong>{thread.sender_name}</strong><small>{timeLabel(thread.last_at)}</small></span>
-                <span className="social-thread-meta">{thread.platform === 'storefront' ? 'Website Order' : thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
+                <span className="social-thread-meta">{thread.platform === 'storefront' ? 'Store Order' : thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
                 {thread.kind === 'comment' && (thread.source_title || thread.source_ref) && <span className="thread-source-line"><Play />{thread.source_title || thread.source_ref}</span>}
                 <span className="social-thread-preview">{readableMessage(thread.last_body)}</span>
               </span>
@@ -356,8 +367,8 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
                   {selected.sender_avatar ? <img className="social-avatar" src={selected.sender_avatar} alt="" /> : <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>}
                   <span className="social-avatar-platform"><PlatformLogo platform={selected.platform} size={12} /></span>
                 </span>
-                <div><strong>{selected.sender_name}</strong><small>{selected.platform === 'storefront' ? 'Website Order' : selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
-                {selected.platform === 'storefront' && selected.sender_handle && <div className="website-order-actions"><a className="chat-whatsapp" href={`https://wa.me/${selected.sender_handle.replace(/\D/g, '')}?text=${encodeURIComponent(reply || 'Hello! Thank you for your website order.')}`} target="_blank" rel="noreferrer">Reply via WhatsApp</a><a className="chat-call" href={`tel:${selected.sender_handle.replace(/[^\d+]/g, '')}`}>Call</a></div>}<button className={`social-resolve ${selected.resolved ? 'done' : ''}`} onClick={toggleResolve} disabled={busyKey === 'resolve'}>{selected.resolved ? 'Reopen' : 'Resolve'} <Check /></button>
+                <div><strong>{selected.sender_name}</strong><small>{selected.platform === 'storefront' ? 'Store Order' : selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
+                {selected.platform === 'storefront' && selected.sender_handle && <div className="website-order-actions"><a className="chat-whatsapp" href={`https://wa.me/${selected.sender_handle.replace(/\D/g, '')}?text=${encodeURIComponent(reply || 'Hello! Thank you for your store order.')}`} target="_blank" rel="noreferrer">Reply via WhatsApp</a><a className="chat-call" href={`tel:${selected.sender_handle.replace(/[^\d+]/g, '')}`}>Call</a></div>}<button className={`social-resolve ${selected.resolved ? 'done' : ''}`} onClick={toggleResolve} disabled={busyKey === 'resolve'}>{selected.resolved ? 'Reopen' : 'Resolve'} <Check /></button>
               </div>
               {selected.kind === 'comment' && (selected.source_title || selected.source_ref) && <div className="comment-source-card">
                 <span className="comment-source-thumb"><Play /></span>
@@ -380,7 +391,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     {accountsOpen && <Modal title={`Connected accounts · ${connectedCount} of 3`} onClose={() => { setAccountsOpen(false); setPicker(null); setNotice(''); }}>
       <div className="accounts-modal-body">{error && <div className="form-error" role="alert">{error}</div>}{!error && notice && <div className="form-success">{notice}</div>}
         {picker ? <>
-          <p className="form-intro">{picker.platform === 'facebook' ? 'Choose the Facebook Page to connect.' : 'Choose the YouTube channel to connect.'}</p>
+          <p className="form-intro">Choose the Facebook Page to connect.</p>
           <div className="accounts-modal-list">
             {picker.choices.map((choice) => <div key={choice.id} className="account-row oauth-pick-row">
               {choice.picture ? <img src={choice.picture} alt="" /> : <PlatformBadge platform={picker.platform} />}

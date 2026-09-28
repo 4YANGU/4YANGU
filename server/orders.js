@@ -112,7 +112,7 @@ export default async function handler(req, res) {
       const storeIsToday = store.metrics_date === today;
       // Every real storefront checkout is also an inbox conversation.
       try {
-        const summary = `Website Order: ${product.name} · KES ${Number(product.price).toLocaleString('en-KE')}${values.color ? ` · ${values.color}` : ''}${values.size ? ` · ${values.size}` : ''}. ${values.fulfilment}. ${values.note}`.trim();
+        const summary = `Store Order: ${product.name} · KES ${Number(product.price).toLocaleString('en-KE')}${values.color ? ` · ${values.color}` : ''}${values.size ? ` · ${values.size}` : ''}. ${values.fulfilment}. ${values.note}`.trim();
         const { error: chatError } = await supabase.from('social_messages').insert({
           store_id: store.id, platform: 'storefront', kind: 'dm', thread_key: `order:${orderKey}`,
           sender_name: customerPhone, sender_handle: customerPhone, body: summary,

@@ -3,7 +3,7 @@
 --
 -- Adds:
 --   public.order_archives    (used by the founder power toggle in api/stores.js)
---   public.social_connections (TikTok/Facebook/Instagram/YouTube/Threads per store)
+--   public.social_connections (TikTok/Facebook/Instagram per store)
 --   public.social_posts       (post-once-to-all history + drafts)
 --   public.social_messages    (unified DMs + comments inbox)
 
