@@ -5,6 +5,7 @@ export function platformLabel(id: string) {
     tiktok: 'TikTok',
     facebook: 'Facebook',
     instagram: 'Instagram',
+    whatsapp: 'WhatsApp',
   };
   return map[String(id).toLowerCase()] || String(id);
 }
@@ -21,6 +22,9 @@ export default function PlatformLogo({ platform, size = 14 }: { platform: string
   }
   if (id === 'instagram') {
     return <svg {...frame} aria-hidden="true"><defs><linearGradient id="sy-ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stopColor="#f09433" /><stop offset=".45" stopColor="#dc2743" /><stop offset=".75" stopColor="#cc2366" /><stop offset="1" stopColor="#bc1888" /></linearGradient></defs><rect width="24" height="24" rx="6" fill="url(#sy-ig)" /><rect x="5" y="5" width="14" height="14" rx="4" fill="none" stroke="#ffffff" strokeWidth="1.8" /><circle cx="12" cy="12" r="3.2" fill="none" stroke="#ffffff" strokeWidth="1.8" /><circle cx="16.4" cy="7.6" r="1.3" fill="#ffffff" /></svg>;
+  }
+  if (id === 'whatsapp') {
+    return <svg {...frame} aria-hidden="true"><rect width="24" height="24" rx="6" fill="#25D366" /><path fill="#fff" d="M12.05 4.1a7.9 7.9 0 0 0-6.8 11.93L4 20l4.08-1.2a7.9 7.9 0 1 0 3.97-14.7zm0 14.34a6.3 6.3 0 0 1-3.22-.88l-.23-.14-2.39.7.73-2.32-.15-.24a6.36 6.36 0 1 1 5.26 2.88zm3.49-4.76c-.19-.1-1.13-.56-1.31-.62-.17-.07-.3-.1-.43.1-.13.19-.49.62-.6.74-.1.13-.22.14-.41.05-.19-.1-.8-.3-1.52-.94-.56-.5-.94-1.12-1.05-1.31-.11-.19-.01-.29.08-.39l.29-.34.19-.32c.06-.13.03-.24-.02-.34l-.59-1.42c-.15-.37-.31-.32-.43-.32h-.37c-.13 0-.34.05-.51.24-.18.2-.67.65-.67 1.58s.69 1.83.78 1.96c.1.13 1.35 2.06 3.28 2.89.46.2.82.32 1.1.41.46.15.88.13 1.21.08.37-.06 1.13-.46 1.29-.91.16-.45.16-.84.11-.92-.05-.08-.18-.13-.37-.23z" /></svg>;
   }
   return <svg {...frame} aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#5a966e" /><text x="12" y="16" textAnchor="middle" fontSize="11" fontWeight="900" fill="#ffffff" fontFamily="Arial, sans-serif">{(platformLabel(platform)[0] || '?').toUpperCase()}</text></svg>;
 }

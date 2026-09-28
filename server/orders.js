@@ -110,6 +110,17 @@ export default async function handler(req, res) {
         catch (eventError) { console.error('Order event tracking failed (order is safe):', eventError.message); }
       }
       const storeIsToday = store.metrics_date === today;
+      // Every real storefront checkout is also an inbox conversation.
+      try {
+        const summary = `Website Order: ${product.name} · KES ${Number(product.price).toLocaleString('en-KE')}${values.color ? ` · ${values.color}` : ''}${values.size ? ` · ${values.size}` : ''}. ${values.fulfilment}. ${values.note}`.trim();
+        const { error: chatError } = await supabase.from('social_messages').insert({
+          store_id: store.id, platform: 'storefront', kind: 'dm', thread_key: `order:${orderKey}`,
+          sender_name: customerPhone, sender_handle: customerPhone, body: summary,
+          direction: 'in', is_read: false, is_resolved: false, external_id: orderKey,
+          post_title: product.name,
+        });
+        if (chatError) console.error('Order inbox message failed:', chatError.message);
+      } catch (chatError) { console.error('Order inbox message failed:', chatError); }
       const productIsToday = product.metrics_date === today;
       try {
         await Promise.all([

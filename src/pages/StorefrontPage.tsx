@@ -34,50 +34,22 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
   }, [data?.store, slug]);
   const onView = useCallback((productId: number) => { if (viewed.current.has(productId)) return; viewed.current.add(productId); fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, event_type: 'product_view', product_id: productId, session_id: visitSessionId() }) }).catch(() => undefined); }, [slug]);
   const onOrder = useCallback(async (product: Product, color?: string, size?: string, fulfilment?: string, orderNote?: string, customerPhone?: string) => {
-    if (!data?.store) return;
-    const orderKey = crypto.randomUUID();
-    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, product_id: product.id, customer_phone: customerPhone, color, size, fulfilment, note: orderNote, order_key: orderKey }) });
-    if (!response.ok) { const payload = await response.json().catch(() => ({})); window.alert(payload.error || 'We could not confirm this order. Please try again.'); return; }
-    const design = data.store.design_json as Record<string, any>;
-    const template = design?.commerce_rules?.whatsapp_message_template || design?.sections?.find?.((section: any) => section?.product_page)?.product_page?.whatsapp_message_template;
-    const noteLines = String(orderNote || '').split('\n').map((line) => line.trim()).filter(Boolean);
-    const addressLine = noteLines.find((line) => /^Delivery address:/i.test(line)) || '';
-    const addressOut = addressLine.replace(/^Delivery address:/i, 'Address:');
-    const customerNote = noteLines.filter((line) => !/^Delivery address:/i.test(line)).map((line) => line.replace(/^Customer note:\s*/i, '').trim()).filter(Boolean).join('\n');
-    const fallback = `Hi ${data.store.name}! I want to order ${product.name} (${formatPrice(product.price)})${size ? ` in size ${size}` : ''}${color ? `, colour ${color}` : ''}.\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${addressOut ? `\n${addressOut}` : ''}${customerNote ? `\nCustomer note: ${customerNote}` : ''}\nPlease confirm availability.`;
-    const templated = typeof template === 'string' ? template
-      .replaceAll('{product_name}', product.name)
-      .replaceAll('{product_price}', formatPrice(product.price))
-      .replaceAll('{selected_size}', size || 'not selected')
-      .replaceAll('{selected_colour}', color || 'not selected')
-      .replaceAll('{fulfilment_method}', fulfilment || 'Delivery')
-      .replaceAll('{order_note}', orderNote || 'None') : fallback;
-    const message = typeof template === 'string' && !template.includes('{fulfilment_method}') ? `${templated}\nMy phone: ${customerPhone || ''}\nFulfilment: ${fulfilment || 'Delivery'}${addressOut ? `\n${addressOut}` : ''}${customerNote ? `\nCustomer note: ${customerNote}` : ''}` : `${templated}\nMy phone: ${customerPhone || ''}`;
-    // Wozaa fix: never open a broken wa.me link. If the store's number looks
-    // unusable (e.g. the customer's browser is holding a stale copy from before
-    // the founder changed the number), refetch the freshest store record once
-    // and use that number instead.
-    let phone = String(data.store.whatsapp || '').replace(/\D/g, '');
-    if (phone.length < 9) {
-      try {
-        const freshResponse = await fetch(`/api/stores?storefront=1&fresh=1&slug=${encodeURIComponent(slug)}`, { cache: 'no-store' });
-        const freshPayload = await freshResponse.json().catch(() => ({}));
-        if (freshResponse.ok && freshPayload?.store) {
-          phone = String(freshPayload.store.whatsapp || '').replace(/\D/g, '');
-          try { setData(freshPayload); sessionStorage.setItem(`stoyangu-store-${slug}`, JSON.stringify(freshPayload)); } catch {}
-        }
-      } catch {}
-    }
-    if (phone.length < 9) { window.alert('Your order has been sent to the store, but the store\'s WhatsApp number looks incomplete. The owner will see your order and contact you.'); return; }
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.location.assign(url);
+    if (!data?.store) return false;
+    const phone = customerPhone || window.prompt('Enter your WhatsApp number so the store can contact you:') || '';
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 15) { window.alert('Enter a valid WhatsApp number to place your order.'); return false; }
+    try {
+      const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, product_id: product.id, customer_phone: phone, color, size, fulfilment, note: orderNote, order_key: crypto.randomUUID() }) });
+      if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.error || 'We could not confirm this order. Please try again.'); }
+      return true;
+    } catch (reason) { window.alert(reason instanceof Error ? reason.message : 'Could not send your order. Please try again.'); return false; }
   }, [data?.store, slug]);
   if (!data && !error) return null;
   if (error || !data) return <main className="storefront-error"><img src="/stoyangu-logo.png" alt="StoYangu" /><h1>Let us open this store again.</h1><p>{error || 'Please check the store link and try again.'}</p><div><button onClick={() => window.location.reload()}>Try again</button><a href="https://wa.me/254793533683">Ask StoYangu for help</a></div></main>;
   const design = data.store.design_json as Record<string, any>;
   const sectionSource = Array.isArray(design.sections) ? design.sections : design.sections && typeof design.sections === 'object' ? Object.values(design.sections) : [];
   const hero = sectionSource.find((section: any) => /home|hero|welcome/i.test(String(section?.id || section?.type || section?.name || ''))) as any;
-  const description = String(hero?.tagline || hero?.body || hero?.intro || `${data.store.name} online store. Browse live products and order directly through WhatsApp.`).replace(/[—–]/g, ',').slice(0, 300);
+  const description = String(hero?.tagline || hero?.body || hero?.intro || `${data.store.name} online store. Browse live products and place a website order using your phone number.`).replace(/[—–]/g, ',').slice(0, 300);
   const rootDomain = String(import.meta.env.VITE_ROOT_DOMAIN || 'stoyangu.com');
   const canonical = window.location.hostname.endsWith(rootDomain) ? `https://${data.store.slug}.${rootDomain}/` : `${window.location.origin}/s/${data.store.slug}`;
   const schema = [
@@ -87,6 +59,3 @@ export default function StorefrontPage({ forcedSlug }: { forcedSlug?: string }) 
   return <><Seo title={`${String(design.store_name || data.store.name)} | Shop online`} description={description} canonical={canonical} image={data.products[0]?.images?.[0] || data.products[0]?.image_url || data.store.logo_url} icon={data.store.logo_url || undefined} schema={schema} /><HtmlStorefront store={data.store} products={data.products} onOrder={onOrder} onView={onView} /></>;
 }
 
-function formatPrice(value: number | string) {
-  return `KES ${Number(value || 0).toLocaleString('en-KE')}`;
-}

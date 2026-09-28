@@ -1,0 +1,9 @@
+StoYangu WOYOYO-014 — install in an existing repository
+
+1. Extract this archive over your existing StoYangu repository, allowing replacement of matching files. No environment files or account credentials are included.
+2. In your EXISTING Supabase project's SQL Editor, run the file supabase/migrations/202609280014_woyoyo014.sql. It only adds attachment fields and an inbox index.
+3. Keep your existing Supabase/Vercel environment settings. Run npm ci && npm run build, then deploy through your existing Vercel workflow.
+4. Social publishing and delivery need authorized connected accounts and REPLIZ_ACCESS_KEY and REPLIZ_SECRET_KEY on your Vercel project. If credentials are absent, posting shows a configuration error; it does not pretend to publish. Story support also depends on the provider accepting a story schedule.
+5. WhatsApp Status cannot be posted automatically by a website. On compatible phones, tapping Post opens the native share sheet with your video; choose WhatsApp, then Status and confirm. On unsupported browsers, share the uploaded video manually.
+
+Included: storefront order conversations in My Customers, mobile chat back navigation, photo/PDF attachments, cleaned captions, layout and performance refinements, readable TikTok comments, and independent feed/story publish attempts with per-destination status.

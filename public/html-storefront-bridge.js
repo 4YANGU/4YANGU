@@ -2,7 +2,7 @@
  * StoYangu shop:
  *  live products from Manage Store
  *  a universal search bar filters those products by name
- *  View product → popup (closed on load) → colour / size / delivery / note → WhatsApp
+ *  View product → popup (closed on load) → colour / size / delivery / note → website order
  *  never a cart
  */
 (function () {
@@ -49,8 +49,6 @@
     return isFinite(num) ? num : 0;
   }
   function money(v) { return 'KSh ' + rawPrice(v).toLocaleString('en-KE'); }
-  function phoneDigits() { return String((store && store.whatsapp) || (meta && meta.getAttribute('data-whatsapp')) || '').replace(/\D/g, ''); }
-  function storeName() { return (store && store.name) || (meta && meta.getAttribute('data-name')) || 'this store'; }
   function photosOf(p) {
     if (!p) return [];
     if (Array.isArray(p.images) && p.images.length) return p.images.filter(Boolean);
@@ -60,20 +58,6 @@
   function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
   function norm(s) { return String(s || '').trim().toLowerCase(); }
   function colourValue(value) { var known = { black:'#111827', white:'#ffffff', navy:'#172554', green:'#4d7c5b', red:'#dc2626', blue:'#2563eb', pink:'#ec4899', brown:'#795548', beige:'#d6c6a5', gold:'#d4a94c', cream:'#f5edda', sage:'#9caf88', mocha:'#8b6f61', olive:'#6b7245', terracotta:'#c66b4e', sky:'#87ceeb', peach:'#f4a58a', grey:'#6b7280', gray:'#6b7280' }; var key = norm(value); if (/^#|^rgb|^hsl/i.test(key)) return key; return known[key] || 'hsl(' + ([...key].reduce(function (sum, char) { return sum + char.charCodeAt(0); }, 0) % 360) + ' 38% 52%)'; }
-
-  function orderUrl(product, extras) {
-    var extra = extras || {};
-    var text = product
-      ? 'Hi ' + storeName() + '! I want to order ' + product.name + ' (' + money(product.price) + ')'
-        + (extra.size ? ' in size ' + extra.size : '')
-        + (extra.color ? ', colour ' + extra.color : '')
-        + '.\nFulfilment: ' + (extra.fulfilment || 'Delivery')
-        + (extra.address && String(extra.fulfilment || 'Delivery') === 'Delivery' ? '\nAddress: ' + extra.address : '')
-        + (extra.noteText ? '\nCustomer note: ' + extra.noteText : '')
-        + '\nPlease confirm availability.'
-      : 'Hi ' + storeName() + '! I am interested in something from your store.';
-    return 'https://wa.me/' + phoneDigits() + '?text=' + encodeURIComponent(text);
-  }
 
   function track(type, productId) {
     try { window.parent.postMessage({ type: 'stoyangu-track', event_type: type, product_id: productId || 0, session_id: session }, '*'); } catch (e) {}
@@ -248,7 +232,7 @@
         + '<div data-size-options></div>'
         + '<div data-fulfilment-options></div>'
         + '<textarea data-note maxlength="300" placeholder="Any colour preference, delivery area, or question?"></textarea>'
-        + '<a class="order" data-whatsapp href="#">Order via WhatsApp</a>'
+        + '<a class="order" data-whatsapp href="#">Place Website Order</a>'
         + '</div></div>';
       document.body.appendChild(popup);
     }
@@ -299,7 +283,7 @@
     }
     var orderButton = popup.querySelector('[data-whatsapp], a.order');
     if (orderButton) {
-      orderButton.textContent = 'Order via WhatsApp';
+      orderButton.textContent = 'Place Website Order';
       orderButton.setAttribute('href', '#');
       orderButton.style.setProperty('background', '#19A45B', 'important');
       orderButton.style.setProperty('background-color', '#19A45B', 'important');
@@ -676,10 +660,11 @@
   }
 
   function ensurePhoneStep() {
-    if (phoneStep && document.body.contains(phoneStep)) return phoneStep;
+    if (phoneStep && document.body.contains(phoneStep) && phoneStep.querySelector('[data-customer-phone]')) return phoneStep;
+    if (phoneStep) phoneStep.remove();
     phoneStep = document.createElement('div');
     phoneStep.className = 'sty-phone-step';
-    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Press confirm, WhatsApp will open with your order ready — Then hit send and we will reply to you shortly.</p><label class="sty-phone-field">Phone number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Confirm</button></div>';
+    phoneStep.innerHTML = '<div class="sty-phone-card"><button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Where can we reach you?</h3><p>Enter your WhatsApp number. The store will contact you about your website order.</p><label class="sty-phone-field">WhatsApp number<input data-customer-phone type="tel" inputmode="numeric" autocomplete="tel" name="tel" placeholder="0712 345 678 or 0112 345 678"><small></small></label><button type="button" class="sty-phone-confirm" data-phone-confirm>Place Website Order</button></div>';
     document.body.appendChild(phoneStep);
     return phoneStep;
   }
@@ -718,19 +703,9 @@
       window.alert('We could not confirm this order. Please check your connection and try again.');
       return;
     }
-    var url = orderUrl(lastProduct, extras);
-    closePhoneStep();
     closePopup();
-    // Wame fix: after the async order confirmation there is no user gesture
-    // left, so phones silently block window.open from this sandboxed iframe —
-    // the order reached the owner but WhatsApp never opened at all. If the
-    // popup is blocked, ask the parent page to navigate instead: top-level
-    // navigation is always allowed and works on every phone.
-    var opened = null;
-    try { opened = window.open(url, '_blank', 'noopener,noreferrer'); } catch (e) { opened = null; }
-    if (!opened) {
-      try { window.parent.postMessage({ type: 'stoyangu-open-whatsapp', url: url }, '*'); } catch (e) {}
-    }
+    var card = phoneStep && phoneStep.querySelector('.sty-phone-card');
+    if (card) card.innerHTML = '<button type="button" class="sty-phone-close" data-phone-close aria-label="Close">×</button><h3>Order has been received!</h3><p>We will reply via WhatsApp or call.</p><button type="button" class="sty-phone-confirm" data-phone-close>Continue shopping</button>';
   }
 
   function rebuildOrder() {
@@ -865,9 +840,7 @@
       if (order && lastProduct) {
         event.preventDefault();
         event.stopPropagation();
-        var savedPhone = readSavedPhone();
-        if (validCustomerPhone(savedPhone)) confirmOrderWithPhone(savedPhone);
-        else openPhoneStep();
+        openPhoneStep();
       }
     }, true);
     document.addEventListener('keyup', function (event) {

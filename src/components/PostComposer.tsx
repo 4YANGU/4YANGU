@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Camera, Check, ImagePlus, Package, Save, Send, Video, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, ImagePlus, Package, Send, Video, X } from 'lucide-react';
 import Modal from './Modal';
 import SequentialCamera from './SequentialCamera';
 import { OptionPicker } from './ProductForm';
-import { apiFetch, uploadImage, uploadPostMedia } from '../lib/api';
+import { apiFetch, storeLink, uploadImage, uploadPostMedia } from '../lib/api';
 import { buildProductCaption } from '../lib/caption';
 import { readDraft, writeDraft } from '../lib/draftStorage';
 import type { Product, SocialConnection } from '../types';
@@ -16,7 +16,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [name, setName] = useState(''); const [price, setPrice] = useState('');
   const [hasColors, setHasColors] = useState(false); const [colors, setColors] = useState<string[]>([]); const [customColor, setCustomColor] = useState('');
   const [hasSizes, setHasSizes] = useState(false); const [sizes, setSizes] = useState<string[]>([]); const [customSize, setCustomSize] = useState('');
-  const [note, setNote] = useState('');
+  const [captionOverride, setCaptionOverride] = useState<string | null>(null);
   const [ready, setReady] = useState(false); const [cameraOpen, setCameraOpen] = useState(false);
   const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [draftNotice, setDraftNotice] = useState('');
   const [result, setResult] = useState<Result | null>(null);
@@ -27,8 +27,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const productId = useRef<number | null>(null); const submitting = useRef(false); const completed = useRef(false);
   const draftKey = `store-${storeId}`;
   const photos = media.filter(item => item.kind === 'image'); const video = media.find(item => item.kind === 'video');
-  const tags = `#stoyangu #${(storeSlug || storeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'}`;
-  const caption = useMemo(() => buildProductCaption({ name, price, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], note }), [name, price, colors, sizes, hasColors, hasSizes, note]);
+  const tags = `#${storeName.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'} #${(storeSlug || storeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'}`;
+  const generatedCaption = useMemo(() => buildProductCaption({ name, price, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [] }), [name, price, colors, sizes, hasColors, hasSizes]);
+  const caption = captionOverride ?? generatedCaption;
   const loadConnections = useCallback(async () => {
     setConnectionLoading(true); setConnectionError('');
     try { const data = await apiFetch<{ connections: SocialConnection[] }>(`/api/media?action=social&op=status&storeId=${storeId}`); setConnections(data.connections.filter(c => c.connection_status === 'connected')); }
@@ -40,7 +41,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     let alive = true;
     readDraft(draftKey).then(draft => {
       if (!alive || !draft || Date.now() - draft.savedAt > 7 * 86400000) return;
-      setName(draft.name); setPrice(draft.price); setColors(draft.colors); setSizes(draft.sizes); setHasColors(draft.hasColors); setHasSizes(draft.hasSizes); setNote(draft.note); setStep(draft.step);
+      setName(draft.name); setPrice(draft.price); setColors(draft.colors); setSizes(draft.sizes); setHasColors(draft.hasColors); setHasSizes(draft.hasSizes); setStep(draft.step);
       setMedia(draft.files.filter(file => file instanceof Blob).map(file => { const url = URL.createObjectURL(file); urls.current.add(url); return { file, url, kind: file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name) ? 'video' : 'image' }; }));
     }).catch(() => { if (alive) setDraftNotice('Automatic draft recovery is unavailable in this browser.'); }).finally(() => { if (alive) setReady(true); });
     return () => { alive = false; };
@@ -48,9 +49,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   useEffect(() => () => { urls.current.forEach(URL.revokeObjectURL); }, []);
   useEffect(() => {
     if (!ready || completed.current) return;
-    const timer = window.setTimeout(() => { void writeDraft(draftKey, { step, name, price, colors, sizes, hasColors, hasSizes, note, files: media.map(m => m.file), savedAt: Date.now() }).catch(() => setDraftNotice('Draft recovery is unavailable. Keep this window open until you save.')); }, 300);
+    const timer = window.setTimeout(() => { void writeDraft(draftKey, { step, name, price, colors, sizes, hasColors, hasSizes, note: '', files: media.map(m => m.file), savedAt: Date.now() }).catch(() => setDraftNotice('Draft recovery is unavailable. Keep this window open until you post.')); }, 300);
     return () => window.clearTimeout(timer);
-  }, [draftKey, ready, step, name, price, colors, sizes, hasColors, hasSizes, note, media]);
+  }, [draftKey, ready, step, name, price, colors, sizes, hasColors, hasSizes, media]);
   const addPhotos = (files: File[]) => {
     setError('');
     const accepted = files.filter(file => file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|avif|heic|heif)$/i.test(file.name));
@@ -80,8 +81,12 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     if (!photos.length) { setError('Add at least one product photo.'); return; }
     if (name.trim().length < 2) { setError('Enter a product name of at least 2 characters.'); return; }
     if (!Number.isFinite(Number(price)) || Number(price) < 1) { setError('Enter a price of at least KES 1.'); return; }
-    if (!asDraft && !connections.length) { setError('Connect an account in Inbox → Accounts, or save this as a draft.'); return; }
+    if (!asDraft && !connections.length) { setError('Connect an account in My Customers → Accounts to publish.'); return; }
     if ((caption + '\n\n' + tags).length > 2200) { setError('Shorten your note to keep the caption under 2,200 characters.'); return; }
+    // Must run from the tap gesture: browsers do not permit file sharing after async uploads.
+    if (!asDraft && video && navigator.canShare?.({ files: [video.file] })) {
+      void navigator.share({ files: [video.file], title: `${storeName} status`, text: caption }).catch(() => undefined);
+    }
     submitting.current = true; setBusy('Uploading media…');
     try {
       const attached = await Promise.all(media.map(async item => {
@@ -94,11 +99,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         const images = attached.filter(item => item.kind === 'image').map(item => item.url);
         const saved = await apiFetch<Product>('/api/products', { method: productId.current ? 'PUT' : 'POST', body: JSON.stringify({ ...(productId.current ? { id: productId.current } : {}), store_id: storeId, name: name.trim(), price: Number(price), colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], images, image_url: images[0] }) });
         productId.current = saved.id; onProductsChanged?.();
-        await apiFetch(`/api/products?storeId=${storeId}`);
       }
       setBusy(asDraft ? 'Saving draft…' : 'Sending to accounts…');
       const response = await apiFetch<{ results?: Result['results'] }>('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: asDraft ? 'save_draft' : 'publish', store_id: storeId, caption: `${caption}\n\n${tags}`, media_urls: attached.map(a => a.url), media_kinds: attached.map(a => a.kind) }) });
-      await apiFetch(`/api/media?action=social&op=posts&storeId=${storeId}`);
       completed.current = true;
       await writeDraft(draftKey, null).catch(() => undefined);
       setResult({ draft: asDraft, results: response.results || {} }); onPosted();
@@ -112,7 +115,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     {!ready ? <p role="status">Restoring your draft…</p> : result ? <div className="composer-result"><div className="result-check"><Check /></div><h3>{result.draft ? 'Draft saved' : allSucceeded ? 'Your post is queued' : 'Check your post results'}</h3><p>{result.draft ? 'Saved securely to your store. Nothing was published to social media.' : 'Your product is saved in your store. Social delivery status is shown below.'}</p><div className="composer-result-list">{Object.entries(result.results).map(([platform, r]) => <div key={platform} className={`composer-result-row ${r.ok ? 'ok' : 'fail'}`}><strong>{platform}</strong><small>{r.ok ? 'Accepted for publishing' : r.error || 'Not sent'}</small>{r.ok ? <Check /> : <X />}</div>)}</div><div className="modal-actions"><button className="button-primary" onClick={onClose}>Done <Check /></button></div></div> : <>
       {step === 'video' && <div className="composer-block composer-media-first"><strong><Video /> Add a video</strong><p className="composer-hint">Optional · pick from your gallery. Up to 75 MB.</p>{recap}<div className="composer-media-actions"><button className="button-primary compact" onClick={() => videoInput.current?.click()}><ImagePlus />{video ? 'Change video' : 'Choose video'}</button><button className="secondary-button compact-upload" onClick={() => setStep('photo')}>Skip <ArrowRight size={16} /></button></div></div>}
       {step === 'photo' && <div className="composer-block composer-media-first"><div className="composer-section-heading"><strong><ImagePlus /> Add photos</strong><span>{photos.length}/7</span></div><p className="composer-hint">1–7 photos. Your video stays first.</p>{recap}<div className="composer-media-actions"><button className="button-primary compact" onClick={() => setCameraOpen(true)} disabled={photos.length >= 7}><Camera /> Camera</button><button className="secondary-button compact-upload" onClick={() => photoInput.current?.click()} disabled={photos.length >= 7}><ImagePlus /> Gallery</button></div><div className="modal-actions composer-navigation"><button className="secondary-button" onClick={() => setStep('video')}><ArrowLeft /> Back</button><button className="button-primary" onClick={() => setStep('details')} disabled={!photos.length}>Continue <ArrowRight /></button></div></div>}
-      {step === 'details' && <><div className="composer-block"><strong><Package /> Product details</strong>{recap}<div className="composer-details-box"><div className="form-grid"><label>Product name<input maxLength={120} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Home jersey" disabled={!!busy} /></label><label>Price (KES)<input type="number" inputMode="decimal" min="1" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 2800" disabled={!!busy} /></label></div></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold']} selected={colors} onToggle={item => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42']} selected={sizes} onToggle={item => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} /></div><div className="composer-caption"><label htmlFor="caption-note">Your own words <span className="optional-label">(optional)</span></label><textarea id="caption-note" value={note} onChange={e => setNote(e.target.value)} maxLength={1400} rows={2} placeholder="Add a personal note or delivery details…" disabled={!!busy} /><div className="composer-section-heading"><label htmlFor="live-caption">Caption</label><span className="caption-live"><span /> Updates live</span></div><div className="caption-locked-box"><textarea id="live-caption" aria-label="Auto-filled caption" value={caption} readOnly rows={Math.min(7, caption.split('\n').length + 1)} /><div className="caption-locked-tags"><b>#stoyangu</b><b>{tags.split(' ')[1]}</b></div></div><small>{caption.length + tags.length + 2} / 2200</small></div>{connectionLoading ? <small className="composer-hint">Checking connected accounts…</small> : connectionError ? <div className="form-error">{connectionError} <button onClick={loadConnections}>Retry</button></div> : <small className="composer-hint">{connections.length ? `Posts to ${connections.length} connected account${connections.length !== 1 ? 's' : ''}.` : 'Connect accounts in Inbox → Accounts to publish. You can save a draft now.'}</small>}<div className="modal-actions composer-navigation"><button className="secondary-button" onClick={() => setStep('photo')} disabled={!!busy}><ArrowLeft /> Back</button><div className="composer-submit-actions"><button className="secondary-button" onClick={() => submit(true)} disabled={!!busy || locked}><Save /> Save draft</button><button className="button-primary" onClick={() => submit(false)} disabled={!!busy || locked || connectionLoading}><Send /> Post</button></div></div></>}
+      {step === 'details' && <><div className="composer-block"><strong><Package /> Product details</strong>{recap}<div className="composer-details-box"><div className="form-grid"><label>Product name<input maxLength={120} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Home jersey" disabled={!!busy} /></label><label>Price (KES)<input type="number" inputMode="decimal" min="1" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 2800" disabled={!!busy} /></label></div></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold']} selected={colors} onToggle={item => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42']} selected={sizes} onToggle={item => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} /></div><div className="composer-caption"><div className="composer-section-heading"><label htmlFor="live-caption">Caption</label><span className="caption-live"><span /> Updates live</span></div><div className="caption-locked-box"><textarea id="live-caption" aria-label="Editable caption" value={caption} onChange={e => setCaptionOverride(e.target.value)} rows={Math.min(7, caption.split('\n').length + 1)} /><div className="caption-locked-tags"><b>{tags.split(' ')[0]}</b><b>{tags.split(' ')[1]}</b><small>{storeLink(storeSlug)}</small></div></div><small>{caption.length + tags.length + 2} / 2200</small></div>{connectionLoading ? <small className="composer-hint">Checking connected accounts…</small> : connectionError ? <div className="form-error">{connectionError} <button onClick={loadConnections}>Retry</button></div> : <small className="composer-hint">{connections.length ? `Posts to ${connections.length} connected account${connections.length !== 1 ? 's' : ''}.` : 'Connect accounts in My Customers → Accounts to publish.'}</small>}<div className="modal-actions composer-navigation"><button className="secondary-button" onClick={() => setStep('photo')} disabled={!!busy}><ArrowLeft /> Back</button><div className="composer-submit-actions"><button className="button-primary" onClick={() => submit(false)} disabled={!!busy || locked || connectionLoading}><Send /> Post</button></div></div></>}
       {busy && <div className="form-success" role="status">{busy}</div>}{error && <div className="form-error" role="alert">{error}</div>}{draftNotice && <small className="composer-hint">{draftNotice}</small>}
     </>}
   </div>{cameraOpen && <SequentialCamera room={7 - photos.length} onClose={() => setCameraOpen(false)} onUse={files => { addPhotos(files); setCameraOpen(false); setStep('details'); }} />}<input ref={videoInput} hidden type="file" accept="video/*,.mp4,.mov,.m4v,.webm,.3gp" onChange={e => { chooseVideo(e.target.files?.[0]); e.target.value = ''; }} /><input ref={photoInput} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={e => { addPhotos(Array.from(e.target.files || [])); e.target.value = ''; }} /></Modal>;

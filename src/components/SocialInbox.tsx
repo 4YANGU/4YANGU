@@ -1,11 +1,12 @@
 import { clearOAuthReturn, getPendingState, resumeConnection, startConnection } from '../lib/socialOAuth';
 import type { OAuthOutcome } from '../lib/socialOAuth';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
+import { ArrowLeft, Check, CheckCheck, ExternalLink, Inbox as InboxIcon, Link2, MessageCircle, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send, Unlink } from 'lucide-react';
 import Modal from './Modal';
 import { apiFetch } from '../lib/api';
 import PlatformLogo, { PlatformBadge, platformLabel } from './PlatformLogo';
 import type { SocialConnection, SocialMessage, SocialThread } from '../types';
+import { readableMessage } from '../lib/messageText';
 
 const PLATFORMS = ['tiktok', 'facebook', 'instagram'];
 
@@ -43,6 +44,9 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [reply, setReply] = useState('');
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const attachmentInput = useRef<HTMLInputElement>(null);
+  const chatOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [busyKey, setBusyKey] = useState('');
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -132,6 +136,22 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   }, []);
 
   const selected = useMemo(() => threads.find((t) => t.thread_key === selectedKey) || null, [threads, selectedKey]);
+  useEffect(() => {
+    chatOpenRef.current = detailOpen;
+  }, [detailOpen]);
+  useEffect(() => {
+    const onBack = () => {
+      if (!chatOpenRef.current) return;
+      chatOpenRef.current = false;
+      setDetailOpen(false); setSelectedKey(null); setReply(''); setAttachment(null);
+    };
+    window.addEventListener('popstate', onBack);
+    return () => window.removeEventListener('popstate', onBack);
+  }, []);
+  const closeThread = () => {
+    if (chatOpenRef.current) window.history.back();
+    else { setDetailOpen(false); setSelectedKey(null); }
+  };
 
   const dmUnread = useMemo(() => threads.filter((t) => t.kind === 'dm').reduce((sum, t) => sum + t.unread, 0), [threads]);
   const commentUnread = useMemo(() => threads.filter((t) => t.kind === 'comment').reduce((sum, t) => sum + t.unread, 0), [threads]);
@@ -153,6 +173,8 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   };
 
   const openThread = async (thread: SocialThread) => {
+    if (!chatOpenRef.current) window.history.pushState({ stoyanguChat: thread.thread_key }, '', window.location.href);
+    chatOpenRef.current = true;
     setSelectedKey(thread.thread_key);
     setDetailOpen(true);
     setReply('');
@@ -168,16 +190,26 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
 
   const sendReply = async (event?: React.FormEvent) => {
     event?.preventDefault();
-    if (!selected || !reply.trim() || sending) return;
+    if (!selected || (!reply.trim() && !attachment) || sending) return;
     setSending(true);
     setError('');
     try {
+      let attachmentUrl = '';
+      if (attachment) {
+        if (attachment.size > 15 * 1024 * 1024) throw new Error('Attachments must be under 15 MB.');
+        const contentType = attachment.type;
+        if (!/^(image\/(jpeg|png|webp|gif)|application\/pdf)$/.test(contentType)) throw new Error('Choose a JPG, PNG, WebP, GIF or PDF attachment.');
+        const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=post-upload-url', { method: 'POST', body: JSON.stringify({ fileName: attachment.name, contentType, kind: contentType === 'application/pdf' ? 'document' : 'image' }) });
+        const uploaded = await fetch(signed.signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: attachment });
+        if (!uploaded.ok) throw new Error('Attachment upload failed. Please try again.');
+        attachmentUrl = signed.url;
+      }
       const result = await apiFetch<{ message: SocialMessage; delivery?: { ok?: boolean; error?: string } }>('/api/media?action=social', {
         method: 'POST',
-        body: JSON.stringify({ op: 'reply', store_id: storeId, thread_key: selected.thread_key, body: reply.trim() }),
+        body: JSON.stringify({ op: 'reply', store_id: storeId, thread_key: selected.thread_key, body: reply.trim(), attachment_url: attachmentUrl, attachment_name: attachment?.name }),
       });
       setThreads((current) => current.map((t) => t.thread_key === selected.thread_key ? { ...t, last_at: result.message.created_at, last_body: result.message.body, resolved: false, messages: [...t.messages, result.message] } : t));
-      setReply(''); await load(true);
+      setReply(''); setAttachment(null); await load(true);
       if (result.delivery && result.delivery.ok === false) setError(`Saved, but sending failed: ${result.delivery.error || 'please try again.'}`);
       onActivity?.();
     } catch (err) {
@@ -267,7 +299,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     <div className="social-inbox-head social-inbox-head-row">
       <div className="inbox-head-copy inbox-title-row">
         <h2>My Customers</h2>
-        <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={20} />)}</span>
+        <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram, WhatsApp">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={20} />)}<PlatformLogo platform="whatsapp" size={20} /></span>
       </div>
       <div className="social-head-actions">
         <button className="inbox-accounts-icon" onClick={() => setAccountsOpen(true)} aria-label="Connected accounts" title={`Connected accounts · ${connectedCount} of 5`}><Link2 />{connectedCount < 5 && <b>{connectedCount}/5</b>}</button>
@@ -296,9 +328,9 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
               </span>
               <span className="social-thread-body">
                 <span className="social-thread-top"><strong>{thread.sender_name}</strong><small>{timeAgo(thread.last_at)}</small></span>
-                <span className="social-thread-meta">{thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
+                <span className="social-thread-meta">{thread.platform === 'storefront' ? 'Website Order' : thread.kind === 'dm' ? 'DM' : 'Comment'}{thread.resolved && <em>Resolved</em>}</span>
                 {thread.kind === 'comment' && (thread.source_title || thread.source_ref) && <span className="thread-source-line"><Play />{thread.source_title || thread.source_ref}</span>}
-                <span className="social-thread-preview">{thread.last_body}</span>
+                <span className="social-thread-preview">{readableMessage(thread.last_body)}</span>
               </span>
               {thread.unread > 0 && <b className="social-unread">{thread.unread}</b>}
             </button>)}
@@ -306,13 +338,13 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
           <div className="social-thread-detail">
             {selected ? <>
               <div className="social-detail-head">
-                <button className="social-back" onClick={() => setDetailOpen(false)} aria-label="Back to customers"><ArrowLeft /></button>
+                <button className="social-back" onClick={closeThread} aria-label="Back to customers"><ArrowLeft /></button>
                 <span className="social-avatar-wrap">
                   {selected.sender_avatar ? <img className="social-avatar" src={selected.sender_avatar} alt="" /> : <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>}
                   <span className="social-avatar-platform"><PlatformLogo platform={selected.platform} size={12} /></span>
                 </span>
-                <div><strong>{selected.sender_name}</strong><small>{selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
-                <button className={`social-resolve ${selected.resolved ? 'done' : ''}`} onClick={toggleResolve} disabled={busyKey === 'resolve'}>{selected.resolved ? 'Reopen' : 'Resolve'} <Check /></button>
+                <div><strong>{selected.sender_name}</strong><small>{selected.platform === 'storefront' ? 'Website Order' : selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
+                {selected.platform === 'storefront' && selected.sender_handle && <div className="website-order-actions"><a className="chat-whatsapp" href={`https://wa.me/${selected.sender_handle.replace(/\D/g, '')}?text=${encodeURIComponent(reply || 'Hello! Thank you for your website order.')}`} target="_blank" rel="noreferrer">Reply via WhatsApp</a><a className="chat-call" href={`tel:${selected.sender_handle.replace(/[^\d+]/g, '')}`}>Call</a></div>}<button className={`social-resolve ${selected.resolved ? 'done' : ''}`} onClick={toggleResolve} disabled={busyKey === 'resolve'}>{selected.resolved ? 'Reopen' : 'Resolve'} <Check /></button>
               </div>
               {selected.kind === 'comment' && (selected.source_title || selected.source_ref) && <div className="comment-source-card">
                 <span className="comment-source-thumb"><Play /></span>
@@ -322,13 +354,13 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
               <div className="social-messages">
                 {selected.messages.map((message) => <div key={message.id} className={`social-bubble ${message.direction}`}>
                   <span className="bubble-platform"><PlatformLogo platform={message.platform} size={11} />{platformLabel(message.platform)}</span>
-                  <p>{message.body}</p>
+                  <p>{readableMessage(message.body)}</p>{message.attachment_url && <a className="chat-attachment" href={message.attachment_url} target="_blank" rel="noreferrer">{message.attachment_url.match(/\.(png|jpe?g|webp|gif)(\?|$)/i) ? <img src={message.attachment_url} alt={message.attachment_name || "Attached photo"} loading="lazy" /> : <><Paperclip size={16} /> {message.attachment_name || "View attachment"}</>}</a>}
                   <small>{fullTime(message.created_at)}{message.direction === 'out' ? ' · you' : ''}</small>
                 </div>)}
               </div>
               <form className="social-reply" onSubmit={sendReply}>
-                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={`Reply to ${selected.sender_name}…`} rows={2} maxLength={2000} />
-                <button className="button-primary" disabled={sending || !reply.trim()}>{sending ? 'Sending…' : 'Send'} <Send /></button>
+                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={`Reply to ${selected.sender_name}…`} rows={2} maxLength={2000} /><input ref={attachmentInput} hidden type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><button className="social-attach" type="button" onClick={() => attachmentInput.current?.click()} aria-label="Add photo or attachment"><Paperclip size={18} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
+                <button className="button-primary" disabled={sending || (!reply.trim() && !attachment)}>{sending ? 'Sending…' : 'Send'} <Send /></button>
               </form>
             </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
           </div>

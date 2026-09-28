@@ -9,7 +9,7 @@
 //                    unified DMs/comments inbox (GET ?op=status|inbox|posts,
 //                    POST { op: connect|oauth_pick|disconnect|sync_accounts|
 //                    sync_inbox|publish|save_draft|reply|read|resolve|
-//                    seed_demo })
+//                    resolve })
 //  ?action=social-callback — landing page for official platform OAuth (GET;
 //                    same-tab friendly: ?s=<state> survives platform hops)
 //
@@ -237,11 +237,13 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
     {
       for (const platform of platforms) {
         const connection = (connections || []).find((c) => c.platform === platform);
-        try {
-          const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title });
-          results[platform] = { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() };
-        } catch (publishError) {
-          results[platform] = { ok: false, mode: 'live', error: publishError instanceof Error ? publishError.message : 'Publish failed.' };
+        for (const placement of ['feed', 'story']) {
+          try {
+            const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title, placement });
+            results[`${platform} ${placement}`] = { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() };
+          } catch (publishError) {
+            results[`${platform} ${placement}`] = { ok: false, mode: 'live', error: publishError instanceof Error ? publishError.message : 'Publish failed.' };
+          }
         }
       }
     }
@@ -260,10 +262,11 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
 }
 
 async function handleSocialReply(req, res, profile, storeId) {
-  if (replizMode() !== 'live') return res.status(503).json({ error: 'Repliz is not configured. Your reply was not sent.' });
   const threadKey = String(req.body?.thread_key || '').slice(0, 200);
   const body = String(req.body?.body || '').trim().slice(0, 2000);
-  if (!threadKey || !body) return res.status(400).json({ error: 'Conversation and reply text are required.' });
+  const attachmentUrl = String(req.body?.attachment_url || '').slice(0, 1500);
+  const attachmentName = String(req.body?.attachment_name || '').slice(0, 200);
+  if (!threadKey || (!body && !attachmentUrl)) return res.status(400).json({ error: 'Conversation and reply are required.' });
   const { data: existing, error: existingError } = await supabase
     .from('social_messages')
     .select('*')
@@ -284,7 +287,8 @@ async function handleSocialReply(req, res, profile, storeId) {
     thread_key: threadKey,
     sender_name: store?.name || 'Store',
     sender_handle: null,
-    body,
+    body: body || (attachmentName ? `Attachment: ${attachmentName}` : 'Photo attachment'),
+    ...(attachmentUrl ? { attachment_url: attachmentUrl, attachment_name: attachmentName || null } : {}),
     direction: 'out',
     is_read: true,
     is_resolved: false,
@@ -292,14 +296,16 @@ async function handleSocialReply(req, res, profile, storeId) {
   }).select().single();
   if (error) throw error;
   let delivery = { ok: true, mode };
-  if (mode === 'live') {
+  if (mode === 'live' && head.platform !== 'storefront') {
     try {
       const { data: connection } = await supabase.from('social_connections').select('account_id').eq('store_id', storeId).eq('platform', head.platform).limit(1).maybeSingle();
-      await replizSendReply({ platform: head.platform, accountId: connection?.account_id, threadKey, externalId: head.external_id, body, kind: head.kind });
+      await replizSendReply({ platform: head.platform, accountId: connection?.account_id, threadKey, externalId: head.external_id, body: [body, attachmentUrl].filter(Boolean).join('\n'), kind: head.kind });
     } catch (replyError) {
       delivery = { ok: false, mode, error: replyError instanceof Error ? replyError.message : 'Live send failed.' };
     }
   }
+  if (head.platform === 'storefront') delivery = { ok: false, mode: 'storefront', error: 'Storefront replies stay in your inbox. Open WhatsApp to send this message to the customer.' };
+  else if (mode !== 'live') delivery = { ok: false, mode, error: 'Social delivery needs Repliz credentials. Reply saved in your inbox.' };
   // Reopen + mark the owner's view consistent: inbound messages stay as they were.
   await supabase.from('social_messages').update({ is_resolved: false }).eq('store_id', storeId).eq('thread_key', threadKey);
   return res.status(201).json({ message: saved, delivery });
@@ -469,7 +475,7 @@ async function handleSocial(req, res) {
     if (op === 'reply') return await handleSocialReply(req, res, profile, storeId);
     if (op === 'read') return await handleSocialRead(req, res, profile, storeId);
     if (op === 'resolve') return await handleSocialResolve(req, res, profile, storeId);
-    return res.status(400).json({ error: 'Unknown op. Use connect | oauth_pick | disconnect | sync_accounts | sync_inbox | publish | save_draft | reply | read | resolve | seed_demo' });
+    return res.status(400).json({ error: 'Unknown op. Use connect | oauth_pick | disconnect | sync_accounts | sync_inbox | publish | save_draft | reply | read | resolve' });
   }
   return res.status(405).json({ error: 'Method not allowed' });
 }
@@ -489,9 +495,10 @@ async function handlePostUploadUrl(req, res) {
   const { fileName, contentType, kind } = req.body || {};
   const type = String(contentType || '').toLowerCase();
   const isVideo = kind === 'video' || ALLOWED_POST_VIDEO_TYPES.test(type);
+  const isDocument = type === 'application/pdf' && kind === 'document';
   if (isVideo && !ALLOWED_POST_VIDEO_TYPES.test(type)) return res.status(400).json({ error: 'Please use an MP4, MOV or WebM video.' });
-  if (!isVideo && !ALLOWED_POST_MEDIA_TYPES.test(type)) return res.status(400).json({ error: 'Please use a JPG, PNG, WebP or GIF photo.' });
-  const extension = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : type.includes('quicktime') ? 'mov' : type.includes('webm') ? 'webm' : isVideo ? 'mp4' : 'jpg';
+  if (!isVideo && !isDocument && !ALLOWED_POST_MEDIA_TYPES.test(type)) return res.status(400).json({ error: 'Please use a JPG, PNG, WebP, GIF or PDF file.' });
+  const extension = isDocument ? 'pdf' : type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : type.includes('quicktime') ? 'mov' : type.includes('webm') ? 'webm' : isVideo ? 'mp4' : 'jpg';
   const path = `posts/${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
   const { data, error: signedError } = await supabase.storage.from(POST_MEDIA_BUCKET).createSignedUploadUrl(path);
   if (signedError || !data?.signedUrl) {

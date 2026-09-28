@@ -70,14 +70,14 @@
 
 /* ---- Smaller bottom nav (TikTok style) ---- */
 .manage-bottom-nav-tiktok {
-  padding: 6px 10px calc(8px + env(safe-area-inset-bottom));
+  padding: 2px 10px calc(3px + env(safe-area-inset-bottom));
 }
 .manage-bottom-nav-tiktok .manage-bottom-nav-inner {
   max-width: 420px;
   gap: 4px;
 }
 .manage-bottom-nav-tiktok .manage-nav-item {
-  padding: 6px 2px 4px;
+  padding: 2px 2px 1px;
   font-size: 0.55rem;
   gap: 2px;
 }
@@ -86,10 +86,10 @@
   height: 20px;
 }
 .manage-bottom-nav-tiktok .manage-nav-post {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
-  transform: translateY(-10px);
+  width: 42px;
+  height: 36px;
+  border-radius: 11px;
+  transform: translateY(-2px);
 }
 .manage-bottom-nav-tiktok .manage-nav-post svg {
   width: 22px;
@@ -105,7 +105,9 @@
 
 /* ---- Store details: TikTok-style header ---- */
 .owner-store-link {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #9cb0ba;
   font-size: 0.68rem;
   font-weight: 700;
@@ -133,6 +135,23 @@
 .owner-open-storefront-btn svg {
   width: 11px;
 }
+.owner-store-link .owner-open-storefront-btn { margin: 0; padding: 3px 5px; flex-shrink: 0; }
+.owner-store-link .owner-open-storefront-btn svg { width: 13px; height: 13px; }
+.tiktok-stat .stat-today { display: inline-flex; align-items: center; border-radius: 99px; background: rgba(76, 210, 143, .17); color: #7df0af; font-size: .57rem; font-weight: 800; padding: 3px 7px; margin-top: 4px; white-space: nowrap; }
+.owner-product-list article { grid-template-columns: 88px minmax(150px,1fr) minmax(180px,.8fr) auto; }
+.owner-product-list article .product-media-group { width: 88px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+.owner-product-list article .product-cover { width: 88px; height: 76px; border-radius: 9px; object-fit: cover; }
+.owner-product-list article .product-media-strip { display: flex; gap: 3px; margin: 0; flex-wrap: nowrap; overflow: hidden; }
+.owner-product-list article .product-thumb { width: 26px; height: 26px; border-radius: 4px; flex-shrink: 0; }
+.chat-attachment { display: block; margin: 7px 0; color: #207951; font-weight: 700; overflow-wrap: anywhere; }
+.chat-whatsapp { color: #168a50; background: #e3f5e9; font-size: 11px; font-weight: 800; padding: 7px 9px; border-radius: 8px; white-space: nowrap; text-decoration: none; }
+.website-order-actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.chat-call { color: #265d91; background: #e9f3fd; font-size: 11px; font-weight: 800; padding: 7px 9px; border-radius: 8px; white-space: nowrap; text-decoration: none; }
+.chat-attachment img { max-width: 210px; max-height: 190px; border-radius: 10px; object-fit: cover; }
+.social-attach { background: #eff5ee; border: 0; border-radius: 10px; padding: 8px; display: grid; place-items: center; cursor: pointer; }
+.attachment-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: #34724d; }
+.attachment-chip button { border: 0; background: none; font-size: 17px; cursor: pointer; }
+@media (max-width: 720px) { .owner-product-list article { grid-template-columns: 68px minmax(0, 1fr) auto !important; } .owner-product-list article .product-media-group { grid-column: 1; grid-row: 1 / span 2; width: 68px; } .owner-product-list article .product-cover { width: 68px; height: 70px; } .owner-product-list article .product-thumb { width: 20px; height: 20px; } .manage-bottom-nav-tiktok .manage-bottom-nav-inner { min-height: 43px; } }
 
 /* ---- My Customers: platform logo on avatar ---- */
 .social-avatar-wrap {
@@ -223,6 +242,16 @@
   font-size: 0.58rem;
   margin-top: 6px;
 }
+.analytics-grid.tiktok-analytics .metric-card > small:not(:empty) { background: #e3f6e9; color: #16814c; border-radius: 99px; padding: 5px 9px; font-weight: 800; font-size: .64rem; }
+.analytics-grid.tiktok-analytics .metric-card:nth-child(2) > small,
+.analytics-grid.tiktok-analytics .metric-card:nth-child(3) > small,
+.analytics-grid.tiktok-analytics .metric-card:nth-child(4) > small { background: #d7f4de; color: #087944; }
+.dashboard-shell .tiktok-analytics .metric-card { border: 1px solid var(--metric-edge, #dfe9e2); background: radial-gradient(circle at 90% 5%, var(--metric-tint, rgba(90,150,110,.12)), transparent 72%), #fff; box-shadow: 0 10px 28px var(--metric-glow, rgba(90,150,110,.12)), inset 0 0 16px var(--metric-tint, rgba(90,150,110,.08)); }
+.dashboard-shell .tiktok-analytics .metric-card:nth-child(1) { --metric-tint: rgba(111,181,145,.18); --metric-glow: rgba(65,145,95,.14); --metric-edge: #d5eada; }
+.dashboard-shell .tiktok-analytics .metric-card:nth-child(2) { --metric-tint: rgba(105,169,220,.17); --metric-glow: rgba(63,128,199,.14); --metric-edge: #d5e6f4; }
+.dashboard-shell .tiktok-analytics .metric-card:nth-child(3) { --metric-tint: rgba(235,172,104,.18); --metric-glow: rgba(198,132,58,.14); --metric-edge: #f0dfcb; }
+.dashboard-shell .tiktok-analytics .metric-card:nth-child(4) { --metric-tint: rgba(177,140,218,.18); --metric-glow: rgba(140,100,185,.14); --metric-edge: #e8d9f1; }
+.dashboard-shell .tiktok-analytics .metric-card:nth-child(5) { --metric-tint: rgba(110,194,191,.18); --metric-glow: rgba(43,147,144,.14); --metric-edge: #d3eae8; }
 @media (max-width: 1000px) {
   .analytics-grid.tiktok-analytics {
     grid-template-columns: repeat(3, 1fr);
@@ -255,6 +284,56 @@
   border-radius: 8px;
   object-fit: cover;
   background: #edf0ec;
+}
+
+/* Founder workspace: phone-first without sideways overflow or crowded controls. */
+@media (max-width: 720px) {
+  .dashboard-shell, .dashboard-main, .dashboard-top, .dashboard-main .dash-section, .dashboard-main .store-admin-card { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .dashboard-shell { display: block; overflow-x: clip; }
+  .dashboard-main { padding: 18px 14px calc(92px + env(safe-area-inset-bottom)); }
+  .dashboard-top { display: block; margin-bottom: 20px; }
+  .dashboard-top h1 { font-size: clamp(1.55rem, 7vw, 2rem); overflow-wrap: anywhere; }
+  .dashboard-top p { line-height: 1.5; }
+  .mobile-topbar { flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .mobile-topbar .brand-logo { width: min(106px, 30vw); height: auto; }
+  .mobile-topbar-actions { gap: 5px; }
+  .mobile-topbar-actions button { padding: 7px 9px; font-size: 10px; }
+  .top-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .top-actions button { min-width: 0; width: 100%; justify-content: center; font-size: 11px; padding: 9px 7px; white-space: normal; text-align: center; }
+  .top-actions .source-download { grid-column: 1 / -1; }
+  .dashboard-shell .analytics-grid.tiktok-analytics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .dashboard-shell .analytics-grid.tiktok-analytics .metric-card { min-width: 0; min-height: 112px; padding: 12px; }
+  .dashboard-shell .analytics-grid.tiktok-analytics .metric-card:last-child { grid-column: 1 / -1; }
+  .dashboard-shell .analytics-grid.tiktok-analytics .metric-card > strong { font-size: clamp(1.35rem, 6vw, 1.7rem); }
+  .dashboard-main .dash-section { padding: 16px 12px; }
+  .dashboard-main .dash-section-head { flex-wrap: wrap; gap: 8px; }
+  .dashboard-main .stores-head .search-box, .dashboard-main .stores-head .search-box input { width: 100%; min-width: 0; box-sizing: border-box; }
+  .dashboard-main .store-admin-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .dashboard-main .store-admin-card { padding: 14px; overflow: hidden; }
+  .dashboard-main .store-card-top { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px 10px; align-items: start; }
+  .dashboard-main .store-card-top > div:nth-child(2) { max-width: none; min-width: 0; overflow-wrap: anywhere; }
+  .dashboard-main .store-card-top a { overflow-wrap: anywhere; word-break: break-word; }
+  .dashboard-main .billing-control { grid-column: 1 / -1; margin: 3px 0 0; text-align: left; }
+  .dashboard-main .billing-control small { font-size: 10px; }
+  .dashboard-main .store-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 10px 5px; gap: 0; }
+  .dashboard-main .store-stats div { min-width: 0; padding: 0 6px; }
+  .dashboard-main .store-stats span { line-height: 1.35; overflow-wrap: anywhere; }
+  .dashboard-main .store-card-actions { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 38px); gap: 5px; }
+  .dashboard-main .store-card-actions > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .dashboard-main .store-card-actions .manage-button { justify-content: center; font-size: 11px; padding: 8px 4px; }
+  .dashboard-main .application-list article { grid-template-columns: 12px minmax(0, 1fr) auto; gap: 6px; }
+  .dashboard-main .application-person { min-width: 0; overflow-wrap: anywhere; }
+  .dashboard-sidebar { height: calc(62px + env(safe-area-inset-bottom)); padding: 4px 6px env(safe-area-inset-bottom); }
+  .dashboard-sidebar nav { gap: 0; align-items: stretch; }
+  .dashboard-sidebar nav a, .dashboard-sidebar nav button { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; justify-content: center; align-items: center; padding: 4px 2px; font-size: 9px; line-height: 1.1; text-align: center; }
+  .dashboard-sidebar nav svg { width: 17px; height: 17px; flex-shrink: 0; }
+}
+@media (max-width: 420px) {
+  .dashboard-main { padding-left: 10px; padding-right: 10px; }
+  .dashboard-main .application-list article { grid-template-columns: 12px minmax(0, 1fr); }
+  .dashboard-main .application-list select { grid-column: 2; width: 100%; }
+  .dashboard-shell .analytics-grid.tiktok-analytics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-main .store-card-top > div:nth-child(2) { max-width: none; }
 }
 
 /* ---- My Customers merged view tweaks ---- */

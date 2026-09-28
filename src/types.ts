@@ -125,6 +125,8 @@ export type SocialMessage = {
   post_title: string;
   post_url: string;
   sender_avatar: string | null;
+  attachment_url?: string | null;
+  attachment_name?: string | null;
   created_at: string;
 };
 
@@ -164,4 +166,5 @@ export type DashboardData = {
   orders?: Order[];
   notifications?: Array<{ id: number; batch_key?: string; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
   customers?: number;
+  customersToday?: number;
 };
