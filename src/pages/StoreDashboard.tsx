@@ -16,6 +16,7 @@ import '../manage-redesign.css';
 import '../woyoyo-013.css';
 
 type StoreUpkeep = { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'TRIAL' | 'PAID'; upkeep_due?: 0 | 300; upkeep_paid?: boolean; management_locked?: boolean; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
+type StoreApk = { status: 'not_started' | 'building' | 'ready' | 'failed'; apk_url?: string | null; error?: string | null; version_code?: number };
 
 const isStandaloneApp = () =>
   window.matchMedia('(display-mode: standalone)').matches ||
@@ -51,6 +52,8 @@ export default function StoreDashboard() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
+  const [apk, setApk] = useState<StoreApk>({ status: 'not_started' });
+  const [apkBusy, setApkBusy] = useState(false);
   // WOYOYO-013: My Products and My Customers are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
@@ -73,6 +76,23 @@ export default function StoreDashboard() {
     }
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const id = data?.store?.id;
+    if (!id) return;
+    let alive = true;
+    const refresh = () => apiFetch<StoreApk>(`/api/store-apk?storeId=${id}`).then(result => { if (alive) setApk(result); }).catch(() => undefined);
+    void refresh();
+    const timer = window.setInterval(refresh, 12000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [data?.store?.id]);
+  const buildStoreApk = async () => {
+    const id = data?.store?.id;
+    if (!id || apkBusy) return;
+    setApkBusy(true); setError('');
+    try { setApk(await apiFetch<StoreApk>('/api/store-apk', { method: 'POST', body: JSON.stringify({ store_id: id }) })); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to start the Android build.'); }
+    finally { setApkBusy(false); }
+  };
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
   useEffect(() => {
     if (composerOpen && !window.history.state?.stoyanguComposer) window.history.pushState({ ...window.history.state, stoyanguComposer: true }, '', window.location.href);
@@ -191,9 +211,9 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
   const cycleLabel = cycleStart && cycleEnd ? `Day ${cycleDay}/30 · ends ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : 'Free trial';
-  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'owner' && <button className="header-icon-btn" onClick={installApp} aria-label="Install app"><Download /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div><span className="owner-cycle-dates">{cycleLabel}</span></div></div></header><main className="owner-main">
+  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'founder' && <button className="build-apk-button" onClick={buildStoreApk} disabled={apkBusy || apk.status === 'building' || !store.logo_url} title={!store.logo_url ? 'Add a store logo first' : 'Build this store’s Android app'}>{apkBusy || apk.status === 'building' ? <RefreshCw className="spin" /> : <Download />} Build app</button>}{apk.status === 'ready' && apk.apk_url ? <a className="header-icon-btn apk-download" href={apk.apk_url} download={`stoyangu-${store.slug}.apk`} aria-label={`Download ${store.name} APK`} title="Download this store’s Android app"><Download /></a> : <button className="header-icon-btn" type="button" onClick={installApp} disabled={/Android/i.test(navigator.userAgent)} aria-label="Android APK is being prepared" title={apk.status === 'failed' ? apk.error || 'Android build failed' : 'Waiting for this store’s Android APK'}><RefreshCw className="spin" /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div><span className="owner-cycle-dates">{cycleLabel}</span></div></div></header><main className="owner-main">
     {/* WOYOYO-013: My Products and My Customers pages */}
-    {error && <div className="dashboard-error">{error}</div>}
+    {error && <div className="dashboard-error">{error}</div>}{apk.status === 'failed' && apk.error && <div className="dashboard-error">Android build: {apk.error}</div>}
     {activeTab === 'customers'
     ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
     : <>

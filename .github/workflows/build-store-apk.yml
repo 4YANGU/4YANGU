@@ -1,0 +1,68 @@
+name: Build a store's signed StoYangu Android app
+on:
+  workflow_dispatch:
+    inputs:
+      store_id:
+        description: Store ID
+        required: true
+        type: string
+      slug:
+        description: Store slug
+        required: true
+        type: string
+      logo_url:
+        description: Store logo path or HTTPS URL
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      STORE_ID: ${{ inputs.store_id }}
+      STORE_SLUG: ${{ inputs.slug }}
+      STORE_LOGO_URL: ${{ inputs.logo_url }}
+      STOYANGU_LIVE_URL: ${{ secrets.STOYANGU_LIVE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      APK_KEYSTORE_BASE64: ${{ secrets.APK_KEYSTORE_BASE64 }}
+      APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+      APK_KEY_ALIAS: ${{ secrets.APK_KEY_ALIAS }}
+      APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+      STOYANGU_KEYSTORE_PATH: ${{ github.workspace }}/android/app/stoyangu-release.jks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 35 build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Build web entry and install Android scaffold
+        run: |
+          npm ci
+          npm run build
+          npx cap add android
+          npx cap sync android
+      - name: Apply this store's logo, native plugin and release signing
+        run: |
+          node scripts/prepare-store-apk.mjs
+          printf '%s' "$APK_KEYSTORE_BASE64" | base64 --decode > "$STOYANGU_KEYSTORE_PATH"
+          chmod 600 "$STOYANGU_KEYSTORE_PATH"
+      - name: Build signed release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+      - name: Upload finished APK to this store's Supabase record
+        run: node scripts/publish-store-apk.mjs
+      - name: Report build failure to the store dashboard
+        if: failure()
+        run: node scripts/publish-store-apk.mjs --failed

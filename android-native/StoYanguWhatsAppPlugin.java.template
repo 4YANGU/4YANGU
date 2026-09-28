@@ -1,0 +1,70 @@
+package __PACKAGE__;
+
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import androidx.core.content.FileProvider;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+@CapacitorPlugin(name = "StoYanguWhatsApp")
+public class StoYanguWhatsAppPlugin extends Plugin {
+    @PluginMethod
+    public void shareStatus(PluginCall call) {
+        String videoUrl = call.getString("videoUrl", "");
+        String caption = call.getString("caption", "");
+        if (!videoUrl.startsWith("https://")) { call.reject("A secure, uploaded video URL is required."); return; }
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(videoUrl).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setInstanceFollowRedirects(true);
+                if (connection.getResponseCode() != 200) throw new Exception("The video is not ready to share yet.");
+                File dir = new File(getContext().getCacheDir(), "share");
+                if (!dir.exists() && !dir.mkdirs()) throw new Exception("Could not prepare the video.");
+                File file = new File(dir, "status-" + System.currentTimeMillis() + ".mp4");
+                try (InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(file)) {
+                    byte[] buffer = new byte[32768]; int count; long total = 0;
+                    while ((count = in.read(buffer)) != -1) {
+                        total += count;
+                        if (total > 80L * 1024L * 1024L) throw new Exception("Keep the video under 80 MB.");
+                        out.write(buffer, 0, count);
+                    }
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", file);
+                getActivity().runOnUiThread(() -> {
+                    try {
+                        ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                        if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("StoYangu caption", caption));
+                        Intent intent = new Intent(Intent.ACTION_SEND);
+                        intent.setType("video/mp4");
+                        intent.setPackage("com.whatsapp");
+                        intent.putExtra(Intent.EXTRA_STREAM, uri);
+                        intent.putExtra(Intent.EXTRA_TEXT, caption);
+                        intent.setClipData(ClipData.newUri(getContext().getContentResolver(), "StoYangu video", uri));
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        try { getActivity().startActivity(intent); }
+                        catch (android.content.ActivityNotFoundException absent) {
+                            intent.setPackage("com.whatsapp.w4b");
+                            getActivity().startActivity(intent);
+                        }
+                        JSObject result = new JSObject(); result.put("opened", true); call.resolve(result);
+                    } catch (Exception e) { call.reject("Install WhatsApp to share this video, or use Copy caption and share it yourself.", e); }
+                });
+            } catch (Exception e) { call.reject("Could not prepare the video for WhatsApp: " + e.getMessage(), e); }
+            finally { if (connection != null) connection.disconnect(); }
+        }).start();
+    }
+}

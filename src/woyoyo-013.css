@@ -21,6 +21,9 @@
   width: 16px;
   height: 16px;
 }
+.owner-header-actions .apk-download { width: 34px; height: 34px; display: grid; place-items: center; flex-shrink: 0; text-decoration: none; }
+.owner-header-actions .build-apk-button { border: 1px solid rgba(120, 190, 150, .5); background: rgba(120, 190, 150, .15); color: #a8e6bf; border-radius: 999px; padding: 7px 10px; font-weight: 800; white-space: nowrap; }
+.owner-header-actions .build-apk-button:disabled { opacity: .55; cursor: not-allowed; }
 
 /* ---- TikTok-style stats row (number on top, label below) ---- */
 .tiktok-stats-row {
