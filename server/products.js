@@ -24,11 +24,14 @@ const cleanImages = (value, fallback = '') => {
 };
 async function withImages(products) {
   if (!products?.length) return [];
-  const { data, error } = await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true });
-  if (error) throw error;
+  const [{ data, error }, { data: videos, error: videoError }] = await Promise.all([
+    supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }),
+    supabase.from('product_media').select('product_id,url').in('product_id', products.map((product) => product.id)).eq('media_type', 'video'),
+  ]);
+  if (error || videoError) throw error || videoError;
   return products.map((product) => {
     const images = (data || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7);
-    return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) };
+    return { ...product, images: images.length ? images : [product.image_url].filter(Boolean), video_url: (videos || []).find(item => item.product_id === product.id)?.url || '' };
   });
 }
 export default async function handler(req, res) {
@@ -54,8 +57,10 @@ export default async function handler(req, res) {
       const { data, error } = await supabase.from('products').insert({ store_id: storeId, name, price, [LEGACY_GROUPING_KEY]: 'General', colors: cleanList(body.colors), sizes: cleanList(body.sizes), image_url: image, views_total: 0, views_today: 0, orders_total: 0, orders_today: 0, metrics_date: new Date().toISOString().slice(0, 10), active: true }).select().single(); if (error) throw error;
       const { error: mediaError } = await supabase.from('product_images').insert(images.map((url, sort_order) => ({ product_id: data.id, store_id: storeId, url, sort_order })));
       if (mediaError) { await supabase.from('products').delete().eq('id', data.id); throw mediaError; }
+      const videoUrl = String(body.video_url || '').slice(0, 1000);
+      if (videoUrl.startsWith('https://') || videoUrl.startsWith('/')) { const savedVideo = await supabase.from('product_media').insert({ product_id: data.id, store_id: storeId, media_type: 'video', url: videoUrl }).select('id'); if (savedVideo.error) throw savedVideo.error; }
       await supabase.from('stores').update({ updated_at: new Date().toISOString() }).eq('id', storeId);
-      return res.status(201).json({ ...data, images });
+      return res.status(201).json({ ...data, images, video_url: videoUrl });
     }
     const id = Number(req.body?.id); if (!id) return res.status(400).json({ error: 'Product is required.' });
     const { data: existing } = await supabase.from('products').select('*').eq('id', id).single(); if (!existing) return res.status(404).json({ error: 'Product not found.' });
@@ -68,6 +73,11 @@ export default async function handler(req, res) {
       await supabase.from('product_images').delete().eq('product_id', id);
       const { error: mediaError } = await supabase.from('product_images').insert(images.map((url, sort_order) => ({ product_id: id, store_id: existing.store_id, url, sort_order })));
       if (mediaError) throw mediaError;
+      if (Object.hasOwn(body, 'video_url')) {
+        const videoUrl = String(body.video_url || '').slice(0, 1000);
+        const { error: removeError } = await supabase.from('product_media').delete().eq('product_id', id); if (removeError) throw removeError;
+        if (videoUrl.startsWith('https://') || videoUrl.startsWith('/')) { const savedVideo = await supabase.from('product_media').insert({ product_id: id, store_id: existing.store_id, media_type: 'video', url: videoUrl }).select('id'); if (savedVideo.error) throw savedVideo.error; }
+      }
       await supabase.from('stores').update({ updated_at: new Date().toISOString() }).eq('id', existing.store_id);
       return res.status(200).json({ ...data, images });
     }

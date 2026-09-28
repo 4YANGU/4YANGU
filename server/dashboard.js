@@ -48,9 +48,12 @@ export default async function handler(req, res) {
         store.metrics_date = nairobiToday;
         await supabase.from('stores').update({ visitor_today: countedVisits, orders_today: countedOrders, metrics_date: nairobiToday }).eq('id', store.id);
       }
-      const { data: media, error: mediaError } = products?.length ? await supabase.from('product_images').select('*').in('product_id', products.map((product) => product.id)).order('sort_order', { ascending: true }) : { data: [], error: null };
-      if (mediaError) throw mediaError;
-      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean) }; });
+      const [{ data: media, error: mediaError }, { data: videos, error: videoError }] = products?.length ? await Promise.all([
+        supabase.from('product_images').select('*').in('product_id', products.map(product => product.id)).order('sort_order', { ascending: true }),
+        supabase.from('product_media').select('product_id,url').in('product_id', products.map(product => product.id)).eq('media_type', 'video'),
+      ]) : [{ data: [], error: null }, { data: [], error: null }];
+      if (mediaError || videoError) throw mediaError || videoError;
+      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean), video_url: (videos || []).find(item => item.product_id === product.id)?.url || '' }; });
       const { data: highlights, error: highlightError } = notifications?.length ? await supabase.from('notification_highlights').select('*').in('notification_id', notifications.map((notification) => notification.id)) : { data: [], error: null };
       if (highlightError) throw highlightError;
       const ranked = [...liveProducts].sort((a, b) => Number(b.orders_today) - Number(a.orders_today) || Number(b.views_today) - Number(a.views_today));

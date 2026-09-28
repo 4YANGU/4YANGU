@@ -1,0 +1,9 @@
+StoYangu WOYOYO-016 — install in your existing repository
+
+1. Extract this archive over your existing StoYangu repository, allowing replacement of matching files. No account-test code or environment files are included.
+2. In Supabase SQL Editor, run migrations/202609280014_woyoyo014.sql and migrations/202609280015_woyoyo015.sql if not already applied. Then run supabase/migrations/202609280016_woyoyo016.sql to add product video records.
+3. Keep your existing Supabase/Vercel environment settings. Run npm ci && npm run build, then deploy through your existing Vercel workflow.
+4. For push notifications to installed devices, configure VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT through your deployment secrets and have each owner enable notifications. Social DMs/comments and post delivery require authorized accounts and REPLIZ_ACCESS_KEY plus REPLIZ_SECRET_KEY. Without these credentials, delivery cannot be guaranteed.
+5. The top download icon now opens the browser's real app installation prompt where supported, with platform-specific home-screen installation steps otherwise. This is a PWA, NOT an APK. This workspace has no Android SDK, Java toolchain or signing key, so no legitimate installable APK can be generated here. A website cannot force WhatsApp Status to open or attach a video automatically. PWA versions refresh after deployment to your hosting; copying a ZIP into GitHub does not itself update an installed app.
+
+Changes: unified editable caption including colour and size, compact My Customers heading, simplified camera/text/send row, product videos in My Products, and functional PWA install guidance.

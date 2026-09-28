@@ -153,15 +153,15 @@
 .attachment-chip button { border: 0; background: none; font-size: 17px; cursor: pointer; }
 .social-inbox-head-row { display: flex; align-items: center; gap: 6px; }
 .social-inbox-head-row .inbox-title-row { flex: 1; min-width: 0; gap: 6px; flex-wrap: nowrap; }
-.social-inbox-head-row .inbox-title-row h2 { white-space: nowrap; font-size: clamp(13px, 3.5vw, 21px); }
+.social-inbox-head-row .inbox-title-row h2 { white-space: nowrap; font-size: 1.25rem; }
 .social-inbox-head-row .inbox-platform-strip { gap: 3px; flex-shrink: 0; }
 .social-inbox-head-row .social-head-actions { gap: 4px; flex-shrink: 0; }
 .social-inbox-head-row .inbox-accounts-icon, .social-inbox-head-row .inbox-refresh-icon { width: 29px; height: 29px; min-width: 29px; }
 .social-inbox-head-row .inbox-accounts-icon svg, .social-inbox-head-row .inbox-refresh-icon svg { width: 14px; height: 14px; }
 .chat-day-divider { align-self: center; background: #e6ece5; color: #51665b; padding: 5px 13px; border-radius: 999px; font-size: 10px; font-weight: 800; margin: 5px auto; }
-.social-reply { display: grid; grid-template-columns: minmax(0, 1fr) 32px 32px 38px; align-items: center; gap: 5px; padding: 8px; }
+.social-reply { display: grid; grid-template-columns: minmax(0, 1fr) 34px 38px; align-items: center; gap: 6px; padding: 8px; }
 .social-reply textarea { min-width: 0; min-height: 40px; max-height: 100px; border-radius: 22px; resize: none; padding: 10px 14px; }
-.social-reply .social-attach, .social-reply .social-camera { width: 32px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #5f7067; display: grid; place-items: center; padding: 0; cursor: pointer; }
+.social-reply .social-camera { width: 32px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #5f7067; display: grid; place-items: center; padding: 0; cursor: pointer; }
 .social-reply .social-send { width: 38px; height: 38px; border: 0; border-radius: 50%; display: grid; place-items: center; background: #248857; color: white; cursor: pointer; }
 .social-reply .social-send:disabled { opacity: .45; cursor: not-allowed; }
 .social-reply .attachment-chip { grid-column: 1 / -1; grid-row: 2; background: #e9f5ec; border-radius: 8px; padding: 3px 8px; }
@@ -169,6 +169,10 @@
 .copy-caption-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #b8d9bf; background: #e9f6ea; color: #236c43; border-radius: 8px; padding: 7px 10px; font-size: 11px; font-weight: 800; cursor: pointer; }
 .caption-variants-label { display: grid; gap: 5px; border-top: 1px solid #dbe7da; margin-top: 8px; padding-top: 8px; color: #326f49; font-size: 11px; font-weight: 700; }
 .composer-v12 .caption-variants-label textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid #cee5d3; border-radius: 8px; background: white; padding: 8px; color: #254e34; font-size: 12px; line-height: 1.55; }
+.owner-product-list article .product-video { width: 88px; height: 68px; object-fit: cover; border-radius: 8px; background: #152424; }
+.install-guide { display: grid; gap: 10px; padding: 12px 20px 22px; color: #435449; font-size: 13px; line-height: 1.55; }
+.install-guide p { margin: 0; }
+@media (max-width: 720px) { .owner-product-list article .product-video { width: 68px; height: 56px; } }
 @media (max-width: 450px) {
   .social-detail-head { flex-wrap: wrap; }
   .social-detail-head .website-order-actions { order: 3; width: 100%; padding-left: 43px; }

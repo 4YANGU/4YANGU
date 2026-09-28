@@ -64,6 +64,7 @@ export type Product = {
   sizes: string[];
   image_url: string;
   images: string[];
+  video_url?: string;
   views_total: number;
   views_today: number;
   orders_total: number;

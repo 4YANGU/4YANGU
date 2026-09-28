@@ -48,7 +48,6 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [reply, setReply] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
-  const attachmentInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const chatOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
@@ -383,7 +382,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
                 </div></Fragment>)}
               </div>
               <form className="social-reply" onSubmit={sendReply}>
-                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><input ref={attachmentInput} hidden type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm,application/pdf" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><input ref={cameraInput} hidden type="file" accept="image/*,video/*" capture="environment" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><button className="social-attach" type="button" onClick={() => attachmentInput.current?.click()} aria-label="Add attachment"><Paperclip size={20} /></button><button className="social-camera" type="button" onClick={() => cameraInput.current?.click()} aria-label="Take a photo or video"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
+                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><input ref={cameraInput} hidden type="file" accept="image/*,video/*" capture="environment" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><button className="social-camera" type="button" onClick={() => cameraInput.current?.click()} aria-label="Take a photo or video"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
               </form>
             </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
           </div>
