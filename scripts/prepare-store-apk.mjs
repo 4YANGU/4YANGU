@@ -52,7 +52,29 @@ const gradlePath = 'android/app/build.gradle'; let gradle = await fs.readFile(gr
 const buildNumber = Number(process.env.GITHUB_RUN_NUMBER || '1');
 if (!Number.isSafeInteger(buildNumber) || buildNumber < 1) throw new Error('Invalid APK version.');
 gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${buildNumber}`).replace(/versionName\s+"[^"]+"/, `versionName "1.0.${buildNumber}"`);
-gradle += `\nandroid { signingConfigs { stoyanguRelease { storeFile file(System.getenv('STOYANGU_KEYSTORE_PATH')); storePassword System.getenv('APK_KEYSTORE_PASSWORD'); keyAlias System.getenv('APK_KEY_ALIAS'); keyPassword System.getenv('APK_KEY_PASSWORD') } } buildTypes { release { signingConfig signingConfigs.stoyanguRelease } } }\n`;
+// Insert the signing config into the EXISTING android {} block instead of appending a second
+// top-level android {} block — appending a second block breaks some Capacitor/AGP combinations
+// with "Cannot invoke method buildTypes() on null object".
+const signingConfigsBlock = `    signingConfigs {
+        stoyanguRelease {
+            storeFile file(System.getenv('STOYANGU_KEYSTORE_PATH'))
+            storePassword System.getenv('APK_KEYSTORE_PASSWORD')
+            keyAlias System.getenv('APK_KEY_ALIAS')
+            keyPassword System.getenv('APK_KEY_PASSWORD')
+        }
+    }
+`;
+if (!/android\s*\{/.test(gradle)) throw new Error('Could not find the android {} block in build.gradle.');
+gradle = gradle.replace(/(android\s*\{)/, `$1\n${signingConfigsBlock}`);
+if (/buildTypes\s*\{[\s\S]*?release\s*\{/.test(gradle)) {
+  // A release {} block already exists inside buildTypes {} — add signingConfig to it.
+  gradle = gradle.replace(/(buildTypes\s*\{[\s\S]*?release\s*\{)/, `$1\n            signingConfig signingConfigs.stoyanguRelease`);
+} else if (/buildTypes\s*\{/.test(gradle)) {
+  // buildTypes {} exists but has no release {} block — add one.
+  gradle = gradle.replace(/(buildTypes\s*\{)/, `$1\n        release {\n            signingConfig signingConfigs.stoyanguRelease\n        }`);
+} else {
+  throw new Error('Could not find a buildTypes {} block in build.gradle.');
+}
 await fs.writeFile(gradlePath, gradle);
 // The remote site is the app. Keep only an offline message, not a bundled copy of the React app.
 const publicDir = path.join(root, 'assets', 'public'); await fs.rm(publicDir, { recursive: true, force: true }); await fs.mkdir(publicDir, { recursive: true });
