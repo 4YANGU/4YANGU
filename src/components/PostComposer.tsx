@@ -6,7 +6,6 @@ import { OptionPicker } from './ProductForm';
 import { apiFetch, storeLink, uploadImage, uploadPostMedia } from '../lib/api';
 import { buildProductCaption } from '../lib/caption';
 import { readDraft, writeDraft } from '../lib/draftStorage';
-import { isStoYanguAndroid, openWhatsAppWithVideo } from '../lib/nativeShare';
 import { pushBackHandler } from '../lib/backNavigation';
 import type { Product, SocialConnection } from '../types';
 type Media = { file: File; url: string; kind: 'image' | 'video' };
@@ -146,8 +145,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     if (!asDraft && !connections.length) { setError('Connect an account in My Customers → Accounts to publish.'); return; }
     if ((caption + '\n\n' + tags).length > 2200) { setError('Shorten the caption to keep the post under 2,200 characters.'); return; }
     // Must run from the tap gesture: browsers do not permit file sharing after async uploads.
-    if (!asDraft && isStoYanguAndroid()) void navigator.clipboard?.writeText(fullCaption).catch(() => undefined);
-    if (!asDraft && !isStoYanguAndroid() && video && navigator.canShare?.({ files: [video.file] })) {
+    if (!asDraft && video && navigator.canShare?.({ files: [video.file] })) {
       void navigator.share({ files: [video.file], title: `${storeName} status`, text: fullCaption }).catch(() => undefined);
     }
     submitting.current = true; setBusy('Uploading media…');
@@ -166,8 +164,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       }
       setBusy(asDraft ? 'Saving draft…' : 'Sending to accounts…');
       const publishing = apiFetch<{ results?: Result['results'] }>('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: asDraft ? 'save_draft' : 'publish', store_id: storeId, caption: `${caption}\n\n${tags}`, media_urls: attached.map(a => a.url), media_kinds: attached.map(a => a.kind) }) });
-      const uploadedVideo = attached.find(item => item.kind === 'video')?.url;
-      if (!asDraft && uploadedVideo && isStoYanguAndroid()) void openWhatsAppWithVideo(uploadedVideo, fullCaption).catch(reason => setError(reason instanceof Error ? reason.message : 'Could not open WhatsApp. Your caption has been copied.'));
       const response = await publishing;
       completed.current = true;
       await writeDraft(draftKey, null).catch(() => undefined);
@@ -189,14 +185,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       /* ignore */
     }
     const uploadedVideo = media.find(m => m.kind === 'video');
-    if (uploadedVideo && isStoYanguAndroid()) {
-      try {
-        await openWhatsAppWithVideo(uploadedVideo.url, fullCaption);
-        return;
-      } catch {
-        /* fallback */
-      }
-    }
     if (uploadedVideo && navigator.canShare?.({ files: [uploadedVideo.file] })) {
       try {
         await navigator.share({ files: [uploadedVideo.file], title: `${storeName} status`, text: fullCaption });
