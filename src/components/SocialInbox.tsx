@@ -163,13 +163,19 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   }, [detailOpen]);
   useEffect(() => {
     const onBack = () => {
-      if (!chatOpenRef.current) return;
-      chatOpenRef.current = false;
-      setDetailOpen(false); setSelectedKey(null); setReply(''); setAttachment(null);
+      if (chatOpenRef.current) {
+        chatOpenRef.current = false;
+        setDetailOpen(false); setSelectedKey(null); setReply(''); setAttachment(null);
+        return;
+      }
+      if (accountsOpen) {
+        setAccountsOpen(false); setPicker(null); setNotice('');
+        return;
+      }
     };
     window.addEventListener('popstate', onBack);
     return () => window.removeEventListener('popstate', onBack);
-  }, []);
+  }, [accountsOpen]);
   const closeThread = () => {
     if (chatOpenRef.current) window.history.back();
     else { setDetailOpen(false); setSelectedKey(null); }
@@ -255,7 +261,10 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
-  const connect = async (platform: string) => {
+  const openAccounts = () => {
+    window.history.pushState({ stoyanguAccounts: true }, '', window.location.href);
+    setAccountsOpen(true);
+  };
     if (busyKey) return;
     setBusyKey(`connect-${platform}`); setError(''); setNotice('');
     try { const outcome = await startConnection(storeId, platform); await load(true); acceptOAuth(outcome); }
@@ -325,7 +334,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram, WhatsApp">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={20} />)}<PlatformLogo platform="whatsapp" size={20} /></span>
       </div>
       <div className="social-head-actions">
-        <button className="inbox-accounts-icon" onClick={() => setAccountsOpen(true)} aria-label="Connected accounts" title={`Connected accounts · ${connectedCount} of 5`}><Link2 />{connectedCount < 5 && <b>{connectedCount}/5</b>}</button>
+        <button className="inbox-accounts-icon" onClick={openAccounts} aria-label="Connected accounts" title={`Connected accounts · ${connectedCount} of 5`}><Link2 />{connectedCount < 5 && <b>{connectedCount}/5</b>}</button>
         <button className="inbox-refresh-icon" onClick={() => load(true)} disabled={refreshing} aria-label="Refresh inbox" title="Refresh inbox"><RefreshCw className={refreshing ? 'spin' : ''} /></button>
       </div>
     </div>
