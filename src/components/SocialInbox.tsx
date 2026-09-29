@@ -261,10 +261,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
-  const openAccounts = () => {
-    window.history.pushState({ stoyanguAccounts: true }, '', window.location.href);
-    setAccountsOpen(true);
-  };
+  const connect = async (platform: string) => {
     if (busyKey) return;
     setBusyKey(`connect-${platform}`); setError(''); setNotice('');
     try { const outcome = await startConnection(storeId, platform); await load(true); acceptOAuth(outcome); }
