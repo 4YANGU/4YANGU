@@ -264,15 +264,21 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   if (!asDraft) {
     if (mode !== 'live') return res.status(503).json({ error: 'Publishing is not configured. Your product is saved; add the Repliz credentials to publish.' });
     {
-      const jobs = platforms.flatMap(platform => ['feed', 'story'].map(placement => ({ platform, placement, connection: (connections || []).find(c => c.platform === platform) })));
+      const jobs = platforms.flatMap(platform => {
+        // Stories can ONLY be posted to ig and fb. TikTok is feed only.
+        const placements = platform === 'tiktok' ? ['feed'] : ['feed', 'story'];
+        return placements.map(placement => ({ platform, placement, connection: (connections || []).find(c => c.platform === platform) }));
+      });
       const delivered = await Promise.all(jobs.map(async ({ platform, placement, connection }) => {
-        if (platform === 'tiktok' && placement === 'story') return { key: 'tiktok story', result: { ok: false, manual: true, error: 'TikTok Story is not supported by this connected publisher. Use Share story manually to finish in TikTok.' } };
+        const platformLabel = platform === 'fb' || platform === 'facebook' ? 'Facebook' : platform === 'ig' || platform === 'instagram' ? 'Instagram' : 'TikTok';
+        const placementLabel = placement === 'story' ? 'story' : 'post';
+        const key = `${platformLabel} ${placementLabel}`;
         try {
           const posted = await replizPublish({ platform, accountId: connection?.account_id, caption, mediaUrls, mediaKinds, title, placement });
-          return { key: `${platform} ${placement}`, result: { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() } };
+          return { key, result: { ok: true, mode: 'live', external_id: String(posted?.scheduleId || posted?.id || posted?.external_id || posted?.post_id || ''), posted_at: new Date().toISOString() } };
         } catch (publishError) {
           const detail = publishError instanceof Error ? publishError.message : '';
-          return { key: `${platform} ${placement}`, result: { ok: false, mode: 'live', error: detail.trim().length > 2 ? detail : 'The connected platform could not accept this post. Please check the account and retry.' } };
+          return { key, result: { ok: false, mode: 'live', error: detail.trim().length > 2 ? detail : 'The connected platform could not accept this post. Please check the account and retry.' } };
         }
       }));
       results = Object.fromEntries(delivered.map(({ key, result }) => [key, result]));
@@ -534,12 +540,21 @@ async function handlePostUploadUrl(req, res) {
   if (!isVideo && !isDocument && !ALLOWED_POST_MEDIA_TYPES.test(type)) return res.status(400).json({ error: 'Please use a JPG, PNG, WebP, GIF or PDF file.' });
   const extension = isDocument ? 'pdf' : type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : type.includes('quicktime') ? 'mov' : type.includes('webm') ? 'webm' : isVideo ? 'mp4' : 'jpg';
   const path = `posts/${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
-  const { data, error: signedError } = await supabase.storage.from(POST_MEDIA_BUCKET).createSignedUploadUrl(path);
+  let bucket = POST_MEDIA_BUCKET;
+  let { data, error: signedError } = await supabase.storage.from(bucket).createSignedUploadUrl(path, { upsert: true });
+  if (signedError || !data?.signedUrl) {
+    bucket = 'stoyangu-media';
+    const fallback = await supabase.storage.from(bucket).createSignedUploadUrl(path, { upsert: true });
+    if (fallback.data?.signedUrl) {
+      data = fallback.data;
+      signedError = null;
+    }
+  }
   if (signedError || !data?.signedUrl) {
     console.error('Post upload URL error:', signedError);
     return res.status(500).json({ error: 'Could not prepare that upload. Please try again.' });
   }
-  const { data: publicData } = supabase.storage.from(POST_MEDIA_BUCKET).getPublicUrl(path);
+  const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path);
   return res.status(200).json({ path, signedUrl: data.signedUrl, url: publicData.publicUrl, kind: isVideo ? 'video' : 'image' });
 }
 

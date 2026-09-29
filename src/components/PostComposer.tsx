@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Camera, Check, Copy, ImagePlus, Package, Send, Video, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, Copy, ImagePlus, MessageCircle, Package, Send, Video, X } from 'lucide-react';
 import Modal from './Modal';
 import SequentialCamera from './SequentialCamera';
 import { OptionPicker } from './ProductForm';
@@ -7,6 +7,7 @@ import { apiFetch, storeLink, uploadImage, uploadPostMedia } from '../lib/api';
 import { buildProductCaption } from '../lib/caption';
 import { readDraft, writeDraft } from '../lib/draftStorage';
 import { isStoYanguAndroid, openWhatsAppWithVideo } from '../lib/nativeShare';
+import { pushBackHandler } from '../lib/backNavigation';
 import type { Product, SocialConnection } from '../types';
 type Media = { file: File; url: string; kind: 'image' | 'video' };
 type Result = { draft: boolean; results: Record<string, { ok?: boolean; external_id?: string; error?: string }> };
@@ -71,35 +72,37 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   }, [draftKey]);
 
   useEffect(() => {
-    const pushStep = (s: string) => window.history.pushState({ postComposerStep: s }, '', window.location.href);
-
-    // Initial state
-    pushStep(step);
-
-    const onBack = () => {
-      if (busy) return;
-      if (step === 'details') {
-        setStep('photo');
-        pushStep('photo');
-      } else if (step === 'photo') {
-        setStep('video');
-        pushStep('video');
-      } else if (step === 'video') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('popstate', onBack);
-    return () => {
-      window.removeEventListener('popstate', onBack);
-    };
-  }, [onClose, busy, step]);
+    // Keep history state updated for browser/PWA back button navigation
+    try {
+      window.history.pushState({ postComposerStep: step }, '', window.location.href);
+    } catch {
+      /* ignore */
+    }
+  }, [step]);
 
   useEffect(() => {
-    // Update history when step changes manually via buttons
-    if (step !== 'video' && step !== 'photo' && step !== 'details') return;
-    window.history.pushState({ postComposerStep: step }, '', window.location.href);
-  }, [step]);
+    return pushBackHandler(() => {
+      if (cameraOpen) {
+        setCameraOpen(false);
+        return true;
+      }
+      if (busy) return true;
+      if (step === 'details') {
+        setStep('photo');
+        return true;
+      }
+      if (step === 'photo') {
+        setStep('video');
+        return true;
+      }
+      if (step === 'video') {
+        onClose();
+        return true;
+      }
+      return false;
+    });
+  }, [cameraOpen, busy, step, onClose]);
+
   useEffect(() => () => { urls.current.forEach(URL.revokeObjectURL); }, []);
   useEffect(() => {
     if (!ready || completed.current) return;
@@ -177,9 +180,36 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   };
   const recap = media.length ? <div className="composer-recap"><div className="composer-tiktok-strip media-grid-v12" role="list" aria-label="Post media">{media.map((item, index) => <div key={item.url} role="listitem" className={`composer-tiktok-cell ${index === 0 ? 'lead' : ''}`}>{item.kind === 'video' ? <video src={item.url} muted playsInline preload="metadata" /> : <img src={item.url} alt={`Product photo ${media.filter((m, i) => m.kind === 'image' && i <= index).length}`} />}{index === 0 && <small>{item.kind === 'video' ? 'Video' : 'Cover photo'}</small>}{item.kind === 'video' && <span className="composer-video-tag"><Video /></span>}<button type="button" onClick={() => removeMedia(item)} disabled={!!busy} aria-label={item.kind === 'video' ? 'Remove video' : `Remove photo ${media.filter((m, i) => m.kind === 'image' && i <= index).length}`}><X /></button></div>)}</div></div> : null;
   const allSucceeded = result && Object.values(result.results).every(r => r.ok) && Object.keys(result.results).length > 0;
+  const finishOnWhatsAppStatus = async () => {
+    try {
+      await navigator.clipboard.writeText(fullCaption);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+    const uploadedVideo = media.find(m => m.kind === 'video');
+    if (uploadedVideo && isStoYanguAndroid()) {
+      try {
+        await openWhatsAppWithVideo(uploadedVideo.url, fullCaption);
+        return;
+      } catch {
+        /* fallback */
+      }
+    }
+    if (uploadedVideo && navigator.canShare?.({ files: [uploadedVideo.file] })) {
+      try {
+        await navigator.share({ files: [uploadedVideo.file], title: `${storeName} status`, text: fullCaption });
+        return;
+      } catch {
+        /* fallback */
+      }
+    }
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(fullCaption)}`, '_blank');
+  };
   return <Modal title="Post once, everywhere" onClose={() => { if (!busy) onClose(); }} wide><div className="composer-body composer-v12">
     <div className="composer-progress composer-progress-3" aria-label="Post progress"><span className={step === 'video' ? 'active' : 'done'}>1 · Video</span><span className={step === 'photo' ? 'active' : step === 'details' ? 'done' : ''}>2 · Photos</span><span className={step === 'details' ? 'active' : ''}>3 · Details</span></div>
-    {!ready ? <p role="status">Restoring your draft…</p> : result ? <div className="composer-result"><div className="result-check"><Check /></div><h3>{result.draft ? 'Draft saved' : allSucceeded ? 'Your post is queued' : 'Check your post results'}</h3><p>{result.draft ? 'Saved securely to your store. Nothing was published to social media.' : 'Your product is saved in your store. Social delivery status is shown below.'}</p><div className="composer-result-list">{Object.entries(result.results).map(([platform, r]) => <div key={platform} className={`composer-result-row ${r.ok ? 'ok' : 'fail'}`}><strong>{platform}</strong><small>{r.ok ? 'Accepted for scheduling — check the platform' : r.error && r.error.trim().length > 2 ? r.error : 'The platform did not accept this post. Please retry.'}</small>{r.ok ? <Check /> : <X />}</div>)}</div><div className="modal-actions">{result.results["tiktok story"]?.ok === false && video && <button type="button" className="secondary-button" onClick={() => { if (navigator.canShare?.({ files: [video.file] })) void navigator.share({ files: [video.file], text: fullCaption }).catch(() => undefined); else window.alert("Save your video and share it to your TikTok Story manually."); }}>Share story manually</button>}<button className="button-primary" onClick={onClose}>Done <Check /></button></div></div> : <>
+    {!ready ? <p role="status">Restoring your draft…</p> : result ? <div className="composer-result"><div className="result-check"><Check /></div><h3>{result.draft ? 'Draft saved' : allSucceeded ? 'Your post is queued' : 'Check your post results'}</h3><p>{result.draft ? 'Saved securely to your store. Nothing was published to social media.' : 'Your product is saved in your store. Social delivery status is shown below.'}</p><div className="composer-result-list">{Object.entries(result.results).filter(([platform]) => !platform.toLowerCase().includes('tiktok story')).map(([platform, r]) => <div key={platform} className={`composer-result-row ${r.ok ? 'ok' : 'fail'}`}><strong>{platform}</strong><small>{r.ok ? 'Accepted for scheduling — check the platform' : r.error && r.error.trim().length > 2 ? r.error : 'The platform did not accept this post. Please retry.'}</small>{r.ok ? <Check /> : <X />}</div>)}</div><div className="whatsapp-status-lead-card"><div className="whatsapp-lead-header"><div className="whatsapp-icon-circle"><MessageCircle size={22} /></div><div><h4>Finish on WhatsApp Status</h4><p>{copied ? 'Caption copied to clipboard! ' : ''}Share your video and photos to WhatsApp Status to complete posting everywhere.</p></div></div><div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}><button type="button" className="button-whatsapp-status" onClick={finishOnWhatsAppStatus}><MessageCircle size={18} /> Open WhatsApp Status</button><button type="button" className="secondary-button" onClick={copyCaption}><Copy size={16} /> {copied ? 'Copied' : 'Copy caption'}</button></div></div><div className="modal-actions"><button className="button-primary" onClick={onClose}>Done <Check /></button></div></div> : <>
       {step === 'video' && <div className="composer-block composer-media-first"><strong><Video /> Add a video</strong><p className="composer-hint">Optional · pick from your gallery. Up to 75 MB.</p>{recap}<div className="composer-media-actions"><button className="button-primary compact" onClick={() => videoInput.current?.click()}><ImagePlus />{video ? 'Change video' : 'Choose video'}</button><button className="secondary-button compact-upload" onClick={() => setStep('photo')}>Skip <ArrowRight size={16} /></button></div></div>}
       {step === 'photo' && <div className="composer-block composer-media-first"><div className="composer-section-heading"><strong><ImagePlus /> Add photos</strong><span>{photos.length}/7</span></div><p className="composer-hint">1–7 photos. Your video stays first.</p>{recap}<div className="composer-media-actions"><button className="button-primary compact" onClick={() => setCameraOpen(true)} disabled={photos.length >= 7}><Camera /> Camera</button><button className="secondary-button compact-upload" onClick={() => photoInput.current?.click()} disabled={photos.length >= 7}><ImagePlus /> Gallery</button></div><div className="modal-actions composer-navigation"><button className="secondary-button" onClick={() => setStep('video')}><ArrowLeft /> Back</button><button className="button-primary" onClick={() => setStep('details')} disabled={!photos.length}>Continue <ArrowRight /></button></div></div>}
       {step === 'details' && <><div className="composer-block"><strong><Package /> Product details</strong>{recap}<div className="composer-details-box"><div className="form-grid"><label>Product name<input maxLength={120} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Home jersey" disabled={!!busy} /></label><label>Price (KES)<input type="number" inputMode="decimal" min="1" value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. 2800" disabled={!!busy} /></label></div></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold']} selected={colors} onToggle={item => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42']} selected={sizes} onToggle={item => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} /></div><div className="composer-caption"><div className="composer-section-heading"><label htmlFor="live-caption">Caption</label></div><div className="caption-locked-box"><textarea id="live-caption" aria-label="Editable caption including colours and sizes" value={caption} onChange={e => setCaptionOverride(e.target.value)} rows={Math.min(9, caption.split('\n').length + 2)} /><div className="caption-locked-tags"><b>{tags.split(' ')[0]}</b><b>{tags.split(' ')[1]}</b><small>{storeLink(storeSlug)}</small></div></div><small>{caption.length + tags.length + 2} / 2200</small></div>{connectionLoading ? <small className="composer-hint">Checking connected accounts…</small> : connectionError ? <div className="form-error">{connectionError} <button onClick={loadConnections}>Retry</button></div> : connections.length ? null : <small className="composer-hint">Connect accounts in My Customers → Accounts to publish.</small>}<div className="modal-actions composer-navigation"><button className="secondary-button" onClick={() => setStep('photo')} disabled={!!busy}><ArrowLeft /> Back</button><div className="composer-submit-actions"><button className="button-primary" onClick={() => submit(false)} disabled={!!busy || locked || connectionLoading}><Send /> Post</button></div></div></>}

@@ -1,13 +1,15 @@
 import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, MessageCircle, Package, Phone, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import Modal from '../components/Modal';
 import PostComposer from '../components/PostComposer';
+import ProductDetailsModal from '../components/ProductDetailsModal';
 import ProductModal from '../components/ProductModal';
 import SocialInbox from '../components/SocialInbox';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
+import { pushBackHandler } from '../lib/backNavigation';
 import supabase from '../lib/supabase';
 import type { DashboardData, Order, Product } from '../types';
 import '../pricing-update.css';
@@ -61,8 +63,38 @@ export default function StoreDashboard() {
     catch { return 'products'; }
   });
   const [composerOpen, setComposerOpen] = useState(() => sessionStorage.getItem(`stoyangu-composer-${storeId || 'owner'}`) === '1');
+  const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
+  const previousOrderCount = useRef<number | null>(null);
+
+  // Push back handler for store owner navigation (Task 2)
+  useEffect(() => {
+    return pushBackHandler(() => {
+      if (viewingProduct) {
+        setViewingProduct(null);
+        return true;
+      }
+      if (editing) {
+        setEditing(null);
+        return true;
+      }
+      if (passwordOpen) {
+        setPasswordOpen(false);
+        return true;
+      }
+      if (installOpen) {
+        setInstallOpen(false);
+        return true;
+      }
+      if (activeTab === 'customers') {
+        setActiveTab('products');
+        return true;
+      }
+      return false;
+    });
+  }, [viewingProduct, editing, passwordOpen, installOpen, activeTab]);
+
   // App-installed flag kept for any PWA-aware logic elsewhere.
   const appInstalled = isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1';
   const load = useCallback(async () => {
@@ -94,14 +126,57 @@ export default function StoreDashboard() {
     finally { setApkBusy(false); }
   };
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
-  useEffect(() => {
-    if (composerOpen && !window.history.state?.stoyanguComposer) window.history.pushState({ ...window.history.state, stoyanguComposer: true }, '', window.location.href);
-    const onBack = () => { if (composerOpen) { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); } };
-    window.addEventListener('popstate', onBack);
-    return () => window.removeEventListener('popstate', onBack);
-  }, [composerOpen, storeId]);
   const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
-  const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); if (window.history.state?.stoyanguComposer) window.history.back(); else setComposerOpen(false); };
+  const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); };
+  // Proactively request notification permissions on mount (Task 5)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(async (perm) => {
+        if (perm === 'granted') {
+          await enableStoreNotifications();
+        }
+      }).catch(() => undefined);
+    } else if (Notification.permission === 'granted') {
+      enableStoreNotifications().catch(() => undefined);
+    }
+  }, []);
+
+  // Update dynamic app icon / favicon with store logo (Task 6)
+  useEffect(() => {
+    const logo = data?.store?.logo_url;
+    if (!logo || typeof document === 'undefined') return;
+    try {
+      const linkIcon = (document.querySelector("link[rel*='icon']") || document.createElement('link')) as HTMLLinkElement;
+      linkIcon.type = 'image/png';
+      linkIcon.rel = 'shortcut icon';
+      linkIcon.href = logo;
+      document.getElementsByTagName('head')[0]?.appendChild(linkIcon);
+
+      const linkApple = (document.querySelector("link[rel='apple-touch-icon']") || document.createElement('link')) as HTMLLinkElement;
+      linkApple.rel = 'apple-touch-icon';
+      linkApple.href = logo;
+      document.getElementsByTagName('head')[0]?.appendChild(linkApple);
+    } catch { /* ignore */ }
+  }, [data?.store?.logo_url]);
+
+  // Track orders to notify user in real time when new orders arrive (Task 5)
+  useEffect(() => {
+    const count = data?.orders?.length;
+    if (count === undefined) return;
+    if (previousOrderCount.current !== null && count > previousOrderCount.current) {
+      const newOrder = data?.orders?.[0];
+      if (newOrder && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification(`New Store Order: ${newOrder.product_name}`, {
+          body: `KES ${newOrder.product_price} · Customer: ${newOrder.customer_phone}`,
+          icon: data?.store?.logo_url || '/favicon-192.png',
+          tag: `order-${newOrder.id}`,
+        });
+        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+      }
+    }
+    previousOrderCount.current = count;
+  }, [data?.orders, data?.store?.logo_url]);
   // Woyoyo-009: scrub the same-tab OAuth landing params once the dashboard
   // has them, so a refresh never replays the resume.
   useEffect(() => {
@@ -209,9 +284,9 @@ export default function StoreDashboard() {
   const upkeepOrders = Number(upkeep.orders_this_period ?? upkeep.orders_this_month ?? 0);
   const cycleStart = upkeep.upkeep_period_starts_at ? new Date(upkeep.upkeep_period_starts_at) : null;
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
-  const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
-  const cycleLabel = cycleStart && cycleEnd ? `Day ${cycleDay}/30 · ends ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : 'Free trial';
-  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'founder' && <button className="build-apk-button" onClick={buildStoreApk} disabled={apkBusy || apk.status === 'building' || !store.logo_url} title={!store.logo_url ? 'Add a store logo first' : 'Build this store’s Android app'}>{apkBusy || apk.status === 'building' ? <RefreshCw className="spin" /> : <Download />} Build app</button>}{apk.status === 'ready' && apk.apk_url ? <a className="header-icon-btn apk-download" href={apk.apk_url} download={`stoyangu-${store.slug}.apk`} aria-label={`Download ${store.name} APK`} title="Download this store’s Android app"><Download /></a> : <button className="header-icon-btn" type="button" onClick={installApp} disabled={/Android/i.test(navigator.userAgent)} aria-label="Android APK is being prepared" title={apk.status === 'failed' ? apk.error || 'Android build failed' : 'Waiting for this store’s Android APK'}><RefreshCw className="spin" /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div><span className="owner-cycle-dates">{cycleLabel}</span></div></div></header><main className="owner-main">
+  const cycleDay = useMemo(() => cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1, [cycleStart]);
+
+  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'founder' && <button className="build-apk-button" onClick={buildStoreApk} disabled={apkBusy || apk.status === 'building' || !store.logo_url} title={!store.logo_url ? 'Add a store logo first' : 'Build this store’s Android app'}>{apkBusy || apk.status === 'building' ? <RefreshCw className="spin" /> : <Download />} Build app</button>}{apk.status === 'ready' && apk.apk_url ? <a className="header-icon-btn apk-download" href={apk.apk_url} download={`stoyangu-${store.slug}.apk`} aria-label={`Download ${store.name} APK`} title="Download this store’s Android app"><Download /></a> : <button className="header-icon-btn" type="button" onClick={installApp} disabled={/Android/i.test(navigator.userAgent)} aria-label="Android APK is being prepared" title={apk.status === 'failed' ? apk.error || 'Android build failed' : 'Waiting for this store’s Android APK'}><RefreshCw className="spin" /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div></div></div></header><main className="owner-main">
     {/* WOYOYO-013: My Products and My Customers pages */}
     {error && <div className="dashboard-error">{error}</div>}{apk.status === 'failed' && apk.error && <div className="dashboard-error">Android build: {apk.error}</div>}
     {activeTab === 'customers'
@@ -221,9 +296,62 @@ export default function StoreDashboard() {
     {cycleDay >= 27 && !locked && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 30 days are ending' : 'Your 30 days are ending'}</h3><p>To keep {store.name} live for the next 30 days, pay KES 300{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
     {locked && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 30 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 300 for the next 30 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
     {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
-    <section className="products-panel"><div className="dash-section-head"><h2>My Products</h2><span className="order-status-count">{(data.products || []).length}</span></div><div className="owner-product-list">{data.products?.map((product) => <article key={product.id}><div className="product-media-group"><img className="product-cover" loading="lazy" src={product.image_url || '/stoyangu-logo.png'} alt={product.name} />{product.images && product.images.length > 1 && <div className="product-media-strip">{product.images.slice(1, 4).map((img, i) => <img key={i} src={img} alt={`${product.name} ${i + 2}`} className="product-thumb" />)}</div>}{product.video_url && <video className="product-video" src={product.video_url} poster={product.image_url} controls playsInline preload="metadata" aria-label={`${product.name} product video`} />}</div><div className="owner-product-name"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong></div><div className="word-stats"><p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p><p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p></div><div className="product-actions"><button onClick={() => setEditing(product)} disabled={locked}><Edit3 /> Edit</button><button className="danger" onClick={() => remove(product)} disabled={locked}><Trash2 /> Delete</button></div></article>)}</div>{!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}</section>
+    <section className="products-panel">
+      <div className="dash-section-head">
+        <h2>My Products</h2>
+        <span className="order-status-count">{(data.products || []).length}</span>
+      </div>
+      <div className="owner-product-list">
+        {data.products?.map((product) => (
+          <article key={product.id} className="owner-product-card">
+            <div
+              className="product-media-group product-card-clickable"
+              onClick={() => setViewingProduct(product)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingProduct(product); } }}
+              aria-label={`View ${product.name} details`}
+            >
+              <img
+                className="product-cover"
+                loading="lazy"
+                src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'}
+                alt={product.name}
+              />
+            </div>
+            <div
+              className="owner-product-name product-card-clickable"
+              onClick={() => setViewingProduct(product)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingProduct(product); } }}
+              aria-label={`View ${product.name} details`}
+            >
+              <h3>{product.name}</h3>
+              <strong>{formatMoney(product.price)}</strong>
+            </div>
+            <div className="word-stats">
+              <p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p>
+              <p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p>
+            </div>
+            <div className="product-actions">
+              <button type="button" onClick={() => setViewingProduct(product)} aria-label={`View ${product.name} details`}><Eye size={16} /> Details</button>
+              <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
+              <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {!data.products?.length && (
+        <div className="empty-products">
+          <StoreIcon />
+          <h3>Your shelf is empty</h3>
+          <p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p>
+        </div>
+      )}
+    </section>
     </>}
-  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{installOpen && <Modal title="Install StoYangu" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install this app on your phone to open it from your home screen and receive updates when notifications are enabled.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New app versions load when this site is redeployed and you reopen it. A native APK and automatic WhatsApp Status selection are not available through this website.</p></div></Modal>}{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
+  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{installOpen && <Modal title="Install StoYangu" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install this app on your phone to open it from your home screen and receive updates when notifications are enabled.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New app versions load when this site is redeployed and you reopen it. A native APK and automatic WhatsApp Status selection are not available through this website.</p></div></Modal>}{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{viewingProduct && <ProductDetailsModal product={viewingProduct} locked={locked} onClose={() => setViewingProduct(null)} onEdit={() => { const p = viewingProduct; setViewingProduct(null); setEditing(p); }} onDelete={async () => { const p = viewingProduct; setViewingProduct(null); await remove(p); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
 }
 
 function NotificationSetupCard() {
@@ -249,6 +377,13 @@ function NotificationSetupCard() {
     try {
       localStorage.setItem('stoyangu-installed', '1');
       await markAppInstalled();
+      if ('Notification' in window && Notification.permission === 'default') {
+        const perm = await Notification.requestPermission();
+        if (perm === 'denied') {
+          setStatus('denied');
+          return;
+        }
+      }
       const result = await enableStoreNotifications();
       setStatus(result === 'granted' ? 'done' : result === 'denied' ? 'denied' : 'error');
     } catch (reason) {
@@ -260,10 +395,10 @@ function NotificationSetupCard() {
   };
   if (status === 'checking' || status === 'hidden') return null;
   const copy: Record<string, { title: string; body: string }> = {
-    ready: { title: 'Turn on your daily store updates', body: 'Allow notifications so your 7:30 PM daily update and any store news reach this phone. It takes one tap.' },
+    ready: { title: 'Turn on your store alerts', body: 'Allow notifications so new orders, customer DMs, comments, and post confirmations reach your phone instantly.' },
     'install-first': { title: 'Install the app first', body: 'On your iPhone: tap the Share button in Safari, then choose "Add to Home Screen". Open StoYangu from your home screen, sign in again, and the option to turn on notifications will appear right here.' },
-    denied: { title: 'Notifications are blocked on this phone', body: 'Chrome (Android): tap the lock icon next to the address bar → Permissions → Notifications → Allow. iPhone: Settings → Notifications → StoYangu → Allow Notifications. Then refresh this page.' },
-    done: { title: 'You are all set', body: 'Daily updates at 7:30 PM will now arrive on this phone as app notifications. Kazi iendelee!' },
+    denied: { title: 'Notifications are blocked on this phone', body: 'Chrome (Android): tap the lock/settings icon next to the address bar → Permissions → Notifications → Allow. iPhone: Settings → Notifications → StoYangu → Allow Notifications. Then refresh this page.' },
+    done: { title: 'Store alerts are turned on', body: 'New orders, customer DMs, comments, and daily updates will now arrive instantly on this phone. Kazi iendelee!' },
     error: { title: 'Something interrupted the setup', body: 'Please try again in a moment. If it keeps failing, contact StoYangu support on WhatsApp.' },
   };
   const current = copy[status] || copy.ready;

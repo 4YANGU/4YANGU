@@ -7,6 +7,7 @@ import { apiFetch } from '../lib/api';
 import PlatformLogo, { PlatformBadge, platformLabel } from './PlatformLogo';
 import type { Order, SocialConnection, SocialMessage, SocialThread } from '../types';
 import { readableMessage } from '../lib/messageText';
+import { pushBackHandler } from '../lib/backNavigation';
 
 const PLATFORMS = ['tiktok', 'facebook', 'instagram'];
 
@@ -161,11 +162,52 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   useEffect(() => {
     chatOpenRef.current = detailOpen;
   }, [detailOpen]);
+
+  const closeThread = useCallback(() => {
+    chatOpenRef.current = false;
+    setDetailOpen(false);
+    setSelectedKey(null);
+    setReply('');
+    setAttachment(null);
+    if (window.history.state?.stoyanguChat) {
+      window.history.back();
+    }
+  }, []);
+
+  // Phone hardware back button & gesture navigation handler
+  useEffect(() => {
+    if (!detailOpen && !accountsOpen && !picker) return;
+    return pushBackHandler(() => {
+      if (picker) {
+        setPicker(null);
+        return true;
+      }
+      if (accountsOpen) {
+        setAccountsOpen(false);
+        setNotice('');
+        return true;
+      }
+      if (detailOpen) {
+        chatOpenRef.current = false;
+        setDetailOpen(false);
+        setSelectedKey(null);
+        setReply('');
+        setAttachment(null);
+        return true;
+      }
+      return false;
+    });
+  }, [detailOpen, accountsOpen, picker]);
+
   useEffect(() => {
     const onBack = () => {
       if (chatOpenRef.current) {
         chatOpenRef.current = false;
         setDetailOpen(false); setSelectedKey(null); setReply(''); setAttachment(null);
+        return;
+      }
+      if (picker) {
+        setPicker(null);
         return;
       }
       if (accountsOpen) {
@@ -175,11 +217,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     };
     window.addEventListener('popstate', onBack);
     return () => window.removeEventListener('popstate', onBack);
-  }, [accountsOpen]);
-  const closeThread = () => {
-    if (chatOpenRef.current) window.history.back();
-    else { setDetailOpen(false); setSelectedKey(null); }
-  };
+  }, [accountsOpen, picker]);
 
   const dmUnread = useMemo(() => threads.filter((t) => t.kind === 'dm').reduce((sum, t) => sum + t.unread, 0), [threads]);
   const commentUnread = useMemo(() => threads.filter((t) => t.kind === 'comment').reduce((sum, t) => sum + t.unread, 0), [threads]);

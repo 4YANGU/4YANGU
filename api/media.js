@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       const scope = String(req.body?.scope || '');
       if (!types[type] || !['logos', 'products'].includes(scope) || Number(req.body?.size || 0) > 6291456) return res.status(400).json({ error: 'Choose a supported image under 6 MB.' });
       const path = `${scope}/${user.id}/${crypto.randomUUID()}.${types[type]}`;
-      const signed = await supabase.storage.from('stoyangu-media').createSignedUploadUrl(path);
+      const signed = await supabase.storage.from('stoyangu-media').createSignedUploadUrl(path, { upsert: true });
       if (signed.error) throw signed.error;
       const { data: publicUrl } = supabase.storage.from('stoyangu-media').getPublicUrl(path);
       return res.status(200).json({ signedUrl: signed.data.signedUrl, url: publicUrl.publicUrl });
