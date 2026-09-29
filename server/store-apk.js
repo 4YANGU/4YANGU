@@ -1,4 +1,4 @@
-import supabase from './db-client.js';
+import supabase from '../lib/db-client.js';
 
 const repo = () => process.env.STOYANGU_GITHUB_REPO || '4YANGU/4YANGU';
 export default async function handler(req, res) {
