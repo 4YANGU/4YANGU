@@ -1,5 +1,5 @@
 import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, MessageCircle, Package, Phone, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import Modal from '../components/Modal';
@@ -66,7 +66,6 @@ export default function StoreDashboard() {
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
-  const previousOrderCount = useRef<number | null>(null);
 
   // Push back handler for store owner navigation (Task 2)
   useEffect(() => {
@@ -128,55 +127,7 @@ export default function StoreDashboard() {
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
   const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
   const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); };
-  // Proactively request notification permissions on mount (Task 5)
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission === 'default') {
-      Notification.requestPermission().then(async (perm) => {
-        if (perm === 'granted') {
-          await enableStoreNotifications();
-        }
-      }).catch(() => undefined);
-    } else if (Notification.permission === 'granted') {
-      enableStoreNotifications().catch(() => undefined);
-    }
-  }, []);
 
-  // Update dynamic app icon / favicon with store logo (Task 6)
-  useEffect(() => {
-    const logo = data?.store?.logo_url;
-    if (!logo || typeof document === 'undefined') return;
-    try {
-      const linkIcon = (document.querySelector("link[rel*='icon']") || document.createElement('link')) as HTMLLinkElement;
-      linkIcon.type = 'image/png';
-      linkIcon.rel = 'shortcut icon';
-      linkIcon.href = logo;
-      document.getElementsByTagName('head')[0]?.appendChild(linkIcon);
-
-      const linkApple = (document.querySelector("link[rel='apple-touch-icon']") || document.createElement('link')) as HTMLLinkElement;
-      linkApple.rel = 'apple-touch-icon';
-      linkApple.href = logo;
-      document.getElementsByTagName('head')[0]?.appendChild(linkApple);
-    } catch { /* ignore */ }
-  }, [data?.store?.logo_url]);
-
-  // Track orders to notify user in real time when new orders arrive (Task 5)
-  useEffect(() => {
-    const count = data?.orders?.length;
-    if (count === undefined) return;
-    if (previousOrderCount.current !== null && count > previousOrderCount.current) {
-      const newOrder = data?.orders?.[0];
-      if (newOrder && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification(`New Store Order: ${newOrder.product_name}`, {
-          body: `KES ${newOrder.product_price} · Customer: ${newOrder.customer_phone}`,
-          icon: data?.store?.logo_url || '/favicon-192.png',
-          tag: `order-${newOrder.id}`,
-        });
-        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
-      }
-    }
-    previousOrderCount.current = count;
-  }, [data?.orders, data?.store?.logo_url]);
   // Woyoyo-009: scrub the same-tab OAuth landing params once the dashboard
   // has them, so a refresh never replays the resume.
   useEffect(() => {
@@ -284,7 +235,7 @@ export default function StoreDashboard() {
   const upkeepOrders = Number(upkeep.orders_this_period ?? upkeep.orders_this_month ?? 0);
   const cycleStart = upkeep.upkeep_period_starts_at ? new Date(upkeep.upkeep_period_starts_at) : null;
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
-  const cycleDay = useMemo(() => cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1, [cycleStart]);
+  const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
 
   return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'founder' && <button className="build-apk-button" onClick={buildStoreApk} disabled={apkBusy || apk.status === 'building' || !store.logo_url} title={!store.logo_url ? 'Add a store logo first' : 'Build this store’s Android app'}>{apkBusy || apk.status === 'building' ? <RefreshCw className="spin" /> : <Download />} Build app</button>}{apk.status === 'ready' && apk.apk_url ? <a className="header-icon-btn apk-download" href={apk.apk_url} download={`stoyangu-${store.slug}.apk`} aria-label={`Download ${store.name} APK`} title="Download this store’s Android app"><Download /></a> : <button className="header-icon-btn" type="button" onClick={installApp} disabled={/Android/i.test(navigator.userAgent)} aria-label="Android APK is being prepared" title={apk.status === 'failed' ? apk.error || 'Android build failed' : 'Waiting for this store’s Android APK'}><RefreshCw className="spin" /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div></div></div></header><main className="owner-main">
     {/* WOYOYO-013: My Products and My Customers pages */}
