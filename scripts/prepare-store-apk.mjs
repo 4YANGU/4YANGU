@@ -27,10 +27,13 @@ for (const [density, size] of Object.entries({ mdpi: 48, hdpi: 72, xhdpi: 96, xx
   const roundIcon = await sharp(squareIcon).composite([{ input: circleMask(size), blend: 'dest-in' }]).png().toBuffer();
   await fs.writeFile(path.join(dir, 'ic_launcher.png'), roundIcon);
   await fs.writeFile(path.join(dir, 'ic_launcher_round.png'), roundIcon);
-  // Foreground stays a plain square (with safe-zone padding): Android's own adaptive-icon
-  // system applies whichever mask shape (circle, squircle, rounded square) the phone's
-  // launcher uses, on top of this layer.
-  const foreground = await sharp(bytes).resize(Math.round(size * .68), Math.round(size * .68), { fit: 'contain' }).extend({ top: Math.round(size * .16), bottom: Math.round(size * .16), left: Math.round(size * .16), right: Math.round(size * .16), background: '#101f30' }).resize(size, size).png().toBuffer();
+  // Foreground for Android's modern "adaptive icon" system (what almost every phone made
+  // since ~2018, including the Samsung S22 Plus, actually shows). This used to be shrunk to
+  // 68% with a solid-color margin, which looked small and washed-out next to the full-bleed
+  // circular photo on the Manage Store page. Filling edge-to-edge (same cover-crop as the
+  // legacy icon above) matches that look closely; Android applies its own circle/squircle
+  // mask on top, same as it does for every other app's photo-style icon.
+  const foreground = await sharp(bytes).resize(size, size, { fit: 'cover' }).png().toBuffer();
   await fs.writeFile(path.join(dir, 'ic_launcher_foreground.png'), foreground);
 }
 const splash = await sharp({ create: { width: 1080, height: 1920, channels: 4, background: '#101f30' } }).composite([{ input: await sharp(bytes).resize(500, 500, { fit: 'contain' }).png().toBuffer(), left: 290, top: 710 }]).png().toBuffer();
