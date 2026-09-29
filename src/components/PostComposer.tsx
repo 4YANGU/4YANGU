@@ -71,15 +71,35 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   }, [draftKey]);
 
   useEffect(() => {
-    window.history.pushState({ postComposerOpen: true }, '', window.location.href);
+    const pushStep = (s: string) => window.history.pushState({ postComposerStep: s }, '', window.location.href);
+
+    // Initial state
+    pushStep(step);
+
     const onBack = () => {
-      if (!busy) onClose();
+      if (busy) return;
+      if (step === 'details') {
+        setStep('photo');
+        pushStep('photo');
+      } else if (step === 'photo') {
+        setStep('video');
+        pushStep('video');
+      } else if (step === 'video') {
+        onClose();
+      }
     };
+
     window.addEventListener('popstate', onBack);
     return () => {
       window.removeEventListener('popstate', onBack);
     };
-  }, [onClose, busy]);
+  }, [onClose, busy, step]);
+
+  useEffect(() => {
+    // Update history when step changes manually via buttons
+    if (step !== 'video' && step !== 'photo' && step !== 'details') return;
+    window.history.pushState({ postComposerStep: step }, '', window.location.href);
+  }, [step]);
   useEffect(() => () => { urls.current.forEach(URL.revokeObjectURL); }, []);
   useEffect(() => {
     if (!ready || completed.current) return;
