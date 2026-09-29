@@ -1,4 +1,4 @@
-import supabase from '../lib/db-client.js';
+import supabase from './db-client.js';
 
 const repo = () => process.env.STOYANGU_GITHUB_REPO || '4YANGU/4YANGU';
 export default async function handler(req, res) {
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     if (profileError || !profile) return res.status(403).json({ error: 'No workspace is assigned.' });
     const storeId = profile.role === 'founder' ? Number(req.query?.storeId || req.body?.store_id) : Number(profile.store_id);
     if (!Number.isSafeInteger(storeId) || storeId <= 0) return res.status(400).json({ error: 'Choose a valid store.' });
-    const { data: store, error: storeError } = await supabase.from('stores').select('id,slug,name,logo_url').eq('id', storeId).single();
+    const { data: store, error: storeError } = await supabase.from('stores').select('id,slug,name,logo_url,app_icon_url').eq('id', storeId).single();
     if (storeError || !store) return res.status(404).json({ error: 'Store not found.' });
     if (req.method === 'GET') {
       const { data, error } = await supabase.from('store_apks').select('status,apk_url,error,version_code,updated_at').eq('store_id', storeId).maybeSingle();
@@ -25,7 +25,8 @@ export default async function handler(req, res) {
       return res.status(200).json(data || { status: 'not_started', apk_url: null, error: null });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Only the founder can build store apps.' });
-    if (!store.logo_url || !(store.logo_url.startsWith('/') || store.logo_url.startsWith('https://'))) return res.status(400).json({ error: 'Add a store logo before building the app.' });
+    const buildIcon = store.app_icon_url || store.logo_url;
+    if (!buildIcon || !(buildIcon.startsWith('/') || buildIcon.startsWith('https://'))) return res.status(400).json({ error: 'Add a store logo before building the app.' });
     const githubToken = process.env.STOYANGU_GITHUB_TOKEN;
     if (!githubToken) return res.status(503).json({ error: 'Add STOYANGU_GITHUB_TOKEN to this Vercel project before building an APK.' });
     const repository = repo();
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
     const response = await fetch(`https://api.github.com/repos/${repository}/actions/workflows/build-store-apk.yml/dispatches`, {
       method: 'POST',
       headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${githubToken}`, 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'StoYangu-App-Builder' },
-      body: JSON.stringify({ ref: process.env.STOYANGU_GITHUB_REF || 'main', inputs: { store_id: String(store.id), slug: store.slug, logo_url: store.logo_url } }),
+      body: JSON.stringify({ ref: process.env.STOYANGU_GITHUB_REF || 'main', inputs: { store_id: String(store.id), slug: store.slug, logo_url: buildIcon } }),
     });
     if (!response.ok) {
       const detail = await response.json().catch(() => ({}));
