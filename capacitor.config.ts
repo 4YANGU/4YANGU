@@ -14,14 +14,13 @@ const config: CapacitorConfig = {
   plugins: {
     // Keeps the store's logo on screen (from res/drawable/splash.png, generated per-store
     // in prepare-store-apk.mjs) for the whole time the site is loading, instead of the
-    // brief OS icon flash. The site itself never has to call hide() — it just auto-hides
-    // after a fixed delay long enough to cover a normal load.
+    // brief OS icon flash. Clean white background eliminates black border bars.
     SplashScreen: {
-      launchShowDuration: 2500,
+      launchShowDuration: 2200,
       launchAutoHide: true,
-      backgroundColor: '#101f30',
+      backgroundColor: '#ffffff',
       androidSplashResourceName: 'splash',
-      androidScaleType: 'CENTER_CROP',
+      androidScaleType: 'CENTER',
       showSpinner: false,
       splashFullScreen: true,
       splashImmersive: true,

@@ -1,6 +1,24 @@
-const CACHE='stoyangu-v8';
-self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(['/','/stoyangu-logo.png','/favicon-192.png'])).catch(()=>null));self.skipWaiting();});
-self.addEventListener('activate',event=>event.waitUntil(Promise.all([self.clients.claim(),caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))))])));
-self.addEventListener('fetch',event=>{const url=new URL(event.request.url);if(event.request.method!=='GET'||url.pathname.startsWith('/api/profile')||url.pathname.startsWith('/api/dashboard'))return;if(url.pathname==='/api/stores'&&url.searchParams.get('storefront')==='1'){event.respondWith(caches.match(event.request).then(cached=>{const fresh=fetch(event.request).then(response=>{if(response.ok){const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));}return response;});return cached||fresh;}));return;}if(url.pathname.startsWith('/images/')||url.pathname==='/stoyangu-logo.png'){event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(response=>{const copy=response.clone();caches.open(CACHE).then(cache=>cache.put(event.request,copy));return response;})));}});
-self.addEventListener('push',event=>{let data={title:'StoYangu daily update',body:'Your store update is ready.',url:'/owner'};try{data={...data,...event.data.json()};}catch{}const actions=[];if(data.winner)actions.push({action:'open',title:`Today's champion: ${data.winner}`});if(data.needs)actions.push({action:'open',title:`Needs a look: ${data.needs}`});event.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:'/favicon-192.png',badge:'/favicon-32.png',image:data.image,actions,tag:data.tag||'stoyangu-update',data:{url:data.url},vibrate:[120,60,120]}));});
-self.addEventListener('notificationclick',event=>{event.notification.close();event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(list=>{for(const client of list){if('focus'in client){client.navigate(event.notification.data.url||'/owner');return client.focus();}}return clients.openWindow(event.notification.data.url||'/owner');}));});
+// WOYOYO-012: never cache API requests, authorization returns, or authenticated navigation.
+const CACHE = 'stoyangu-static-v12';
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil((async () => { for (const key of await caches.keys()) if (key !== CACHE) await caches.delete(key); await self.clients.claim(); })()));
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/') || event.request.mode === 'navigate' || url.searchParams.has('oauth_state') || url.pathname.endsWith('.zip')) return;
+  if (!/\.(png|jpg|jpeg|webp|svg|woff2)$/.test(url.pathname)) return;
+  event.respondWith((async () => { const cached = await caches.match(event.request); if (cached) return cached; const response = await fetch(event.request); if (response.ok) { const cache = await caches.open(CACHE); await cache.put(event.request, response.clone()); } return response; })());
+});
+self.addEventListener('push', event => {
+  let data = {}; try { data = event.data?.json() || {}; } catch { data = { body: event.data?.text() || '' }; }
+  const options = {
+    body: data.body || '',
+    icon: data.icon || '/favicon-192.png',
+    badge: data.badge || '/favicon-32.png',
+    data: { url: data.url || '/owner' },
+  };
+  if (data.image) options.image = data.image;
+  if (data.tag) options.tag = data.tag;
+  if ('vibrate' in self.navigator) options.vibrate = [200, 100, 200];
+  event.waitUntil(self.registration.showNotification(data.title || 'StoYangu', options));
+});
+self.addEventListener('notificationclick', event => { event.notification.close(); const target = new URL(event.notification.data?.url || '/owner', self.location.origin); if (target.origin !== self.location.origin) return; event.waitUntil(self.clients.openWindow(target.href)); });

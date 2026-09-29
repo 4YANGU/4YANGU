@@ -16,14 +16,38 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return payload as T;
 }
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = reader.result as string;
+      const base64 = res.includes(',') ? res.split(',')[1] : res;
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 async function putWithRetry(signedUrl: string, file: File, contentType = file.type) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const result = await fetch(signedUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+      // 1. Try Supabase's multipart FormData format as expected by uploadToSignedUrl
+      const form = new FormData();
+      form.append('cacheControl', '3600');
+      form.append('', file);
+      let result = await fetch(signedUrl, { method: 'PUT', body: form });
       if (result.ok) return;
-      if (result.status >= 400 && result.status < 500 && result.status !== 429) break;
-    } catch { /* A temporary phone network drop can be retried safely with the same signed upload URL. */ }
-    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1)));
+
+      // 2. If rejected or not supported, try raw binary PUT with content-type
+      result = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType || 'application/octet-stream' },
+        body: file,
+      });
+      if (result.ok) return;
+    } catch { /* A temporary network drop can be retried safely with the same signed upload URL. */ }
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
   }
   throw new Error('Upload interrupted. Check your connection and retry; your work is saved.');
 }
@@ -64,12 +88,31 @@ export async function uploadImage(file: File, scope: 'logos' | 'products') {
   const prepared = scope === 'products' ? await compressProductImage(typedFile) : typedFile;
   if (prepared.size > 6 * 1024 * 1024) throw new Error('Please choose an image smaller than 6 MB.');
   if (!prepared.type.startsWith('image/')) throw new Error('Please choose a supported photo file.');
-  // Upload directly to storage; base64 would exceed Vercel's request limit on phone photos.
-  const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=image-upload-url', {
-    method: 'POST', body: JSON.stringify({ contentType: prepared.type, scope, size: prepared.size }),
-  });
-  await putWithRetry(signed.signedUrl, prepared);
-  return { url: signed.url };
+  // Upload directly to storage; fallback to server upload if direct signed upload fails.
+  try {
+    const signed = await apiFetch<{ signedUrl: string; url: string }>('/api/media?action=image-upload-url', {
+      method: 'POST', body: JSON.stringify({ contentType: prepared.type, scope, size: prepared.size }),
+    });
+    await putWithRetry(signed.signedUrl, prepared);
+    return { url: signed.url };
+  } catch (err) {
+    console.warn('Direct storage upload failed, falling back to server upload:', err);
+    try {
+      const base64 = await fileToBase64(prepared);
+      const res = await apiFetch<{ url: string }>('/api/media?action=upload', {
+        method: 'POST',
+        body: JSON.stringify({
+          fileName: prepared.name,
+          fileBase64: base64,
+          contentType: prepared.type,
+          scope,
+        }),
+      });
+      return { url: res.url };
+    } catch {
+      throw new Error('Upload interrupted. Check your connection and retry; your work is saved.');
+    }
+  }
 }
 
 let webpEncodingSupport: boolean | null = null;
@@ -119,10 +162,31 @@ export async function uploadPostMedia(file: File): Promise<{ url: string; kind: 
   if (!isVideo && file.size > 15 * 1024 * 1024) throw new Error('Please choose a photo smaller than 15 MB.');
   const prepared = isVideo ? file : await compressProductImage(file);
   const contentType = prepared.type || (isVideo ? 'video/mp4' : 'image/jpeg');
-  const prep = await apiFetch<{ signedUrl: string; url: string; kind: 'image' | 'video' }>(
-    '/api/media?action=post-upload-url',
-    { method: 'POST', body: JSON.stringify({ fileName: prepared.name, contentType, kind: isVideo ? 'video' : 'image' }) },
-  );
-  await putWithRetry(prep.signedUrl, prepared, contentType);
-  return { url: prep.url, kind: prep.kind };
+  try {
+    const prep = await apiFetch<{ signedUrl: string; url: string; kind: 'image' | 'video' }>(
+      '/api/media?action=post-upload-url',
+      { method: 'POST', body: JSON.stringify({ fileName: prepared.name, contentType, kind: isVideo ? 'video' : 'image' }) },
+    );
+    await putWithRetry(prep.signedUrl, prepared, contentType);
+    return { url: prep.url, kind: prep.kind };
+  } catch (err) {
+    if (!isVideo) {
+      try {
+        const base64 = await fileToBase64(prepared);
+        const res = await apiFetch<{ url: string }>('/api/media?action=upload', {
+          method: 'POST',
+          body: JSON.stringify({
+            fileName: prepared.name,
+            fileBase64: base64,
+            contentType: prepared.type,
+            scope: 'products',
+          }),
+        });
+        return { url: res.url, kind: 'image' };
+      } catch {
+        // Fall through to error
+      }
+    }
+    throw err instanceof Error ? err : new Error('Upload interrupted. Check your connection and retry; your work is saved.');
+  }
 }

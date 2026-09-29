@@ -10,6 +10,15 @@ self.addEventListener('fetch', event => {
 });
 self.addEventListener('push', event => {
   let data = {}; try { data = event.data?.json() || {}; } catch { data = { body: event.data?.text() || '' }; }
-  event.waitUntil(self.registration.showNotification(data.title || 'StoYangu', { body: data.body || '', icon: '/favicon-192.png', badge: '/favicon-32.png', data: { url: data.url || '/owner' } }));
+  const options = {
+    body: data.body || '',
+    icon: data.icon || '/favicon-192.png',
+    badge: data.badge || '/favicon-32.png',
+    data: { url: data.url || '/owner' },
+  };
+  if (data.image) options.image = data.image;
+  if (data.tag) options.tag = data.tag;
+  if ('vibrate' in self.navigator) options.vibrate = [200, 100, 200];
+  event.waitUntil(self.registration.showNotification(data.title || 'StoYangu', options));
 });
 self.addEventListener('notificationclick', event => { event.notification.close(); const target = new URL(event.notification.data?.url || '/owner', self.location.origin); if (target.origin !== self.location.origin) return; event.waitUntil(self.clients.openWindow(target.href)); });
