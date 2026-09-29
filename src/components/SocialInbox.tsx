@@ -195,7 +195,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   };
 
   const openThread = async (thread: SocialThread) => {
-    if (!chatOpenRef.current) window.history.pushState({ stoyanguChat: thread.thread_key }, '', window.location.href);
+    window.history.pushState({ stoyanguChat: thread.thread_key }, '', window.location.href);
     chatOpenRef.current = true;
     setSelectedKey(thread.thread_key);
     setDetailOpen(true);
