@@ -11,5 +11,21 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: { url: `${origin}/owner?nativeStore=${encodeURIComponent(slug)}`, cleartext: false, allowNavigation: [host] },
   android: { allowMixedContent: false },
+  plugins: {
+    // Keeps the store's logo on screen (from res/drawable/splash.png, generated per-store
+    // in prepare-store-apk.mjs) for the whole time the site is loading, instead of the
+    // brief OS icon flash. The site itself never has to call hide() — it just auto-hides
+    // after a fixed delay long enough to cover a normal load.
+    SplashScreen: {
+      launchShowDuration: 2500,
+      launchAutoHide: true,
+      backgroundColor: '#101f30',
+      androidSplashResourceName: 'splash',
+      androidScaleType: 'CENTER_CROP',
+      showSpinner: false,
+      splashFullScreen: true,
+      splashImmersive: true,
+    },
+  },
 };
 export default config;

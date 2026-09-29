@@ -17,11 +17,19 @@ const bytes = Buffer.from(await response.arrayBuffer());
 if (bytes.length > 8 * 1024 * 1024) throw new Error('Store logo must be smaller than 8 MB.');
 await sharp(bytes).metadata();
 const res = path.join(root, 'res');
+// Round-mask helper: composites a circle-shaped alpha mask onto a square icon so the app
+// icon actually looks like the circular logo crop shown on the store details page, instead
+// of showing the full square photo with its own background peeking out around the edges.
+const circleMask = (size) => Buffer.from(`<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="#fff"/></svg>`);
 for (const [density, size] of Object.entries({ mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 })) {
   const dir = path.join(res, `mipmap-${density}`); await fs.mkdir(dir, { recursive: true });
-  const icon = await sharp(bytes).resize(size, size, { fit: 'contain', background: '#101f30' }).png().toBuffer();
-  await fs.writeFile(path.join(dir, 'ic_launcher.png'), icon);
-  await fs.writeFile(path.join(dir, 'ic_launcher_round.png'), icon);
+  const squareIcon = await sharp(bytes).resize(size, size, { fit: 'cover' }).png().toBuffer();
+  const roundIcon = await sharp(squareIcon).composite([{ input: circleMask(size), blend: 'dest-in' }]).png().toBuffer();
+  await fs.writeFile(path.join(dir, 'ic_launcher.png'), roundIcon);
+  await fs.writeFile(path.join(dir, 'ic_launcher_round.png'), roundIcon);
+  // Foreground stays a plain square (with safe-zone padding): Android's own adaptive-icon
+  // system applies whichever mask shape (circle, squircle, rounded square) the phone's
+  // launcher uses, on top of this layer.
   const foreground = await sharp(bytes).resize(Math.round(size * .68), Math.round(size * .68), { fit: 'contain' }).extend({ top: Math.round(size * .16), bottom: Math.round(size * .16), left: Math.round(size * .16), right: Math.round(size * .16), background: '#101f30' }).resize(size, size).png().toBuffer();
   await fs.writeFile(path.join(dir, 'ic_launcher_foreground.png'), foreground);
 }
