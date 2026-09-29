@@ -9,7 +9,8 @@ import { billingPeriod } from '../lib/billing.js';
 // the hyphen-tolerant lookups below, so nothing already shared ever breaks.
 const slugify = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '').slice(0, 55);
 // Accept both spellings when RESOLVING (new joined + legacy hyphenated).
-const slugVariants = (value) => {
+// Exported: the per-store PWA manifest (server/pwa.js) resolves slugs the same way.
+export const slugVariants = (value) => {
   const raw = String(value || '').toLowerCase().trim().slice(0, 60);
   const joined = raw.replace(/[^a-z0-9]+/g, '');
   const hyphen = raw.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');

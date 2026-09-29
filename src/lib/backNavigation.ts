@@ -1,7 +1,4 @@
-// Unified hardware/gesture back button manager for mobile (Capacitor & PWA)
-import { App } from '@capacitor/app';
-import { Capacitor } from '@capacitor/core';
-
+// Back-button handling for the installed web app (PWA) and mobile browsers.
 export type BackHandler = () => boolean;
 
 const handlerStack: BackHandler[] = [];
@@ -30,35 +27,12 @@ export function handleAppBack(): boolean {
   return false;
 }
 
-// Expose on window for Android WebView evaluateJavascript bridge
-if (typeof window !== 'undefined') {
-  (window as unknown as { __stoyanguHandleBack: () => boolean }).__stoyanguHandleBack = handleAppBack;
-}
-
-// Register Capacitor App backButton listener if running natively
-let capacitorListenerRegistered = false;
+let registered = false;
 export function initBackNavigation() {
-  if (capacitorListenerRegistered || typeof window === 'undefined') return;
-  capacitorListenerRegistered = true;
-
-  if (Capacitor.isNativePlatform()) {
-    try {
-      App.addListener('backButton', ({ canGoBack }) => {
-        const handled = handleAppBack();
-        if (!handled) {
-          if (canGoBack) {
-            window.history.back();
-          } else {
-            App.exitApp();
-          }
-        }
-      });
-    } catch (e) {
-      console.warn('Could not register Capacitor backButton listener:', e);
-    }
-  }
-
-  // Handle popstate for PWA and mobile browsers
+  if (registered || typeof window === 'undefined') return;
+  registered = true;
+  // Browser/standalone-app back gesture: let open modals and tabs handle it
+  // first; otherwise normal history navigation proceeds.
   window.addEventListener('popstate', () => {
     handleAppBack();
   });

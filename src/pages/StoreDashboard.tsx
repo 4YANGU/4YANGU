@@ -1,5 +1,5 @@
 import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, MessageCircle, Package, Phone, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import Modal from '../components/Modal';
@@ -10,15 +10,16 @@ import SocialInbox from '../components/SocialInbox';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
 import { pushBackHandler } from '../lib/backNavigation';
+import { applyStoreManifest, readSplashCache, saveSplashCache, splashCacheKey } from '../lib/pwa';
 import supabase from '../lib/supabase';
 import type { DashboardData, Order, Product } from '../types';
 import '../pricing-update.css';
 import '../order-update.css';
 import '../manage-redesign.css';
 import '../woyoyo-013.css';
+import '../pwa-splash.css';
 
 type StoreUpkeep = { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'TRIAL' | 'PAID'; upkeep_due?: 0 | 300; upkeep_paid?: boolean; management_locked?: boolean; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
-type StoreApk = { status: 'not_started' | 'building' | 'ready' | 'failed'; apk_url?: string | null; error?: string | null; version_code?: number };
 
 const isStandaloneApp = () =>
   window.matchMedia('(display-mode: standalone)').matches ||
@@ -54,8 +55,15 @@ export default function StoreDashboard() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
-  const [apk, setApk] = useState<StoreApk>({ status: 'not_started' });
-  const [apkBusy, setApkBusy] = useState(false);
+  // Web app install: true once Chrome/standalone confirms this phone has the app.
+  const [installedLocally, setInstalledLocally] = useState(() => isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1');
+  // Branded launch splash for the INSTALLED app: the store's own logo (the
+  // one shown next to the store name) with a loading animation, so the app
+  // opens feeling like the store's own product.
+  const [splashInfo, setSplashInfo] = useState(() => readSplashCache(splashCacheKey(storeId)));
+  const [splashFading, setSplashFading] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
+  const splashStartRef = useRef(Date.now());
   // WOYOYO-013: My Products and My Customers are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
@@ -94,8 +102,6 @@ export default function StoreDashboard() {
     });
   }, [viewingProduct, editing, passwordOpen, installOpen, activeTab]);
 
-  // App-installed flag kept for any PWA-aware logic elsewhere.
-  const appInstalled = isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1';
   const load = useCallback(async () => {
     setError('');
     try {
@@ -107,23 +113,18 @@ export default function StoreDashboard() {
     }
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
+  // Per-store web app install: point the page's manifest at THIS store so
+  // Chrome's install prompt offers the store's name and the installed app's
+  // home-screen icon is the store's logo. Also refresh the splash cache so
+  // the next installed-app launch shows the current logo from frame one.
   useEffect(() => {
-    const id = data?.store?.id;
-    if (!id) return;
-    let alive = true;
-    const refresh = () => apiFetch<StoreApk>(`/api/store-apk?storeId=${id}`).then(result => { if (alive) setApk(result); }).catch(() => undefined);
-    void refresh();
-    const timer = window.setInterval(refresh, 12000);
-    return () => { alive = false; window.clearInterval(timer); };
-  }, [data?.store?.id]);
-  const buildStoreApk = async () => {
-    const id = data?.store?.id;
-    if (!id || apkBusy) return;
-    setApkBusy(true); setError('');
-    try { setApk(await apiFetch<StoreApk>('/api/store-apk', { method: 'POST', body: JSON.stringify({ store_id: id }) })); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to start the Android build.'); }
-    finally { setApkBusy(false); }
-  };
+    const storeData = data?.store;
+    if (!storeData) return;
+    applyStoreManifest(`slug=${encodeURIComponent(storeData.slug)}`);
+    const info = { name: storeData.name, logo_url: storeData.logo_url };
+    setSplashInfo(info);
+    saveSplashCache(splashCacheKey(storeId), { id: storeData.id, name: storeData.name, slug: storeData.slug, logo_url: storeData.logo_url });
+  }, [data?.store?.id, data?.store?.slug, data?.store?.logo_url, storeId]);
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
   const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
   const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); };
@@ -161,30 +162,48 @@ export default function StoreDashboard() {
     const timer = window.setInterval(sync, 30000);
     return () => window.clearInterval(timer);
   }, [data?.store?.id, activeTab, refreshSocialUnread]);
+  // Web app install tracking. Vfixed: also trust the platform's installation
+  // record. Even on a brand-new browser session with an empty localStorage, a
+  // store whose app is already installed will not be asked to install again
+  // after a refresh.
   useEffect(() => {
-    if (profile?.role !== 'owner') return;
-    if (isStandaloneApp()) {
-      localStorage.setItem('stoyangu-installed', '1');
-      markAppInstalled();
-    }
-    // Vfixed: also trust the platform's installation record. Even on a brand-new
-    // browser session with an empty localStorage, a store whose app is already
-    // installed will not be asked to install again after a refresh.
-    apiFetch<{ installation?: { installed?: boolean } | null }>('/api/subscriptions')
-      .then((config) => {
-        if (config.installation?.installed) {
-          localStorage.setItem('stoyangu-installed', '1');
-        }
-      })
-      .catch(() => undefined);
     const installed = () => {
       localStorage.setItem('stoyangu-installed', '1');
-      markAppInstalled();
-      enableStoreNotifications().catch((reason) => console.warn('Notification setup will continue from the dashboard reminder:', reason));
+      setInstalledLocally(true);
+      if (profile?.role === 'owner') {
+        markAppInstalled();
+        enableStoreNotifications().catch((reason) => console.warn('Notification setup will continue from the dashboard reminder:', reason));
+      }
     };
+    if (profile?.role === 'owner') {
+      if (isStandaloneApp()) {
+        localStorage.setItem('stoyangu-installed', '1');
+        setInstalledLocally(true);
+        markAppInstalled();
+      }
+      apiFetch<{ installation?: { installed?: boolean } | null }>('/api/subscriptions')
+        .then((config) => {
+          if (config.installation?.installed) {
+            localStorage.setItem('stoyangu-installed', '1');
+            setInstalledLocally(true);
+          }
+        })
+        .catch(() => undefined);
+    }
     window.addEventListener('appinstalled', installed);
     return () => window.removeEventListener('appinstalled', installed);
   }, [profile?.role]);
+  // The installed (standalone) app keeps the branded splash up until the
+  // dashboard data lands, with a short minimum display so the store logo is
+  // seen, not just a flash.
+  const standalone = isStandaloneApp();
+  useEffect(() => {
+    if (!standalone || splashDone || loading) return;
+    const minDelay = Math.max(0, 800 - (Date.now() - splashStartRef.current));
+    const t1 = window.setTimeout(() => setSplashFading(true), minDelay);
+    const t2 = window.setTimeout(() => setSplashDone(true), minDelay + 500);
+    return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
+  }, [standalone, splashDone, loading]);
   const remove = async (product: Product) => { if (!window.confirm(`Delete ${product.name}? This cannot be undone.`)) return; try { await apiFetch('/api/products', { method: 'DELETE', body: JSON.stringify({ id: product.id }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete product.'); } };
   const updateOrderStatus = async (order: Order, status: Order['status']) => { const previous = order.status; setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status } : item) } : current); try { await apiFetch('/api/orders', { method: 'PUT', body: JSON.stringify({ id: order.id, status }) }); await load(); } catch (reason) { setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status: previous } : item) } : current); setError(reason instanceof Error ? reason.message : 'Could not update that order.'); } };
   const removeOrder = async (order: Order) => {
@@ -199,18 +218,39 @@ export default function StoreDashboard() {
       setError(reason instanceof Error ? reason.message : 'Could not delete that order.');
     }
   };
+  // The download symbol: prompts the browser's real web-app install dialog
+  // (Chrome shows this store's name + logo icon). Where the browser does not
+  // expose the prompt (iPhone Safari, already installed…), open the guide.
   const installApp = async () => {
     const prompt = (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT;
-    if (!prompt) { setInstallOpen(true); return; }
-    try {
-      await prompt.prompt();
-      const choice = await prompt.userChoice;
-      if (choice?.outcome === 'accepted') { localStorage.setItem('stoyangu-installed', '1'); void markAppInstalled(); }
-      else setInstallOpen(true);
-    } catch { setInstallOpen(true); }
+    if (prompt) {
+      try {
+        await prompt.prompt();
+        const choice = await prompt.userChoice;
+        if (choice?.outcome === 'accepted') { localStorage.setItem('stoyangu-installed', '1'); setInstalledLocally(true); void markAppInstalled(); }
+        else setInstallOpen(true);
+        (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
+        return;
+      } catch {
+        (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
+      }
+    }
+    setInstallOpen(true);
   };
-  if (loading) return <div className="owner-loading" role="status"><BrandLogo /><p>Getting your store ready…</p></div>;
-  if (!data?.store) return <div className="owner-loading" role="status"><BrandLogo /><div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div>;
+  const splashStoreName = data?.store?.name || splashInfo?.name || 'StoYangu';
+  const splashStoreLogo = data?.store?.logo_url || splashInfo?.logo_url || '/stoyangu-logo.png';
+  const splashEl = standalone && !splashDone ? (
+    <div className={`store-splash${splashFading ? ' fading' : ''}`} role="status" aria-label={`Opening ${splashStoreName}`}>
+      <div className="store-splash-logo-wrap">
+        <img className="store-splash-logo" src={splashStoreLogo} alt="" />
+        <span className="store-splash-ring" aria-hidden="true" />
+      </div>
+      <h2 className="store-splash-name">{splashStoreName}</h2>
+      <p className="store-splash-sub">Opening your store<span className="store-splash-dots"><i /><i /><i /></span></p>
+    </div>
+  ) : null;
+  if (loading) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><p>Getting your store ready…</p></div></>;
+  if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
   const store = data.store;
   const handleStorefrontClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
     const prompt = (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT;
@@ -221,6 +261,7 @@ export default function StoreDashboard() {
       const choice = await prompt.userChoice;
       if (choice?.outcome === 'accepted') {
         localStorage.setItem('stoyangu-installed', '1');
+        setInstalledLocally(true);
         markAppInstalled();
       }
       (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
@@ -237,9 +278,9 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
 
-  return <div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{profile?.role === 'founder' && <button className="build-apk-button" onClick={buildStoreApk} disabled={apkBusy || apk.status === 'building' || !store.logo_url} title={!store.logo_url ? 'Add a store logo first' : 'Build this store’s Android app'}>{apkBusy || apk.status === 'building' ? <RefreshCw className="spin" /> : <Download />} Build app</button>}{apk.status === 'ready' && apk.apk_url ? <a className="header-icon-btn apk-download" href={apk.apk_url} download={`stoyangu-${store.slug}.apk`} aria-label={`Download ${store.name} APK`} title="Download this store’s Android app"><Download /></a> : <button className="header-icon-btn" type="button" onClick={installApp} disabled={/Android/i.test(navigator.userAgent)} aria-label="Android APK is being prepared" title={apk.status === 'failed' ? apk.error || 'Android build failed' : 'Waiting for this store’s Android APK'}><RefreshCw className="spin" /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div></div></div></header><main className="owner-main">
+  return <>{splashEl}<div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{installedLocally ? <span className="header-icon-btn install-state" aria-label="App installed on this phone" title="This app is installed on this phone"><Check /></span> : <button className="header-icon-btn install-app-button" type="button" onClick={installApp} aria-label="Install the app on your phone" title="Install this app — the store's logo becomes the app icon"><Download /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div></div></div></header><main className="owner-main">
     {/* WOYOYO-013: My Products and My Customers pages */}
-    {error && <div className="dashboard-error">{error}</div>}{apk.status === 'failed' && apk.error && <div className="dashboard-error">Android build: {apk.error}</div>}
+    {error && <div className="dashboard-error">{error}</div>}
     {activeTab === 'customers'
     ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
     : <>
@@ -302,7 +343,7 @@ export default function StoreDashboard() {
       )}
     </section>
     </>}
-  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{installOpen && <Modal title="Install StoYangu" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install this app on your phone to open it from your home screen and receive updates when notifications are enabled.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New app versions load when this site is redeployed and you reopen it. A native APK and automatic WhatsApp Status selection are not available through this website.</p></div></Modal>}{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{viewingProduct && <ProductDetailsModal product={viewingProduct} locked={locked} onClose={() => setViewingProduct(null)} onEdit={() => { const p = viewingProduct; setViewingProduct(null); setEditing(p); }} onDelete={async () => { const p = viewingProduct; setViewingProduct(null); await remove(p); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div>;
+  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{installOpen && <Modal title="Install this app" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install this app on your phone so it opens straight from your home screen with your own loading splash. The app icon is <strong>{store.name}</strong>'s logo — the same one shown next to the store name up top.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New versions load automatically after updates — no reinstall needed. If you change the store logo later, uninstall and install once more to refresh the app icon.</p></div></Modal>}{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{viewingProduct && <ProductDetailsModal product={viewingProduct} locked={locked} onClose={() => setViewingProduct(null)} onEdit={() => { const p = viewingProduct; setViewingProduct(null); setEditing(p); }} onDelete={async () => { const p = viewingProduct; setViewingProduct(null); await remove(p); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div></>;
 }
 
 function NotificationSetupCard() {

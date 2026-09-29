@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
-      "source": "/api/store-apk",
-      "destination": "/api/stores?apk=1"
+      "source": "/api/store-pwa/manifest",
+      "destination": "/api/stores?pwa=manifest"
+    },
+    {
+      "source": "/api/store-pwa/icon",
+      "destination": "/api/stores?pwa=icon"
     },
     {
       "source": "/login",
