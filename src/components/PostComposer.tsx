@@ -69,6 +69,17 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     }).catch(() => { if (alive) setDraftNotice('Automatic draft recovery is unavailable in this browser.'); }).finally(() => { if (alive) setReady(true); });
     return () => { alive = false; };
   }, [draftKey]);
+
+  useEffect(() => {
+    window.history.pushState({ postComposerOpen: true }, '', window.location.href);
+    const onBack = () => {
+      if (!busy) onClose();
+    };
+    window.addEventListener('popstate', onBack);
+    return () => {
+      window.removeEventListener('popstate', onBack);
+    };
+  }, [onClose, busy]);
   useEffect(() => () => { urls.current.forEach(URL.revokeObjectURL); }, []);
   useEffect(() => {
     if (!ready || completed.current) return;
