@@ -51,14 +51,15 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const loadRef = useRef<() => void>(() => undefined);
-  const load = useCallback(async (silent = false, background = false) => {
+  const load = useCallback(async (silent = false, background = false, syncNow = false) => {
     if (background) { /* live mode syncs silently below — never show spinners */ }
     else if (silent) setRefreshing(true);
     else setLoading(true);
     if (!background) setError('');
     try {
-      if (background) {
-        // Quiet live sync: pull newest Repliz comments/chats, then re-read.
+      if (background || syncNow) {
+        // Pull newest Repliz comments/chats before reading the inbox. This runs
+        // immediately on opening or manually refreshing, plus on the quiet timer.
         await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: storeId }) }).catch(() => undefined);
       }
       const [inbox, orderResult] = await Promise.allSettled([
@@ -87,7 +88,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   }, [storeId]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void load(); }, 0);
+    const timer = window.setTimeout(() => { void load(false, false, true); }, 0);
     return () => window.clearTimeout(timer);
   }, [load]);
   useEffect(() => { loadRef.current = () => load(true, true); }, [load]);
@@ -293,7 +294,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram, Threads and WhatsApp">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={23} />)}<PlatformLogo platform="whatsapp" size={23} /></span>
       </div>
       <div className="social-head-actions">
-        <button className="inbox-refresh-icon" onClick={() => load(true)} disabled={refreshing} aria-label="Refresh inbox" title="Refresh inbox"><RefreshCw className={refreshing ? 'spin' : ''} /></button>
+        <button className="inbox-refresh-icon" onClick={() => load(true, false, true)} disabled={refreshing} aria-label="Refresh inbox" title="Refresh inbox"><RefreshCw className={refreshing ? 'spin' : ''} /></button>
       </div>
     </div>
     {error && <div className="form-error">{error}</div>}

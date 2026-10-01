@@ -210,6 +210,7 @@ export default function StoreDashboard() {
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: id }) }).catch(() => undefined);
       await refreshSocialUnread(id);
     };
+    void sync();
     const timer = window.setInterval(sync, 30000);
     return () => window.clearInterval(timer);
   }, [data?.store?.id, activeTab, refreshSocialUnread]);

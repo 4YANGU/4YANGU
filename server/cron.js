@@ -112,7 +112,7 @@ async function runInboxSync(res) {
   const errors = [];
 
   // Keep Repliz traffic bounded so a busy network cannot overwhelm the
-  // scheduled function, including when a higher-frequency plan is configured.
+  // function, including when an external scheduler triggers it every minute.
   for (let index = 0; index < storeIds.length; index += 2) {
     const batch = storeIds.slice(index, index + 2);
     const settled = await Promise.allSettled(batch.map(async (storeId) => ({ storeId, ...(await syncStoreInbox(storeId)) })));
@@ -138,7 +138,7 @@ export default async function handler(req, res) {
   try {
     const expected = process.env.CRON_SECRET;
     const provided = req.headers.authorization?.replace('Bearer ', '');
-    if (!expected) return res.status(503).json({ error: 'Daily schedule secret is not configured.' });
+    if (!expected) return res.status(503).json({ error: 'Cron secret is not configured.' });
     if (provided !== expected) return res.status(401).json({ error: 'Unauthorized schedule request.' });
 
     const job = req.query?.job;

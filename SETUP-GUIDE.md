@@ -103,9 +103,11 @@ npx web-push generate-vapid-keys
 
 The downloadable `vercel.json` contains routes, security headers and schedules only. It contains no environment values, so it cannot override the Vercel and Supabase connection.
 
-Push notifications need four separate one-time secrets because Supabase cannot create web-push keys automatically. Add only `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` and `CRON_SECRET` in Vercel after the main website and login are working. These are notification settings, not Supabase connection settings.
+Browser push requires three VAPID settings because Supabase cannot create web-push keys automatically: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. The scheduled endpoints also need a separate `CRON_SECRET`. Add all four in Vercel after the main website and login are working. Reuse `CRON_SECRET` for the optional Supabase background-sync job below; never put it in this repository or share it in chat.
 
-Vercel reads the cron schedule from `vercel.json`. The Hobby-compatible schedule checks connected social inboxes once a day around 6:00 PM Nairobi time, generates the daily review draft around 7:00 PM, and checks for confirmed notifications to send around 8:00 PM. Hobby cron timing is only precise to the hour, so those jobs can run at any time during their scheduled hour. Social inboxes therefore won't refresh every few minutes on Hobby; use a Vercel plan with minute-level cron precision if you need that frequency.
+Vercel reads the cron schedule from `vercel.json`. The Hobby-compatible inbox cron is a background catch-up that runs once a day around 6:00 PM Nairobi time; it does not control live syncing while an owner is using the app. Opening or manually refreshing **My Customers** fetches the latest connected social messages right away, then the visible inbox checks every 20 seconds. The Products screen also syncs immediately when opened and then every 30 seconds. Website orders are saved directly and do not wait for the cron.
+
+To keep social inboxes and push notifications updating while all owner dashboards are closed, use [Supabase's built-in Cron](https://supabase.com/docs/guides/cron) instead of trying to make the Vercel Hobby schedule more frequent. In the Supabase Dashboard, open **Integrations → Cron → Create job**, make an HTTP request every minute (`* * * * *`) using **GET** to `https://YOUR-LIVE-DOMAIN/api/cron?job=inbox`, and add the header `Authorization: Bearer YOUR_CRON_SECRET` (use the same secret already saved in Vercel). Save the job and check its **History** for successful responses. This uses the Supabase database scheduler and keeps the Vercel deployment Hobby-compatible; when enabled, background social messages and their push alerts are normally picked up within about a minute. Supabase Cron supports recurring HTTP requests on schedules as frequent as seconds; once per minute is chosen here to keep Repliz/API use reasonable. If you do not enable this optional job, the daily Vercel sync remains a background fallback, while opening **My Customers** still triggers a fresh sync. Vercel Hobby cron timing is only precise to the hour and does not allow a five-minute Vercel Cron schedule.
 
 ---
 
@@ -161,7 +163,7 @@ AI discovery files help compliant crawlers understand the business, but AI answe
 5. In **My App**, press **Allow notifications** and confirm the test alert arrives on that phone. On iPhone, first use Safari's Share → Add to Home Screen, open the installed app, then allow notifications.
 6. Return to the founder dashboard and check the app/notification status for that store.
 7. Add a product with seven photos, edit it, open its storefront and test WhatsApp ordering.
-8. Send a test DM/comment to a connected social account and verify the new inbox alert arrives; allow up to five minutes for the scheduled background sync.
+8. Send a test DM/comment to a connected social account. With **My Customers** open, it syncs on opening/refresh and then every 20 seconds. To test background delivery, close the owner dashboard and check Supabase Cron **History**; with the optional every-minute job enabled, the message and push alert should be picked up on its next successful run.
 9. At 7 PM, review the combined daily messages. Confirm before 7:30 PM and verify they do not send immediately.
 10. At 7:30 PM, verify each owner receives only their store's message.
 11. Test a custom notification to one store, then to all installed owners.
