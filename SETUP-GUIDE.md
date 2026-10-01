@@ -105,9 +105,7 @@ The downloadable `vercel.json` contains routes, security headers and schedules o
 
 Push notifications need four separate one-time secrets because Supabase cannot create web-push keys automatically. Add only `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` and `CRON_SECRET` in Vercel after the main website and login are working. These are notification settings, not Supabase connection settings.
 
-Vercel reads the cron schedule from `vercel.json`: connected social inboxes are checked every five minutes for new DMs and comments, daily review generation is 7:00 PM Nairobi time, and confirmed notifications send at 7:30 PM Nairobi time.
-
-Make sure the selected Vercel plan supports a five-minute cron interval as well as the two daily jobs. Upgrade if it does not; otherwise background social-message alerts will not run on schedule.
+Vercel reads the cron schedule from `vercel.json`. The Hobby-compatible schedule checks connected social inboxes once a day around 6:00 PM Nairobi time, generates the daily review draft around 7:00 PM, and checks for confirmed notifications to send around 8:00 PM. Hobby cron timing is only precise to the hour, so those jobs can run at any time during their scheduled hour. Social inboxes therefore won't refresh every few minutes on Hobby; use a Vercel plan with minute-level cron precision if you need that frequency.
 
 ---
 

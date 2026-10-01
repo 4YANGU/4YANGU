@@ -112,7 +112,7 @@ async function runInboxSync(res) {
   const errors = [];
 
   // Keep Repliz traffic bounded so a busy network cannot overwhelm the
-  // scheduled function; each store still syncs every five minutes.
+  // scheduled function, including when a higher-frequency plan is configured.
   for (let index = 0; index < storeIds.length; index += 2) {
     const batch = storeIds.slice(index, index + 2);
     const settled = await Promise.allSettled(batch.map(async (storeId) => ({ storeId, ...(await syncStoreInbox(storeId)) })));
