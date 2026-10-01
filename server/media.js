@@ -188,7 +188,18 @@ async function handleSocialInbox(req, res, profile, storeId) {
 async function handleSocialPosts(req, res, profile, storeId) {
   const { data, error } = await supabase.from('social_posts').select('*').eq('store_id', storeId).order('created_at', { ascending: false }).limit(50);
   if (error) throw error;
-  return res.status(200).json({ posts: (data || []).map(post => ({ ...post, platforms: (post.platforms || []).filter(platform => REPLIZ_PLATFORMS.includes(platform)), results: Object.fromEntries(Object.entries(post.results || {}).filter(([key]) => key === 'media_kinds' || REPLIZ_PLATFORMS.some(platform => key === platform || key.startsWith(`${platform} `)))) })) });
+  return res.status(200).json({ posts: (data || []).map(post => ({
+    ...post,
+    platforms: (post.platforms || []).filter(platform => REPLIZ_PLATFORMS.includes(platform)),
+    results: Object.fromEntries(Object.entries(post.results || {}).filter(([key]) => {
+      if (key === 'media_kinds') return true;
+      const normalizedKey = key.toLowerCase();
+      return REPLIZ_PLATFORMS.some(platform => {
+        const label = String(REPLIZ_LABELS[platform] || platform).toLowerCase();
+        return normalizedKey === platform || normalizedKey.startsWith(`${platform} `) || normalizedKey === label || normalizedKey.startsWith(`${label} `);
+      });
+    })),
+  })) });
 }
 
 async function upsertConnection(storeId, platform, account, status) {
@@ -259,18 +270,19 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
   // Woyoyo-003: publishing ALWAYS goes to every connected platform —
   // the composer never asks which ones (any legacy `platforms` payload ignored).
   const platforms = [...new Set((connections || []).map((c) => String(c.platform).toLowerCase()).filter((p) => REPLIZ_PLATFORMS.includes(p)))];
-  if (!platforms.length && !asDraft) return res.status(400).json({ error: 'Connect at least one account first — open the Inbox tab and tap Accounts.' });
+  if (!platforms.length && !asDraft) return res.status(400).json({ error: 'Connect at least one account first in Settings → Connected accounts.' });
   let results = {};
   if (!asDraft) {
     if (mode !== 'live') return res.status(503).json({ error: 'Publishing is not configured. Your product is saved; add the Repliz credentials to publish.' });
     {
       const jobs = platforms.flatMap(platform => {
-        // Stories can ONLY be posted to ig and fb. TikTok is feed only.
-        const placements = platform === 'tiktok' ? ['feed'] : ['feed', 'story'];
+        // Stories can ONLY be posted to Instagram and Facebook. TikTok and
+        // Threads are feed-only in the public Repliz API.
+        const placements = ['instagram', 'facebook'].includes(platform) ? ['feed', 'story'] : ['feed'];
         return placements.map(placement => ({ platform, placement, connection: (connections || []).find(c => c.platform === platform) }));
       });
       const delivered = await Promise.all(jobs.map(async ({ platform, placement, connection }) => {
-        const platformLabel = platform === 'fb' || platform === 'facebook' ? 'Facebook' : platform === 'ig' || platform === 'instagram' ? 'Instagram' : 'TikTok';
+        const platformLabel = platform === 'facebook' ? 'Facebook' : platform === 'instagram' ? 'Instagram' : platform === 'threads' ? 'Threads' : 'TikTok';
         const placementLabel = placement === 'story' ? 'story' : 'post';
         const key = `${platformLabel} ${placementLabel}`;
         try {
@@ -310,10 +322,15 @@ async function handleSocialReply(req, res, profile, storeId) {
     .eq('store_id', storeId)
     .eq('thread_key', threadKey)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(100);
   if (existingError) throw existingError;
   if (!existing?.length) return res.status(404).json({ error: 'Conversation not found.' });
-  const head = existing[0];
+  // Always deliver against an inbound provider message. The newest row is
+  // often the owner's previous outgoing reply, whose external_id is null;
+  // using it caused the false "comment is missing its platform reference"
+  // failure on every second reply.
+  const head = existing.find((message) => message.direction === 'in') || existing[0];
+  const deliverySource = existing.find((message) => message.direction === 'in' && message.external_id) || head;
   const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
   const mode = replizMode();
   // Save locally first so the reply is never lost if the live send fails.
@@ -336,7 +353,7 @@ async function handleSocialReply(req, res, profile, storeId) {
   if (mode === 'live' && head.platform !== 'storefront') {
     try {
       const { data: connection } = await supabase.from('social_connections').select('account_id').eq('store_id', storeId).eq('platform', head.platform).limit(1).maybeSingle();
-      await replizSendReply({ platform: head.platform, accountId: connection?.account_id, threadKey, externalId: head.external_id, body: [body, attachmentUrl].filter(Boolean).join('\n'), kind: head.kind });
+      await replizSendReply({ platform: head.platform, accountId: connection?.account_id, threadKey, externalId: deliverySource.external_id, body: [body, attachmentUrl].filter(Boolean).join('\n'), kind: head.kind });
     } catch (replyError) {
       delivery = { ok: false, mode, error: replyError instanceof Error ? replyError.message : 'Live send failed.' };
     }
@@ -523,8 +540,8 @@ async function handleSocial(req, res) {
 
 // Woyoyo-004: OAuth landing page. The platform sends the owner back here
 // after they approve on the official authorization page. Single-step
-// platforms (TikTok / Instagram) finish immediately; Facebook exchanges the code and returns the Page /
-// channel picker to the pop-up, which posts the result back to the inbox.
+// platforms (TikTok / Instagram / Threads) finish immediately; Facebook
+// exchanges the code and returns the Page/channel picker to the pop-up.
 // Woyoyo-004: signed upload URL// Woyoyo-004: signed upload URL for composer photos/videos. The browser PUTs
 // the file bytes straight to Supabase storage, so TikTok-style videos never
 // pass through the serverless function (which caps request bodies).

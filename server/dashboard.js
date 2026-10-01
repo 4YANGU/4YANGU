@@ -6,12 +6,13 @@ const addPlan = (store, orders) => {
   const activeOrders = (orders || []).filter((order) => order.status !== 'cancelled');
   const period = billingPeriod(store);
   const periodOrders = activeOrders.filter((order) => { const created = new Date(order.created_at).getTime(); return created >= period.startsAt && created < period.endsAt; }).length;
-  // KES 300 model: the first 30-day period is a completely free trial. Every
-  // period after that costs KES 300, which the owner pays on day 30 to
-  // continue for the upcoming month. Order counts no longer change the price.
+  // KES 300 model: the first 14-day period is a completely free trial. Every
+  // period after that costs KES 300, which the owner pays on day 14 to
+  // continue for the upcoming period. Order counts no longer change the price.
   // Non-payment: the storefront stays visible, product management locks.
   const inFreeTrial = period.periodNumber === 0;
-  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: inFreeTrial ? 'TRIAL' : 'PAID', upkeep_due: inFreeTrial ? 0 : 300, upkeep_paid: !inFreeTrial && !managementLocked(store), management_locked: managementLocked(store), upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
+  const periodDay = Math.min(14, Math.max(1, Math.floor((Date.now() - period.startsAt) / 86400000) + 1));
+  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: inFreeTrial ? 'TRIAL' : 'PAID', upkeep_due: inFreeTrial ? 0 : 300, upkeep_paid: !inFreeTrial && !managementLocked(store), management_locked: managementLocked(store), upkeep_period_day: periodDay, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
 };
 
 export default async function handler(req, res) {
@@ -34,7 +35,29 @@ export default async function handler(req, res) {
         supabase.from('notifications').select('id,batch_key,title,body,edited_body,status,created_at').eq('store_id', storeId).order('created_at', { ascending: false }).limit(5),
       ]);
       if (error || !store) return res.status(404).json({ error: 'Store not found.' });
-      const orders = await storeOrders(supabase, storeId, 200);
+      const orders = await storeOrders(supabase, storeId, 500);
+      const currentPeriod = billingPeriod(store);
+      const periodStartIso = new Date(currentPeriod.startsAt).toISOString();
+      const periodEndIso = new Date(currentPeriod.endsAt).toISOString();
+      const { data: periodEvents, error: periodEventError } = await supabase
+        .from('store_events')
+        .select('event_type,product_id,created_at')
+        .eq('store_id', storeId)
+        .gte('created_at', periodStartIso)
+        .lt('created_at', periodEndIso);
+      if (periodEventError) throw periodEventError;
+      const periodVisits = (periodEvents || []).filter((event) => event.event_type === 'visit').length;
+      const periodViewsByProduct = new Map();
+      for (const event of periodEvents || []) {
+        if (event.event_type !== 'product_view' || !event.product_id) continue;
+        periodViewsByProduct.set(Number(event.product_id), (periodViewsByProduct.get(Number(event.product_id)) || 0) + 1);
+      }
+      const periodOrdersByProduct = new Map();
+      for (const order of orders || []) {
+        const created = new Date(order.created_at).getTime();
+        if (order.status === 'cancelled' || created < currentPeriod.startsAt || created >= currentPeriod.endsAt) continue;
+        periodOrdersByProduct.set(Number(order.product_id), (periodOrdersByProduct.get(Number(order.product_id)) || 0) + 1);
+      }
       // Show today's counters as zero on a fresh Nairobi day even before the first
       // event lands, so yesterday's numbers never masquerade as today's.
       const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
@@ -53,7 +76,7 @@ export default async function handler(req, res) {
         supabase.from('product_media').select('product_id,url').in('product_id', products.map(product => product.id)).eq('media_type', 'video'),
       ]) : [{ data: [], error: null }, { data: [], error: null }];
       if (mediaError || videoError) throw mediaError || videoError;
-      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean), video_url: (videos || []).find(item => item.product_id === product.id)?.url || '' }; });
+      const liveProducts = (products || []).map((product) => { const images = (media || []).filter((image) => image.product_id === product.id).map((image) => image.url).slice(0, 7); if (product.metrics_date !== nairobiToday) { product.views_today = 0; product.orders_today = 0; } return { ...product, images: images.length ? images : [product.image_url].filter(Boolean), video_url: (videos || []).find(item => item.product_id === product.id)?.url || '', views_this_period: periodViewsByProduct.get(Number(product.id)) || 0, orders_this_period: periodOrdersByProduct.get(Number(product.id)) || 0 }; });
       const { data: highlights, error: highlightError } = notifications?.length ? await supabase.from('notification_highlights').select('*').in('notification_id', notifications.map((notification) => notification.id)) : { data: [], error: null };
       if (highlightError) throw highlightError;
       const ranked = [...liveProducts].sort((a, b) => Number(b.orders_today) - Number(a.orders_today) || Number(b.views_today) - Number(a.views_today));
@@ -64,7 +87,8 @@ export default async function handler(req, res) {
       const { data: incomingMessages } = await supabase.from('social_messages').select('thread_key,created_at').eq('store_id', storeId).eq('direction', 'in');
       const customersTotal = new Set(incomingMessages?.map((m) => m.thread_key) || []).size;
       const customersToday = new Set((incomingMessages || []).filter((m) => new Date(m.created_at).getTime() >= new Date(dayStart).getTime()).map((m) => m.thread_key)).size;
-      return res.status(200).json({ profile, store: addPlan(store, orders), products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal, customersToday });
+      const customersThisPeriod = new Set((incomingMessages || []).filter((m) => { const created = new Date(m.created_at).getTime(); return created >= currentPeriod.startsAt && created < currentPeriod.endsAt; }).map((m) => m.thread_key)).size;
+      return res.status(200).json({ profile, store: { ...addPlan(store, orders), visitors_this_period: periodVisits }, products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal, customersToday, customersThisPeriod });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
     const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([

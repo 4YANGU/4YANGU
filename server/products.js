@@ -1,7 +1,7 @@
 import supabase from '../lib/db-client.js';
 import { managementLocked } from '../lib/billing.js';
 
-// KES 300 model: once a store's free first 30 days are over, product changes
+// KES 300 model: once a store's free first 14 days are over, product changes
 // require the current period to be paid. The storefront itself stays visible
 // to customers; only the owner's product management is locked.
 async function storeLockedForOwner(profile, storeId) {
@@ -10,7 +10,7 @@ async function storeLockedForOwner(profile, storeId) {
   if (!store) return false;
   return managementLocked(store);
 }
-const LOCKED_MESSAGE = 'Your free 30 days have ended. Pay KES 300 to continue managing products for the next 30 days. Your store is still visible to customers — contact StoYangu on WhatsApp 0793 533 683 to pay.';
+const LOCKED_MESSAGE = 'Your free 14 days have ended. Pay KES 300 to continue managing products for the next 14 days. Your store is still visible to customers — contact StoYangu on WhatsApp 0793 533 683 to pay.';
 
 async function profileFor(req) {
   const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) return null;

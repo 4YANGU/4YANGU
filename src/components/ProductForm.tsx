@@ -2,9 +2,9 @@
 // ProductModal keeps wrapping it in a dialog (shelf Edit); the post composer
 // embeds it directly so sellers add products inside the posting flow.
 
-import { Camera, Check, Image, Plus, X } from 'lucide-react';
-import { FormEvent, useRef, useState } from 'react';
-import { apiFetch, uploadImage } from '../lib/api';
+import { Camera, Check, Image, Plus, Upload, Video, X } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { apiFetch, uploadImage, uploadPostMedia } from '../lib/api';
 import type { Product } from '../types';
 
 const colorPresets = ['Black', 'White', 'Navy', 'Green', 'Red', 'Blue', 'Pink', 'Brown', 'Beige', 'Gold'];
@@ -32,22 +32,35 @@ export default function ProductForm({ product = null, storeId, busy: busyProp, e
   const [hasSizes, setHasSizes] = useState(Boolean(product?.sizes?.length)); const [sizes, setSizes] = useState<string[]>(product?.sizes || []); const [customSize, setCustomSize] = useState('');
   const initialPhotos = (product?.images?.length ? product.images : [product?.image_url].filter(Boolean)) as string[];
   const [photos, setPhotos] = useState<Array<{ id: string; url: string; file?: File }>>(initialPhotos.map((url, index) => ({ id: `saved-${index}`, url })));
+  const [video, setVideo] = useState<{ url: string; file?: File } | null>(product?.video_url ? { url: product.video_url } : null);
   const [busyLocal, setBusyLocal] = useState(false); const [errorLocal, setErrorLocal] = useState('');
   const busy = busyProp ?? busyLocal;
   const error = errorProp ?? errorLocal;
   const setBusy = (value: boolean) => { setBusyLocal(value); onBusyChange?.(value); };
   const setError = (message: string) => { setErrorLocal(message); onError?.(message); };
-  const galleryRef = useRef<HTMLInputElement>(null); const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null); const cameraRef = useRef<HTMLInputElement>(null); const videoRef = useRef<HTMLInputElement>(null);
+  const localUrls = useRef(new Set<string>());
+  useEffect(() => () => { localUrls.current.forEach((url) => URL.revokeObjectURL(url)); }, []);
+  const previewUrl = (file: File) => { const url = URL.createObjectURL(file); localUrls.current.add(url); return url; };
+  const releaseUrl = (url: string) => { if (!localUrls.current.has(url)) return; URL.revokeObjectURL(url); localUrls.current.delete(url); };
   const choose = (files?: FileList | null) => {
     const selected = Array.from(files || []).filter((file) => file.type.startsWith('image/'));
     if (!selected.length) return;
     setPhotos((current) => {
       const room = Math.max(0, 7 - current.length);
       if (selected.length > room) setError('A product can have a maximum of 7 photos.');
-      return [...current, ...selected.slice(0, room).map((file) => ({ id: `${file.name}-${file.lastModified}-${Math.random()}`, url: URL.createObjectURL(file), file }))];
+      return [...current, ...selected.slice(0, room).map((file) => ({ id: `${file.name}-${file.lastModified}-${Math.random()}`, url: previewUrl(file), file }))];
     });
   };
-  const removePhoto = (id: string) => setPhotos((current) => current.filter((photo) => photo.id !== id));
+  const removePhoto = (id: string) => setPhotos((current) => current.filter((photo) => { if (photo.id !== id) return true; releaseUrl(photo.url); return false; }));
+  const removeVideo = () => { if (video) releaseUrl(video.url); setVideo(null); };
+  const chooseProductVideo = (file?: File) => {
+    if (!file) return;
+    if (file.size > 75 * 1024 * 1024) { setError('Product videos must be under 75 MB.'); return; }
+    if (video) releaseUrl(video.url);
+    setError('');
+    setVideo({ file, url: previewUrl(file) });
+  };
   const toggle = (item: string, list: string[], setter: (value: string[]) => void) => setter(list.includes(item) ? list.filter((value) => value !== item) : [...list, item]);
   const addCustom = (type: 'color' | 'size') => { const value = (type === 'color' ? customColor : customSize).trim(); if (!value) return; if (type === 'color') { setColors(Array.from(new Set([...colors, value]))); setCustomColor(''); } else { setSizes(Array.from(new Set([...sizes, value]))); setCustomSize(''); } };
   const submit = async (event: FormEvent) => {
@@ -59,10 +72,11 @@ export default function ProductForm({ product = null, storeId, busy: busyProp, e
     setBusy(true);
     try {
       const images = await Promise.all(photos.map(async (photo) => photo.file ? (await uploadImage(photo.file, 'products')).url : photo.url));
-      const body = { id: product?.id, store_id: storeId, name: name.trim(), price: Number(price), colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], image_url: images[0], images };
+      const videoUrl = video?.file ? (await uploadPostMedia(video.file)).url : (video?.url || '');
+      const body = { id: product?.id, store_id: storeId, name: name.trim(), price: Number(price), colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [], image_url: images[0], images, video_url: videoUrl };
       const saved = await apiFetch<Product>('/api/products', { method: product ? 'PUT' : 'POST', body: JSON.stringify(body) });
       onSaved?.(saved?.id ?? product?.id);
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not save product.'); } finally { setBusy(false); }
   };
-  return <form className="product-form product-form-embedded" onSubmit={submit}><div className="photo-manager"><div className="photo-manager-head"><div><strong>Product photos</strong><p>Add up to 7. JPG, PNG, WebP, GIF, HEIC and AVIF are supported.</p></div><span>{photos.length} / 7</span></div><div className="photo-grid">{photos.map((photo, index) => <div className={`photo-tile ${index === 0 ? 'cover' : ''}`} key={photo.id}><img src={photo.url} alt={`Product photo ${index + 1}`} />{index === 0 && <small>Cover</small>}<button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Remove photo ${index + 1}`}><X /></button></div>)}{photos.length < 7 && <button type="button" className="photo-add-tile" onClick={() => galleryRef.current?.click()}><Image /><span>Add photos</span></button>}</div><div className="photo-source-actions"><button type="button" className="secondary-button" onClick={() => galleryRef.current?.click()}><Image /> Choose from gallery</button><button type="button" className="secondary-button" onClick={() => cameraRef.current?.click()}><Camera /> Take a photo</button></div><input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /><input ref={cameraRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /></div><div className="form-grid"><label>Product name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={colorPresets} selected={colors} onToggle={(item) => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={sizePresets} selected={sizes} onToggle={(item) => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} />{error && onError === undefined && <div className="form-error">{error}</div>}<div className="modal-actions">{onCancel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel || 'Cancel'}</button>}<button className="button-primary" disabled={busy}>{busy ? `Uploading ${photos.length} photo${photos.length === 1 ? '' : 's'}…` : (submitLabel || 'Save product')} <Check /></button></div></form>;
+  return <form className="product-form product-form-embedded" onSubmit={submit}><div className="photo-manager"><div className="photo-manager-head"><div><strong>Product photos</strong><p>Add up to 7. JPG, PNG, WebP, GIF, HEIC and AVIF are supported.</p></div><span>{photos.length} / 7</span></div><div className="photo-grid">{photos.map((photo, index) => <div className={`photo-tile ${index === 0 ? 'cover' : ''}`} key={photo.id}><img src={photo.url} alt={`Product photo ${index + 1}`} />{index === 0 && <small>Cover</small>}<button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Remove photo ${index + 1}`}><X /></button></div>)}{photos.length < 7 && <button type="button" className="photo-add-tile" onClick={() => galleryRef.current?.click()}><Image /><span>Add photos</span></button>}</div><div className="photo-source-actions"><button type="button" className="secondary-button" onClick={() => galleryRef.current?.click()}><Image /> Choose from gallery</button><button type="button" className="secondary-button" onClick={() => cameraRef.current?.click()}><Camera /> Take a photo</button></div><input ref={galleryRef} hidden multiple type="file" accept="image/*,.avif,.heic,.heif" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /><input ref={cameraRef} hidden type="file" accept="image/*,.avif,.heic,.heif" capture="environment" onChange={(event) => { choose(event.target.files); event.target.value = ''; }} /></div><div className="product-video-manager"><div className="photo-manager-head"><div><strong>Product video</strong><p>Add one optional video. It will appear with this product when you post.</p></div>{video && <span>1 / 1</span>}</div>{video ? <div className="product-video-preview"><video src={video.url} controls playsInline preload="metadata" /><button type="button" onClick={removeVideo} aria-label="Remove product video"><X /> Remove</button></div> : <button type="button" className="secondary-button product-video-upload" onClick={() => videoRef.current?.click()}><Video /><span><strong>Add product video</strong><small>MP4, MOV or WebM · up to 75 MB</small></span><Upload /></button>}<input ref={videoRef} hidden type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" onChange={(event) => { chooseProductVideo(event.target.files?.[0]); event.target.value = ''; }} /></div><div className="form-grid"><label>Product name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>Price (KES)<input type="number" min="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label></div><OptionPicker label="Colors available" enabled={hasColors} setEnabled={setHasColors} items={colorPresets} selected={colors} onToggle={(item) => toggle(item, colors, setColors)} custom={customColor} setCustom={setCustomColor} onAdd={() => addCustom('color')} /><OptionPicker label="Sizes available" enabled={hasSizes} setEnabled={setHasSizes} items={sizePresets} selected={sizes} onToggle={(item) => toggle(item, sizes, setSizes)} custom={customSize} setCustom={setCustomSize} onAdd={() => addCustom('size')} />{error && onError === undefined && <div className="form-error">{error}</div>}<div className="modal-actions">{onCancel && <button type="button" className="secondary-button" onClick={onCancel}>{cancelLabel || 'Cancel'}</button>}<button className="button-primary" disabled={busy}>{busy ? 'Saving product media…' : (submitLabel || 'Save product')} <Check /></button></div></form>;
 }

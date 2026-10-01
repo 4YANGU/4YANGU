@@ -1,25 +1,26 @@
-import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, MessageCircle, Package, Phone, Plus, RefreshCw, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import Modal from '../components/Modal';
 import PostComposer from '../components/PostComposer';
-import ProductDetailsModal from '../components/ProductDetailsModal';
 import ProductModal from '../components/ProductModal';
+import SocialAccountsSettings from '../components/SocialAccountsSettings';
 import SocialInbox from '../components/SocialInbox';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
 import { pushBackHandler } from '../lib/backNavigation';
 import { applyStoreManifest, readSplashCache, saveSplashCache, splashCacheKey } from '../lib/pwa';
 import supabase from '../lib/supabase';
-import type { DashboardData, Order, Product } from '../types';
+import type { DashboardData, Product, Store } from '../types';
 import '../pricing-update.css';
 import '../order-update.css';
 import '../manage-redesign.css';
 import '../woyoyo-013.css';
 import '../pwa-splash.css';
+import '../owner-experience.css';
 
-type StoreUpkeep = { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'TRIAL' | 'PAID'; upkeep_due?: 0 | 300; upkeep_paid?: boolean; management_locked?: boolean; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
+type StoreUpkeep = { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'TRIAL' | 'PAID'; upkeep_due?: 0 | 300; upkeep_paid?: boolean; management_locked?: boolean; upkeep_period_day?: number; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
 
 const isStandaloneApp = () =>
   window.matchMedia('(display-mode: standalone)').matches ||
@@ -39,10 +40,44 @@ async function enableStoreNotifications(): Promise<'granted' | 'denied' | 'unsup
   if (permission !== 'granted') return 'denied';
   const config = await apiFetch<{ publicKey: string }>('/api/subscriptions');
   if (!config.publicKey) return 'unsupported';
-  const registration = await navigator.serviceWorker.ready;
-  const key = Uint8Array.from(atob(config.publicKey.replace(/-/g, '+').replace(/_/g, '/')), (character) => character.charCodeAt(0));
-  const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-  await apiFetch('/api/subscriptions', { method: 'POST', body: JSON.stringify({ subscription, installed: true, user_agent: navigator.userAgent }) });
+
+  const normalized = config.publicKey.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  let applicationServerKey: Uint8Array<ArrayBuffer>;
+  try {
+    const decoded = atob(padded);
+    applicationServerKey = Uint8Array.from(decoded, (character) => character.charCodeAt(0)) as Uint8Array<ArrayBuffer>;
+  } catch {
+    throw new Error('Notification setup is misconfigured. Please contact StoYangu support.');
+  }
+
+  let registration = await navigator.serviceWorker.getRegistration('/');
+  if (!registration) registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  const existingKey = subscription?.options.applicationServerKey ? new Uint8Array(subscription.options.applicationServerKey) : null;
+  const keyMatches = existingKey
+    ? existingKey.length === applicationServerKey.length && existingKey.every((byte, index) => byte === applicationServerKey[index])
+    : true;
+  if (subscription && !keyMatches) {
+    const staleEndpoint = subscription.endpoint;
+    await subscription.unsubscribe();
+    subscription = null;
+    await apiFetch('/api/subscriptions', { method: 'DELETE', body: JSON.stringify({ endpoint: staleEndpoint }) }).catch(() => undefined);
+  }
+  if (!subscription) {
+    try {
+      subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+    } catch (reason) {
+      // A stale browser subscription can cause InvalidStateError even when
+      // getSubscription() briefly returned null. Remove it once and retry.
+      const stale = await registration.pushManager.getSubscription();
+      if (!stale) throw reason;
+      await stale.unsubscribe();
+      subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+    }
+  }
+  await apiFetch('/api/subscriptions', { method: 'POST', body: JSON.stringify({ subscription: subscription.toJSON(), installed: true, user_agent: navigator.userAgent }) });
   return 'granted';
 }
 
@@ -55,6 +90,10 @@ export default function StoreDashboard() {
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(() => {
+    try { return sessionStorage.getItem(`stoyangu-settings-${storeId || 'owner'}`) === '1' || new URLSearchParams(window.location.search).has('oauth_state'); }
+    catch { return false; }
+  });
   // Web app install: true once Chrome/standalone confirms this phone has the app.
   const [installedLocally, setInstalledLocally] = useState(() => isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1');
   // Branded launch splash for the INSTALLED app: the store's own logo (the
@@ -71,17 +110,12 @@ export default function StoreDashboard() {
     catch { return 'products'; }
   });
   const [composerOpen, setComposerOpen] = useState(() => sessionStorage.getItem(`stoyangu-composer-${storeId || 'owner'}`) === '1');
-  const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
 
   // Push back handler for store owner navigation (Task 2)
   useEffect(() => {
     return pushBackHandler(() => {
-      if (viewingProduct) {
-        setViewingProduct(null);
-        return true;
-      }
       if (editing) {
         setEditing(null);
         return true;
@@ -94,13 +128,18 @@ export default function StoreDashboard() {
         setInstallOpen(false);
         return true;
       }
+      if (settingsOpen) {
+        sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`);
+        setSettingsOpen(false);
+        return true;
+      }
       if (activeTab === 'customers') {
         setActiveTab('products');
         return true;
       }
       return false;
     });
-  }, [viewingProduct, editing, passwordOpen, installOpen, activeTab]);
+  }, [editing, passwordOpen, installOpen, settingsOpen, activeTab, storeId]);
 
   const load = useCallback(async () => {
     setError('');
@@ -113,10 +152,9 @@ export default function StoreDashboard() {
     }
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
-  // Per-store web app install: point the page's manifest at THIS store so
-  // Chrome's install prompt offers the store's name and the installed app's
-  // home-screen icon is the store's logo. Also refresh the splash cache so
-  // the next installed-app launch shows the current logo from frame one.
+  // Point at the generated StoYangu manifest carrying THIS store's icon.
+  // The OS app name remains StoYangu; only the icon and launch animation use
+  // the real store logo. Refresh the cache for the next launch's first frame.
   useEffect(() => {
     const storeData = data?.store;
     if (!storeData) return;
@@ -125,7 +163,10 @@ export default function StoreDashboard() {
     setSplashInfo(info);
     saveSplashCache(splashCacheKey(storeId), { id: storeData.id, name: storeData.name, slug: storeData.slug, logo_url: storeData.logo_url });
   }, [data?.store?.id, data?.store?.slug, data?.store?.logo_url, storeId]);
+  useEffect(() => { document.title = 'StoYangu'; }, []);
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
+  const openSettings = () => { sessionStorage.setItem(`stoyangu-settings-${storeId || 'owner'}`, '1'); setSettingsOpen(true); };
+  const closeSettings = () => { sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`); setSettingsOpen(false); };
   const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
   const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); };
 
@@ -205,22 +246,8 @@ export default function StoreDashboard() {
     return () => { window.clearTimeout(t1); window.clearTimeout(t2); };
   }, [standalone, splashDone, loading]);
   const remove = async (product: Product) => { if (!window.confirm(`Delete ${product.name}? This cannot be undone.`)) return; try { await apiFetch('/api/products', { method: 'DELETE', body: JSON.stringify({ id: product.id }) }); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete product.'); } };
-  const updateOrderStatus = async (order: Order, status: Order['status']) => { const previous = order.status; setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status } : item) } : current); try { await apiFetch('/api/orders', { method: 'PUT', body: JSON.stringify({ id: order.id, status }) }); await load(); } catch (reason) { setData((current) => current ? { ...current, orders: (current.orders || []).map((item) => item.id === order.id ? { ...item, status: previous } : item) } : current); setError(reason instanceof Error ? reason.message : 'Could not update that order.'); } };
-  const removeOrder = async (order: Order) => {
-    if (!window.confirm(`Delete this order for ${order.product_name} (${order.customer_phone})? This cannot be undone.`)) return;
-    const previous = data?.orders || [];
-    setData((current) => current ? { ...current, orders: (current.orders || []).filter((item) => item.id !== order.id) } : current);
-    try {
-      await apiFetch('/api/orders', { method: 'DELETE', body: JSON.stringify({ id: order.id }) });
-      await load();
-    } catch (reason) {
-      setData((current) => current ? { ...current, orders: previous } : current);
-      setError(reason instanceof Error ? reason.message : 'Could not delete that order.');
-    }
-  };
-  // The download symbol: prompts the browser's real web-app install dialog
-  // (Chrome shows this store's name + logo icon). Where the browser does not
-  // expose the prompt (iPhone Safari, already installed…), open the guide.
+  // Prompt the browser's real StoYangu installation dialog with this store's
+  // logo icon. Where no native prompt is exposed, open the short guide.
   const installApp = async () => {
     const prompt = (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT;
     if (prompt) {
@@ -237,19 +264,16 @@ export default function StoreDashboard() {
     }
     setInstallOpen(true);
   };
-  const splashStoreName = data?.store?.name || splashInfo?.name || 'StoYangu';
-  const splashStoreLogo = data?.store?.logo_url || splashInfo?.logo_url || '/stoyangu-logo.png';
-  const splashEl = standalone && !splashDone ? (
-    <div className={`store-splash${splashFading ? ' fading' : ''}`} role="status" aria-label={`Opening ${splashStoreName}`}>
+  const splashStoreLogo = data?.store?.logo_url || splashInfo?.logo_url || '';
+  const splashEl = standalone && !splashDone && splashStoreLogo ? (
+    <div className={`store-splash${splashFading ? ' fading' : ''}`} role="status" aria-label="Opening your store workspace">
       <div className="store-splash-logo-wrap">
         <img className="store-splash-logo" src={splashStoreLogo} alt="" />
         <span className="store-splash-ring" aria-hidden="true" />
       </div>
-      <h2 className="store-splash-name">{splashStoreName}</h2>
-      <p className="store-splash-sub">Opening your store<span className="store-splash-dots"><i /><i /><i /></span></p>
     </div>
   ) : null;
-  if (loading) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><p>Getting your store ready…</p></div></>;
+  if (loading) return <>{splashEl}<div className="owner-loading" role="status"><RefreshCw className="spin" /><p>Getting your store ready…</p></div></>;
   if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
   const store = data.store;
   const handleStorefrontClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -270,80 +294,159 @@ export default function StoreDashboard() {
   };
   const latestUpdate = data.notifications?.[0];
   const upkeep = store as typeof store & StoreUpkeep;
-  // KES 300 model: past the free first 30 days, management stays locked until
+  // KES 300 model: past the free first 14 days, management stays locked until
   // the current period is paid. The storefront itself keeps serving customers.
   const locked = profile?.role === 'owner' && Boolean(upkeep.management_locked);
   const upkeepOrders = Number(upkeep.orders_this_period ?? upkeep.orders_this_month ?? 0);
-  const cycleStart = upkeep.upkeep_period_starts_at ? new Date(upkeep.upkeep_period_starts_at) : null;
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
-  const cycleDay = cycleStart ? Math.min(30, Math.max(1, Math.floor((Date.now() - cycleStart.getTime()) / 86400000) + 1)) : 1;
+  const cycleDay = Math.min(14, Math.max(1, Number(upkeep.upkeep_period_day || 1)));
+  const periodCustomers = Number(data.customersThisPeriod ?? data.customers ?? 0);
+  const periodVisitors = Number(store.visitors_this_period ?? store.visitor_total ?? 0);
+  const lifetimeProductViews = (data.products || []).reduce((sum, product) => sum + Number(product.views_total || 0), 0);
 
-  return <>{splashEl}<div className="owner-page"><header className="owner-header owner-header-split"><div className="owner-header-actions"><span>{profile?.role === 'founder' ? 'Founder manage view' : 'StoYangu'}</span><div>{profile?.role === 'founder' && <button onClick={() => window.location.assign('/founder')} style={{ background: '#16a34a', color: '#fff', border: 0, borderRadius: 999, padding: '.5rem .9rem', fontWeight: 800, cursor: 'pointer' }}><ArrowLeft /> Back to founder dashboard</button>}{installedLocally ? <span className="header-icon-btn install-state" aria-label="App installed on this phone" title="This app is installed on this phone"><Check /></span> : <button className="header-icon-btn install-app-button" type="button" onClick={installApp} aria-label="Install the app on your phone" title="Install this app — the store's logo becomes the app icon"><Download /></button>}{profile?.role === 'owner' && <button onClick={() => setPasswordOpen(true)}><KeyRound /> Change password</button>}<button onClick={signOut}><LogOut /> Sign out</button></div></div><div className="owner-header-identity">{store.logo_url ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} /> : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}<div className="owner-header-copy"><div className="owner-name-row"><h1>{store.name}</h1></div><a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>{storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span></a><div className="tiktok-stats-row"><div className="tiktok-stat"><strong>{(data?.customers || 0).toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div><div className="tiktok-stat"><strong>{store.visitor_total.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div><div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div></div></div></div></header><main className="owner-main">
-    {/* WOYOYO-013: My Products and My Customers pages */}
-    {error && <div className="dashboard-error">{error}</div>}
-    {activeTab === 'customers'
-    ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
-    : <>
-    {profile?.role === 'owner' && <NotificationSetupCard />}
-    {cycleDay >= 27 && !locked && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 30 days are ending' : 'Your 30 days are ending'}</h3><p>To keep {store.name} live for the next 30 days, pay KES 300{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
-    {locked && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 30 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 300 for the next 30 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
-    {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
-    <section className="products-panel">
-      <div className="dash-section-head">
-        <h2>My Products</h2>
-        <span className="order-status-count">{(data.products || []).length}</span>
-      </div>
-      <div className="owner-product-list">
-        {data.products?.map((product) => (
-          <article key={product.id} className="owner-product-card">
-            <div
-              className="product-media-group product-card-clickable"
-              onClick={() => setViewingProduct(product)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingProduct(product); } }}
-              aria-label={`View ${product.name} details`}
-            >
-              <img
-                className="product-cover"
-                loading="lazy"
-                src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'}
-                alt={product.name}
-              />
+  return <>
+    {splashEl}
+    <div className="owner-page">
+      <header className="owner-header owner-header-split owner-sticky-header">
+        <div className="owner-header-identity">
+          <div className="owner-logo-column">
+            {store.logo_url
+              ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} />
+              : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}
+            <div className="owner-logo-tools">
+              <span className="period-counter" aria-label={`Day ${cycleDay} of the 14 day period`}>({cycleDay}/14)</span>
+              <button type="button" className="owner-settings-button" onClick={openSettings} aria-label="Open settings" title="Settings"><Settings /></button>
             </div>
-            <div
-              className="owner-product-name product-card-clickable"
-              onClick={() => setViewingProduct(product)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewingProduct(product); } }}
-              aria-label={`View ${product.name} details`}
-            >
-              <h3>{product.name}</h3>
-              <strong>{formatMoney(product.price)}</strong>
+          </div>
+          <div className="owner-header-copy">
+            <div className="owner-name-row">
+              <h1>{store.name}</h1>
+              {profile?.role === 'founder' && <button type="button" className="founder-back-button" onClick={() => window.location.assign('/founder')}><ArrowLeft /> Founder</button>}
             </div>
-            <div className="word-stats">
-              <p>views: <b>{product.views_total}</b> <small>(+{product.views_today} Today)</small></p>
-              <p>orders: <b>{product.orders_total}</b> <small>(+{product.orders_today} Today)</small></p>
+            <a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>
+              {storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span>
+            </a>
+            <div className="tiktok-stats-row" aria-label="Current 14 day analytics">
+              <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div>
+              <div className="tiktok-stat"><strong>{periodVisitors.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div>
+              <div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div>
             </div>
-            <div className="product-actions">
-              <button type="button" onClick={() => setViewingProduct(product)} aria-label={`View ${product.name} details`}><Eye size={16} /> Details</button>
-              <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
-              <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
-            </div>
-          </article>
-        ))}
-      </div>
-      {!data.products?.length && (
-        <div className="empty-products">
-          <StoreIcon />
-          <h3>Your shelf is empty</h3>
-          <p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p>
+          </div>
         </div>
-      )}
-    </section>
-    </>}
-  </main><nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation"><div className="manage-bottom-nav-inner"><button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button><button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button><button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button></div></nav>{installOpen && <Modal title="Install this app" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install this app on your phone so it opens straight from your home screen with your own loading splash. The app icon is <strong>{store.name}</strong>'s logo — the same one shown next to the store name up top.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New versions load automatically after updates — no reinstall needed. If you change the store logo later, uninstall and install once more to refresh the app icon.</p></div></Modal>}{passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}{editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}{viewingProduct && <ProductDetailsModal product={viewingProduct} locked={locked} onClose={() => setViewingProduct(null)} onEdit={() => { const p = viewingProduct; setViewingProduct(null); setEditing(p); }} onDelete={async () => { const p = viewingProduct; setViewingProduct(null); await remove(p); }} />}{composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}</div></>;
+      </header>
+
+      <main className="owner-main">
+        {error && <div className="dashboard-error owner-main-notice">{error}</div>}
+        {activeTab === 'customers'
+          ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
+          : <>
+            {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 300{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
+            {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 300 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
+            {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
+            <section className="products-panel">
+              <div className="dash-section-head">
+                <h2>My Products</h2>
+                <span className="order-status-count">{(data.products || []).length}</span>
+              </div>
+              <div className="owner-product-list">
+                {data.products?.map((product) => (
+                  <article key={product.id} className="owner-product-card">
+                    <div className="product-media-group">
+                      <img className="product-cover" loading="lazy" src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'} alt={product.name} />
+                    </div>
+                    <div className="owner-product-name">
+                      <h3>{product.name}</h3>
+                      <strong>{formatMoney(product.price)}</strong>
+                    </div>
+                    <div className="word-stats" aria-label={`${product.name} current period analytics`}>
+                      <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this period</small></p>
+                      <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this period</small></p>
+                    </div>
+                    <div className="product-actions">
+                      <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
+                      <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              {!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}
+            </section>
+          </>}
+      </main>
+
+      <nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation">
+        <div className="manage-bottom-nav-inner">
+          <button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button>
+          <button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button>
+          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
+        </div>
+      </nav>
+
+      {settingsOpen && <OwnerSettingsPage
+        store={store}
+        data={data}
+        cycleDay={cycleDay}
+        lifetimeProductViews={lifetimeProductViews}
+        installedLocally={installedLocally}
+        onClose={closeSettings}
+        onChangePassword={() => setPasswordOpen(true)}
+        onInstall={installApp}
+        onSignOut={signOut}
+      />}
+      {installOpen && <Modal title="Install StoYangu" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install <strong>StoYangu</strong> on your phone so it opens directly from your home screen. The app name always stays StoYangu, while the opening animation uses your store logo.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New versions load automatically after updates — no reinstall needed.</p></div></Modal>}
+      {passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}
+      {editing && <ProductModal product={editing === 'new' ? null : editing} storeId={store.id} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}
+      {composerOpen && <PostComposer storeId={store.id} storeName={store.name} storeSlug={store.slug} locked={locked} onClose={closeComposer} onPosted={() => { setInboxKey((key) => key + 1); refreshSocialUnread(store.id); }} onProductsChanged={load} />}
+    </div>
+  </>;
+
+}
+
+function OwnerSettingsPage({ store, data, cycleDay, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut }: {
+  store: Store;
+  data: DashboardData;
+  cycleDay: number;
+  lifetimeProductViews: number;
+  installedLocally: boolean;
+  onClose: () => void;
+  onChangePassword: () => void;
+  onInstall: () => void;
+  onSignOut: () => Promise<void>;
+}) {
+  return <div className="owner-settings-page" role="dialog" aria-modal="true" aria-labelledby="owner-settings-title">
+    <header className="settings-page-header">
+      <button type="button" onClick={onClose} aria-label="Back to store"><ArrowLeft /></button>
+      <div><span>StoYangu</span><h1 id="owner-settings-title">Settings</h1></div>
+    </header>
+    <main className="settings-page-main">
+      <section className="settings-section lifetime-analytics" aria-labelledby="lifetime-title">
+        <div className="settings-section-heading"><div><span className="eyebrow">Never resets</span><h2 id="lifetime-title">Lifetime analytics</h2><p>Your main store view starts a fresh analytics period every 14 days. These totals always remain here.</p></div><BarChart3 /></div>
+        <div className="lifetime-grid">
+          <div><strong>{Number(data.customers || 0).toLocaleString()}</strong><span>Customers</span></div>
+          <div><strong>{Number(store.visitor_total || 0).toLocaleString()}</strong><span>Store visits</span></div>
+          <div><strong>{Number(store.actual_orders_total ?? store.orders_total ?? 0).toLocaleString()}</strong><span>Orders</span></div>
+          <div><strong>{lifetimeProductViews.toLocaleString()}</strong><span>Product views</span></div>
+        </div>
+        <div className="settings-period-note"><span>Current period</span><strong>Day {cycleDay} of 14</strong></div>
+      </section>
+
+      <SocialAccountsSettings storeId={store.id} />
+
+      <section className="settings-section" aria-labelledby="app-settings-title">
+        <div className="settings-section-heading"><div><span className="eyebrow">This phone</span><h2 id="app-settings-title">App & alerts</h2><p>The app name always stays StoYangu. Your app icon and opening animation use your store logo.</p></div></div>
+        {!installedLocally
+          ? <button type="button" className="settings-action-row" onClick={onInstall}><span className="settings-action-icon"><Download /></span><span><strong>Install StoYangu</strong><small>Add the web app to this phone</small></span><ExternalLink /></button>
+          : <div className="settings-action-row settings-action-static"><span className="settings-action-icon success"><Check /></span><span><strong>StoYangu is installed</strong><small>This phone has the latest web app</small></span></div>}
+        <NotificationSetupCard />
+      </section>
+
+      <section className="settings-section" aria-labelledby="account-settings-title">
+        <div className="settings-section-heading"><div><span className="eyebrow">Security</span><h2 id="account-settings-title">Account</h2></div></div>
+        <button type="button" className="settings-action-row" onClick={onChangePassword}><span className="settings-action-icon"><KeyRound /></span><span><strong>Change password</strong><small>Choose a new secure password</small></span><ExternalLink /></button>
+        <button type="button" className="settings-action-row danger" onClick={() => void onSignOut()}><span className="settings-action-icon"><LogOut /></span><span><strong>Sign out</strong><small>Sign out of StoYangu on this phone</small></span></button>
+      </section>
+    </main>
+  </div>;
 }
 
 function NotificationSetupCard() {
