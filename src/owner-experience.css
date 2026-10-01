@@ -269,3 +269,287 @@
   .settings-account-list .account-row > svg { width: 32px; height: 32px; }
   .product-video-manager { margin: 0 18px 20px; }
 }
+
+/* Owner dashboard: give the store logo room while the controls stay on the
+   header edges and the period counter clearly labels its analytics window. */
+.owner-sticky-header .owner-header-identity {
+  align-items: flex-start;
+  gap: 16px;
+}
+.owner-logo-column {
+  width: 112px;
+  height: 96px;
+  flex: 0 0 112px;
+  min-width: 0;
+  position: relative;
+  overflow: visible;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0;
+}
+.owner-sticky-header .owner-store-logo,
+.owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
+  position: relative;
+  top: -6px;
+  width: 108px;
+  height: 108px;
+  padding: 0;
+  object-fit: contain;
+}
+.owner-sticky-header .owner-header-copy {
+  min-width: 0;
+  flex: 1;
+}
+.owner-sticky-header .owner-settings-button {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin: 3px 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-color: rgba(143, 211, 167, .46);
+  background: rgba(255, 255, 255, .08);
+}
+.owner-sticky-header .owner-settings-button:hover {
+  color: #fff;
+  background: rgba(143, 211, 167, .17);
+  border-color: rgba(143, 211, 167, .8);
+}
+.owner-sticky-header .owner-settings-button svg { width: 18px; height: 18px; }
+.owner-analytics-label {
+  margin: 1px 0 4px;
+  color: #8fd3a7;
+  font-size: .52rem;
+  font-weight: 900;
+  letter-spacing: .13em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.owner-analytics-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 2vw, 22px);
+  min-width: 0;
+}
+.owner-sticky-header .tiktok-stats-row {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  gap: clamp(14px, 3vw, 30px);
+}
+.period-counter {
+  position: relative;
+  isolation: isolate;
+  min-width: 57px;
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 6px 9px;
+  border: 1px solid rgba(143, 211, 167, .72);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(120, 190, 150, .26), rgba(120, 190, 150, .09));
+  color: #effff3;
+  box-shadow: 0 0 0 3px rgba(120, 190, 150, .08), 0 0 18px rgba(120, 190, 150, .28), inset 0 0 12px rgba(120, 190, 150, .1);
+  animation: owner-period-glow 3.4s ease-in-out infinite;
+}
+.period-counter small {
+  color: #a8e6bf;
+  font-size: .47rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+  line-height: 1;
+}
+.period-counter strong {
+  color: #fff;
+  font-size: 1.13rem;
+  font-weight: 900;
+  letter-spacing: -.06em;
+  line-height: 1.12;
+}
+.period-counter i {
+  color: #b9e8c6;
+  font-size: .67rem;
+  font-style: normal;
+  letter-spacing: -.02em;
+}
+@keyframes owner-period-glow {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(120,190,150,.07), 0 0 14px rgba(120,190,150,.22), inset 0 0 10px rgba(120,190,150,.08); }
+  50% { box-shadow: 0 0 0 4px rgba(120,190,150,.12), 0 0 23px rgba(120,190,150,.36), inset 0 0 15px rgba(120,190,150,.13); }
+}
+
+/* My Customers stays part of the document's natural scroll on desktop. A long
+   inbox used to be trapped in a fixed-height inner list with no page scroll. */
+@media (min-width: 721px) {
+  .owner-page,
+  .owner-page .owner-main,
+  .owner-page .social-inbox { overflow: visible; }
+  .owner-page .social-inbox { height: auto; }
+  .owner-page .social-threads { align-items: start; }
+  .owner-page .social-thread-list {
+    max-height: none !important;
+    overflow: visible !important;
+    padding-right: 0;
+  }
+  .owner-page .social-thread-detail {
+    max-height: min(640px, calc(100vh - 240px));
+    min-height: 480px;
+  }
+  .owner-page .social-thread-detail .social-messages {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .owner-sticky-header { padding: 8px 10px 10px !important; }
+  .owner-sticky-header .owner-header-identity { gap: 8px; }
+  .owner-logo-column { width: 74px; height: 72px; flex-basis: 74px; }
+  .owner-sticky-header .owner-store-logo,
+  .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
+    top: -1px;
+    width: 74px !important;
+    height: 74px !important;
+  }
+  .owner-sticky-header .owner-header-copy { flex: 1; }
+  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1rem, 4.5vw, 1.2rem); line-height: 1; }
+  .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
+  .owner-analytics-label { margin: 0 0 2px; font-size: .42rem; line-height: 1; }
+  .owner-analytics-row { gap: 5px; }
+  .owner-sticky-header .tiktok-stats-row { gap: clamp(4px, 1.6vw, 9px); }
+  .owner-sticky-header .tiktok-stat { min-width: 0; }
+  .owner-sticky-header .tiktok-stat strong { font-size: clamp(.72rem, 3.4vw, .86rem); }
+  .owner-sticky-header .tiktok-stat span { font-size: .46rem; }
+  .owner-sticky-header .tiktok-stat .stat-today { font-size: .42rem; padding: 2px 3px; }
+  .period-counter { min-width: 43px; padding: 5px 5px; border-radius: 10px; }
+  .period-counter small { font-size: .39rem; }
+  .period-counter strong { font-size: .96rem; }
+  .period-counter i { font-size: .56rem; }
+  .owner-sticky-header .owner-settings-button { width: 30px; height: 30px; margin-top: 1px; }
+  .owner-sticky-header .owner-settings-button svg { width: 16px; height: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .period-counter { animation: none; }
+}
+
+/* Compact owner settings requested for daily use on a phone. */
+.settings-heading-simple { align-items: center; }
+.settings-heading-simple h2 { margin: 0; }
+.settings-heading-simple p,
+.settings-section-heading .eyebrow { display: none; }
+.social-account-settings .connected-account-heading { align-items: center; }
+.settings-refresh-accounts {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #dce8df;
+  border-radius: 50%;
+  background: #f4f8f4;
+  color: #3f7653;
+  cursor: pointer;
+}
+.settings-refresh-accounts:disabled { opacity: .55; cursor: wait; }
+.settings-refresh-accounts svg { width: 16px; height: 16px; }
+.settings-account-list .account-row { grid-template-columns: 36px minmax(0, 1fr) auto; }
+.settings-account-list .account-row > div:nth-child(2) strong { font-size: .76rem; }
+.settings-account-list .account-row > div:nth-child(2) small { color: #7b8981; font-size: .61rem; }
+.disconnect-confirm-inline {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #fff8f7;
+}
+.disconnect-confirm-inline label { grid-column: 1 / -1; color: #6b514d; font-size: .62rem; }
+.disconnect-confirm-inline label strong { color: #9a403a; font-family: ui-monospace, monospace; }
+.disconnect-confirm-inline input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #dfcfcc;
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+  font-size: .7rem;
+}
+.disconnect-confirm-inline .social-unlink { min-height: 34px; padding: 7px 10px; white-space: nowrap; }
+.disconnect-confirm-inline .secondary-button { min-height: 34px; padding: 7px 10px; font-size: .66rem; }
+.settings-action-row.settings-action-simple {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  min-height: 56px;
+  padding: 9px 11px;
+  gap: 9px;
+}
+.settings-action-simple .settings-action-icon { width: 32px; height: 32px; border-radius: 9px; }
+.settings-action-simple .settings-action-icon svg { width: 16px; height: 16px; }
+.settings-action-simple strong { font-size: .72rem; }
+.settings-action-simple small { display: none; }
+.settings-action-simple > svg:last-child { width: 14px; }
+.settings-action-simple:disabled { opacity: .72; cursor: default; }
+.settings-action-simple.notification-enabled { border-color: #cfe6d5; background: #f5fbf6; }
+.settings-inline-status { display: block; margin: -5px 2px 0 43px; color: #66776e; font-size: .62rem; line-height: 1.45; }
+.settings-notification-action { display: grid; gap: 8px; }
+.payment-heading { align-items: center; }
+.payment-plan-pill {
+  padding: 5px 8px;
+  border: 1px solid #dbe9df;
+  border-radius: 999px;
+  background: #f2f8f3;
+  color: #36714c;
+  font-size: .6rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.payment-period-summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 4px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: #f3f7f3;
+}
+.payment-period-summary > strong { color: var(--navy); font-size: 1.15rem; }
+.payment-period-summary > span { color: #75827a; font-size: .65rem; }
+.payment-period-summary > b { justify-self: end; color: #307349; font-size: .62rem; }
+.payment-period-summary > b.due { color: #aa4c40; }
+.payment-period-summary > small { grid-column: 1 / -1; color: #738178; font-size: .59rem; }
+.payment-phone-form { display: grid; gap: 8px; }
+.payment-phone-form label { color: #394a40; font-size: .68rem; font-weight: 800; }
+.payment-phone-form input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 43px;
+  border: 1px solid #dce4de;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+  font-size: .82rem;
+}
+.payment-phone-form .button-primary { min-height: 44px; justify-content: center; }
+.payment-phone-form .button-primary svg { width: 17px; height: 17px; }
+.payment-preview-note { color: #76847b; font-size: .59rem; line-height: 1.5; }
+.payment-settings .form-error,
+.payment-settings .form-success { overflow-wrap: anywhere; font-size: .67rem; }
+
+@media (max-width: 560px) {
+  .settings-account-list .account-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
+  .disconnect-confirm-inline { grid-template-columns: minmax(0, 1fr) auto; }
+  .disconnect-confirm-inline input { grid-column: 1 / -1; }
+  .disconnect-confirm-inline .social-unlink { grid-column: 1; }
+  .disconnect-confirm-inline .secondary-button { grid-column: 2; }
+  .settings-action-row.settings-action-simple { min-height: 52px; }
+}

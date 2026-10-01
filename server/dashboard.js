@@ -6,13 +6,13 @@ const addPlan = (store, orders) => {
   const activeOrders = (orders || []).filter((order) => order.status !== 'cancelled');
   const period = billingPeriod(store);
   const periodOrders = activeOrders.filter((order) => { const created = new Date(order.created_at).getTime(); return created >= period.startsAt && created < period.endsAt; }).length;
-  // KES 300 model: the first 14-day period is a completely free trial. Every
-  // period after that costs KES 300, which the owner pays on day 14 to
+  // KES 200 model: the first 14-day period is a completely free trial. Every
+  // period after that costs KES 200, which the owner pays on day 14 to
   // continue for the upcoming period. Order counts no longer change the price.
   // Non-payment: the storefront stays visible, product management locks.
   const inFreeTrial = period.periodNumber === 0;
   const periodDay = Math.min(14, Math.max(1, Math.floor((Date.now() - period.startsAt) / 86400000) + 1));
-  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: inFreeTrial ? 'TRIAL' : 'PAID', upkeep_due: inFreeTrial ? 0 : 300, upkeep_paid: !inFreeTrial && !managementLocked(store), management_locked: managementLocked(store), upkeep_period_day: periodDay, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
+  return { ...store, actual_orders_total: activeOrders.length, orders_this_period: periodOrders, upkeep_plan: inFreeTrial ? 'TRIAL' : 'PAID', upkeep_due: inFreeTrial ? 0 : 200, upkeep_paid: !inFreeTrial && !managementLocked(store), management_locked: managementLocked(store), upkeep_period_day: periodDay, upkeep_period_starts_at: new Date(period.startsAt).toISOString(), upkeep_period_ends_at: new Date(period.endsAt).toISOString() };
 };
 
 export default async function handler(req, res) {

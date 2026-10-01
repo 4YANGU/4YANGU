@@ -105,9 +105,9 @@ The downloadable `vercel.json` contains routes, security headers and schedules o
 
 Push notifications need four separate one-time secrets because Supabase cannot create web-push keys automatically. Add only `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` and `CRON_SECRET` in Vercel after the main website and login are working. These are notification settings, not Supabase connection settings.
 
-Vercel reads the cron schedule from `vercel.json`: daily review generation is 7:00 PM Nairobi time, and confirmed notifications send at 7:30 PM Nairobi time.
+Vercel reads the cron schedule from `vercel.json`: connected social inboxes are checked every five minutes for new DMs and comments, daily review generation is 7:00 PM Nairobi time, and confirmed notifications send at 7:30 PM Nairobi time.
 
-If Vercel says your plan does not support the configured cron frequency, upgrade to the lowest plan that supports both daily jobs.
+Make sure the selected Vercel plan supports a five-minute cron interval as well as the two daily jobs. Upgrade if it does not; otherwise background social-message alerts will not run on schedule.
 
 ---
 
@@ -159,16 +159,18 @@ AI discovery files help compliant crawlers understand the business, but AI answe
 1. Log in as founder.
 2. Create one test store and owner login.
 3. Log in as that owner on an Android phone using Chrome.
-4. From Manage My Store, press the store link shown under the store name.
-5. Chrome should show its native StoYangu installation prompt before opening the storefront. Accept installation and notifications.
-6. Confirm the welcome notification arrives.
-7. Return to founder dashboard and check that store says **App + alerts ready**.
-8. Add a product with seven photos, edit it, open its storefront and test WhatsApp ordering.
+4. From Manage My Store, use **My App → Install app** and accept Chrome's native install prompt (or follow the browser-specific install guide).
+5. In **My App**, press **Allow notifications** and confirm the test alert arrives on that phone. On iPhone, first use Safari's Share → Add to Home Screen, open the installed app, then allow notifications.
+6. Return to the founder dashboard and check the app/notification status for that store.
+7. Add a product with seven photos, edit it, open its storefront and test WhatsApp ordering.
+8. Send a test DM/comment to a connected social account and verify the new inbox alert arrives; allow up to five minutes for the scheduled background sync.
 9. At 7 PM, review the combined daily messages. Confirm before 7:30 PM and verify they do not send immediately.
 10. At 7:30 PM, verify each owner receives only their store's message.
 11. Test a custom notification to one store, then to all installed owners.
 
-Push notifications require HTTPS, valid VAPID keys, permission from the owner, and an installed/supported browser. iPhone installation must be done through Safari's Add to Home Screen flow; browser rules do not allow a website to silently grant notification permission.
+The customer-facing KES 200 / 14-day M-Pesa screen is a preview only and does not charge anyone. To activate real STK Push later, follow the **Safaricom M-Pesa setup** checklist on the Founder Dashboard: obtain Daraja sandbox and production credentials, configure server-only environment variables and a verified HTTPS callback, and test payment confirmation before going live. Until then, mark a store paid only after manually verifying the payment.
+
+Push notifications require HTTPS, valid VAPID keys, permission from the owner, and a supported browser. On iPhone, install through Safari's Add to Home Screen flow, open the installed app, and allow notifications from **My App** settings.
 
 ---
 

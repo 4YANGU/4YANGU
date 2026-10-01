@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Camera, CheckCheck, ExternalLink, Inbox as InboxIcon, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send } from 'lucide-react';
+import MediaCaptureSheet from './MediaCaptureSheet';
 import { apiFetch } from '../lib/api';
 import PlatformLogo, { platformLabel } from './PlatformLogo';
 import { SOCIAL_PLATFORMS } from '../lib/socialPlatforms';
@@ -44,12 +45,11 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [reply, setReply] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
-  const cameraInput = useRef<HTMLInputElement>(null);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const chatOpenRef = useRef(false);
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const loadRef = useRef<() => void>(() => undefined);
-  const knownInbound = useRef<Set<number> | null>(null);
   const load = useCallback(async (silent = false, background = false) => {
     if (background) { /* live mode syncs silently below — never show spinners */ }
     else if (silent) setRefreshing(true);
@@ -75,13 +75,6 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       }
       allThreads.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
       setThreads(allThreads);
-      const incoming = allThreads.flatMap(thread => thread.messages.filter(message => message.direction === 'in'));
-      if (knownInbound.current && 'Notification' in window && Notification.permission === 'granted') {
-        for (const message of incoming.filter(item => !knownInbound.current?.has(item.id)).slice(0, 4)) {
-          new Notification(message.platform === 'storefront' ? 'Store Order' : message.kind === 'comment' ? 'New comment' : 'New message', { body: readableMessage(message.body).slice(0, 140), icon: '/favicon-192.png', tag: `inbox-${message.id}` });
-        }
-      }
-      knownInbound.current = new Set(incoming.map(message => message.id));
       onActivity?.();
     } catch (err) {
       if (!background) setError(err instanceof Error ? err.message : 'Could not load the inbox.');
@@ -125,7 +118,9 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     setReply('');
     setAttachment(null);
     if (window.history.state?.stoyanguChat) {
-      window.history.back();
+      // Closing the visible chat back button must only reveal the customer list;
+      // history.back() fired the dashboard's tab handler and jumped to Products.
+      window.history.replaceState({}, '', window.location.href);
     }
   }, []);
 
@@ -133,6 +128,11 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   useEffect(() => {
     if (!detailOpen) return;
     return pushBackHandler(() => {
+      if (mediaPickerOpen) {
+        setMediaPickerOpen(false);
+        window.history.pushState({ stoyanguChat: selectedKey }, '', window.location.href);
+        return true;
+      }
       chatOpenRef.current = false;
       setDetailOpen(false);
       setSelectedKey(null);
@@ -140,7 +140,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       setAttachment(null);
       return true;
     });
-  }, [detailOpen]);
+  }, [detailOpen, mediaPickerOpen, selectedKey]);
 
   useEffect(() => {
     const onBack = () => {
@@ -156,7 +156,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   // follows the layout viewport on several mobile browsers and used to leave
   // a large blank strip between the keyboard and composer.
   useEffect(() => {
-    if (!detailOpen) return;
+    if (!detailOpen || !window.matchMedia('(max-width: 720px)').matches) return;
     const viewport = window.visualViewport;
     const updateViewport = () => {
       const height = viewport?.height || window.innerHeight;
@@ -347,10 +347,18 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
                 </div></Fragment>)}
               </div>
               <form className="social-reply" onSubmit={sendReply}>
-                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><input ref={cameraInput} hidden type="file" accept="image/*,video/*" onChange={event => { setAttachment(event.target.files?.[0] || null); event.target.value = ""; }} /><button className="social-camera" type="button" onClick={() => cameraInput.current?.click()} aria-label="Open camera or choose from gallery" title="Camera or gallery"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
+                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><button className="social-camera" type="button" onClick={() => setMediaPickerOpen(true)} aria-label="Open camera and gallery" title="Camera and gallery"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
               </form>
             </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
           </div>
         </div>}
+    {mediaPickerOpen && <MediaCaptureSheet
+      title="Camera and gallery"
+      maxPhotos={1}
+      maxVideos={1}
+      maxItems={1}
+      onClose={() => setMediaPickerOpen(false)}
+      onUse={(files) => { setAttachment(files[0] || null); setMediaPickerOpen(false); }}
+    />}
   </section>;
 }

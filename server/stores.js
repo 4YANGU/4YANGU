@@ -217,7 +217,7 @@ export default async function handler(req, res) {
         if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
         const { data: existing, error: existingError } = await supabase.from('stores').select('*').eq('id', id).single();
         if (existingError || !existing) return res.status(404).json({ error: 'Store not found.' });
-        // KES 300 model: one payment covers the current 14-day period and
+        // KES 200 model: one payment covers the current 14-day period and
         // unlocks the owner's product management immediately.
         const period = billingPeriod(existing);
         const { data, error } = await supabase.from('stores').update({ billing_paid_until: new Date(period.endsAt).toISOString(), updated_at: new Date().toISOString() }).eq('id', id).select().single();
