@@ -142,7 +142,6 @@
 }
 .owner-store-link .owner-open-storefront-btn { margin: 0; padding: 3px 5px; flex-shrink: 0; }
 .owner-store-link .owner-open-storefront-btn svg { width: 13px; height: 13px; }
-.tiktok-stat .stat-today { display: inline-flex; align-items: center; border-radius: 99px; background: rgba(76, 210, 143, .17); color: #7df0af; font-size: .57rem; font-weight: 800; padding: 3px 7px; margin-top: 4px; white-space: nowrap; }
 .owner-product-list article { grid-template-columns: 88px minmax(150px,1fr) minmax(180px,.8fr) auto; }
 .owner-product-list article .product-media-group { width: 88px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
 .owner-product-list article .product-cover { width: 88px; height: 76px; border-radius: 9px; object-fit: cover; }

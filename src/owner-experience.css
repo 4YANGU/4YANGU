@@ -254,8 +254,6 @@
   .owner-sticky-header .owner-store-link { max-width: calc(100vw - 110px); font-size: .59rem; overflow: hidden; }
   .owner-sticky-header .tiktok-stats-row { gap: clamp(9px, 3vw, 16px); margin-top: 2px; }
   .owner-sticky-header .tiktok-stat { min-width: 44px; }
-  .owner-sticky-header .tiktok-stat strong { font-size: .88rem; }
-  .owner-sticky-header .tiktok-stat .stat-today { font-size: .48rem; padding: 2px 4px; }
   .owner-page .products-panel,
   .owner-page .social-inbox { padding: 16px 12px 96px; min-height: calc(100vh - 150px); }
   .owner-main-notice { width: calc(100% - 24px); }
@@ -298,6 +296,7 @@
   flex: 0 0 auto;
   padding: 0;
   border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .94), 0 0 8px 2px rgba(255, 255, 255, .26), 0 10px 30px rgba(0, 0, 0, .25);
 }
 .owner-sticky-header .owner-store-logo { object-fit: cover; }
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { object-fit: contain; }
@@ -330,9 +329,30 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  gap: clamp(14px, 3vw, 30px);
+  gap: clamp(18px, 3vw, 34px);
 }
-.owner-sticky-header .tiktok-stat strong { font-size: 1.3rem; }
+.owner-sticky-header .tiktok-stat { flex: 1 1 0; }
+.owner-sticky-header .tiktok-stat-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  column-gap: clamp(2px, .35vw, 4px);
+  max-width: 100%;
+}
+.owner-sticky-header .tiktok-stat-value strong {
+  font-size: 1.55rem;
+  white-space: nowrap;
+}
+.owner-sticky-header .tiktok-stat span { font-size: .7rem; }
+.owner-sticky-header .stat-change {
+  color: #a8e6bf;
+  font-size: .56rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .period-counter {
   position: relative;
   isolation: isolate;
@@ -431,11 +451,12 @@
   .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.1rem, 5vw, 1.4rem); line-height: 1; }
   .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
   .owner-analytics-row { gap: 5px; }
-  .owner-sticky-header .tiktok-stats-row { gap: clamp(4px, 1.6vw, 9px); }
+  .owner-sticky-header .tiktok-stats-row { gap: clamp(5px, 1.5vw, 8px); }
   .owner-sticky-header .tiktok-stat { min-width: 0; }
-  .owner-sticky-header .tiktok-stat strong { font-size: clamp(.8rem, 3.8vw, .95rem); }
-  .owner-sticky-header .tiktok-stat span { font-size: .46rem; }
-  .owner-sticky-header .tiktok-stat .stat-today { font-size: .42rem; padding: 2px 3px; }
+  .owner-sticky-header .tiktok-stat-value { column-gap: 2px; }
+  .owner-sticky-header .tiktok-stat-value strong { font-size: clamp(.9rem, 4.2vw, 1.05rem); }
+  .owner-sticky-header .tiktok-stat span { font-size: clamp(.42rem, 2.2vw, .55rem); }
+  .owner-sticky-header .stat-change { font-size: clamp(.38rem, 1.7vw, .48rem); }
   .period-counter { min-width: 43px; padding: 5px 5px; border-radius: 10px; }
   .period-counter small { font-size: .39rem; }
   .period-counter strong { font-size: .96rem; }

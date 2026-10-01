@@ -354,9 +354,9 @@ export default function StoreDashboard() {
             </a>
             <div className="owner-analytics-row" aria-label={`Analytics for the current 14-day period, day ${cycleDay} of 14`}>
               <div className="tiktok-stats-row">
-                <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{customersToday} today</small></div>
-                <div className="tiktok-stat"><strong>{periodVisitors.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div>
-                <div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div>
+                <div className="tiktok-stat"><div className="tiktok-stat-value"><strong>{periodCustomers.toLocaleString()}</strong><small className="stat-change">(+{customersToday})</small></div><span>customers</span></div>
+                <div className="tiktok-stat"><div className="tiktok-stat-value"><strong>{periodVisitors.toLocaleString()}</strong><small className="stat-change">(+{store.visitor_today || 0})</small></div><span>visitors</span></div>
+                <div className="tiktok-stat"><div className="tiktok-stat-value"><strong>{upkeepOrders.toLocaleString()}</strong><small className="stat-change">(+{store.orders_today || 0})</small></div><span>orders</span></div>
               </div>
               <span className="period-counter" aria-label={`Day ${cycleDay} of 14 days`}><small>DAY</small><strong>{cycleDay}<i>/14</i></strong></span>
             </div>
