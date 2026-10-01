@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
+  build: { manifest: 'app-assets-manifest.json' },
   server: {
     // The app is served behind a preview proxy whose host is not known ahead
     // of time (e.g. https://{port}-{sandboxId}.e2b.app). Allow every host so

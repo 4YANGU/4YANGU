@@ -1,4 +1,4 @@
-import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users, WifiOff } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -9,7 +9,7 @@ import SocialAccountsSettings from '../components/SocialAccountsSettings';
 import SocialInbox from '../components/SocialInbox';
 import { useAuth } from '../contexts/useAuth';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
-import { pushBackHandler } from '../lib/backNavigation';
+import { activateOwnerBackGuard, pushBackHandler } from '../lib/backNavigation';
 import { applyStoreManifest, readSplashCache, saveSplashCache, splashCacheKey } from '../lib/pwa';
 import supabase from '../lib/supabase';
 import type { DashboardData, Product, Store } from '../types';
@@ -132,14 +132,26 @@ export default function StoreDashboard() {
     catch { return 'products'; }
   });
   const [composerOpen, setComposerOpen] = useState(() => sessionStorage.getItem(`stoyangu-composer-${storeId || 'owner'}`) === '1');
+  const [inboxMounted, setInboxMounted] = useState(() => activeTab === 'customers');
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
+  const [offlineCacheUsed, setOfflineCacheUsed] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  const canExitOwnerRef = useRef(false);
+  useEffect(() => {
+    canExitOwnerRef.current = activeTab === 'products' && !editing && !passwordOpen && !installOpen && !settingsOpen && !composerOpen;
+  }, [activeTab, editing, installOpen, passwordOpen, settingsOpen, composerOpen]);
   useEffect(() => { splashStartRef.current = Date.now(); }, []);
+  useEffect(() => activateOwnerBackGuard(() => canExitOwnerRef.current), []);
   useEffect(() => {
     if (settingsOpen) ensureSettingsHistoryEntry();
   }, [settingsOpen]);
 
-  // Push back handler for store owner navigation (Task 2)
+  const showCustomers = () => {
+    setInboxMounted(true);
+    setActiveTab('customers');
+  };
+
+  // Push back handler for store owner navigation.
   useEffect(() => {
     return pushBackHandler(() => {
       if (editing) {
@@ -188,7 +200,7 @@ export default function StoreDashboard() {
   useEffect(() => {
     const storeData = data?.store;
     if (!storeData) return;
-    applyStoreManifest(`slug=${encodeURIComponent(storeData.slug)}`);
+    applyStoreManifest(`slug=${encodeURIComponent(storeData.slug)}`, storeData.updated_at || undefined);
     saveSplashCache(splashCacheKey(storeId), { id: storeData.id, name: storeData.name, slug: storeData.slug, logo_url: storeData.logo_url });
   }, [data?.store, storeId]);
   useEffect(() => { document.title = 'StoYangu'; }, []);
@@ -214,7 +226,7 @@ export default function StoreDashboard() {
       if (!params.get('inbox') && !params.get('storeId')) return;
       params.delete('inbox'); params.delete('storeId');
       const rest = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+      window.history.replaceState(window.history.state || {}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
     } catch { /* params stay — harmless */ }
   }, []);
   useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
@@ -224,6 +236,23 @@ export default function StoreDashboard() {
       setSocialUnread(Number(status.unread?.total || 0));
     } catch { /* badge stays hidden until the inbox loads */ }
   }, []);
+  useEffect(() => {
+    const onOffline = () => setOfflineCacheUsed(true);
+    const onOnline = () => {
+      setOfflineCacheUsed(false);
+      void load();
+      if (data?.store?.id) void refreshSocialUnread(data.store.id);
+    };
+    const onCacheFallback = () => setOfflineCacheUsed(true);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('stoyangu:offline-cache-used', onCacheFallback);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('stoyangu:offline-cache-used', onCacheFallback);
+    };
+  }, [data?.store?.id, load, refreshSocialUnread]);
   useEffect(() => {
     const id = data?.store?.id;
     if (!id) return;
@@ -385,54 +414,56 @@ export default function StoreDashboard() {
           const deltaX = touch.clientX - start.x;
           const deltaY = touch.clientY - start.y;
           if (Math.abs(deltaX) < 64 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
-          if (activeTab === 'products' && deltaX < 0) setActiveTab('customers');
+          if (activeTab === 'products' && deltaX < 0) showCustomers();
           else if (activeTab === 'customers' && deltaX > 0) setActiveTab('products');
         }}
         onTouchCancel={() => { dashboardSwipeStartRef.current = null; }}
       >
+        {offlineCacheUsed && <div className="owner-offline-banner" role="status"><WifiOff /> Showing your saved store data. New messages and orders sync when your connection returns.</div>}
         {error && <div className="dashboard-error owner-main-notice">{error}</div>}
-        {activeTab === 'customers'
-          ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
-          : <>
-            {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 200{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
-            {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 200 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
-            {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
-            <section className="products-panel">
-              <div className="dash-section-head">
-                <h2>My Products</h2>
-                <span className="order-status-count">{(data.products || []).length}</span>
-              </div>
-              <div className="owner-product-list">
-                {data.products?.map((product) => (
-                  <article key={product.id} className="owner-product-card">
-                    <div className="product-media-group">
-                      <img className="product-cover" loading="lazy" src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'} alt={product.name} />
-                    </div>
-                    <div className="owner-product-name">
-                      <h3>{product.name}</h3>
-                      <strong>{formatMoney(product.price)}</strong>
-                    </div>
-                    <div className="word-stats" aria-label={`${product.name} current cycle analytics`}>
-                      <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
-                      <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
-                    </div>
-                    <div className="product-actions">
-                      <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
-                      <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              {!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}
-            </section>
-          </>}
+        {activeTab === 'products' && <>
+          {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 200{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
+          {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 200 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
+          {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
+          <section className="products-panel">
+            <div className="dash-section-head">
+              <h2>My Products</h2>
+              <span className="order-status-count">{(data.products || []).length}</span>
+            </div>
+            <div className="owner-product-list">
+              {data.products?.map((product) => (
+                <article key={product.id} className="owner-product-card">
+                  <div className="product-media-group">
+                    <img className="product-cover" loading="lazy" src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'} alt={product.name} />
+                  </div>
+                  <div className="owner-product-name">
+                    <h3>{product.name}</h3>
+                    <strong>{formatMoney(product.price)}</strong>
+                  </div>
+                  <div className="word-stats" aria-label={`${product.name} current cycle analytics`}>
+                    <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
+                    <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
+                  </div>
+                  <div className="product-actions">
+                    <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
+                    <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}
+          </section>
+        </>}
+        {inboxMounted && <div className="owner-inbox-persistent" hidden={activeTab !== 'customers'} aria-hidden={activeTab !== 'customers'}>
+          <SocialInbox key={store.id} storeId={store.id} storeName={store.name} active={activeTab === 'customers'} refreshSignal={inboxKey} onActivity={() => refreshSocialUnread(store.id)} />
+        </div>}
       </main>
 
       <nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation">
         <div className="manage-bottom-nav-inner">
           <button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button>
           <button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button>
-          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
+          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={showCustomers} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
         </div>
       </nav>
 

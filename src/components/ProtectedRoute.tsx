@@ -5,7 +5,7 @@ export default function ProtectedRoute({ role, children }: { role?: 'founder' | 
   const { user, profile, loading, error, refreshProfile, signOut } = useAuth();
   const location = useLocation();
   if (loading) return <StoreStartupLoader message="Restoring your workspace…" />;
-  if (user && error) return <div className="auth-loader"><div className="form-error">{error}</div><button className="button-primary" onClick={refreshProfile}>Try again</button><button className="secondary-button" onClick={signOut}>Sign out</button></div>;
+  if (user && error && !profile) return <div className="auth-loader"><div className="form-error">{error}</div><button className="button-primary" onClick={refreshProfile}>Try again</button><button className="secondary-button" onClick={signOut}>Sign out</button></div>;
   if (!user || !profile) return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
   if (role && role !== profile.role) return <Navigate to={profile.role === 'founder' ? '/founder' : '/owner'} replace />;
   return children;

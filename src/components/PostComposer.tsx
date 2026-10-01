@@ -5,7 +5,7 @@ import { OptionPicker } from './ProductForm';
 import { apiFetch, storeLink, uploadImage, uploadPostMedia } from '../lib/api';
 import { buildProductCaption } from '../lib/caption';
 import { readDraft, writeDraft } from '../lib/draftStorage';
-import { pushBackHandler } from '../lib/backNavigation';
+import { clearHistoryFlag, pushBackHandler, pushHistoryFlag } from '../lib/backNavigation';
 import type { Product, SocialConnection } from '../types';
 
 type Media = { file: File; url: string; kind: 'image' | 'video' };
@@ -55,9 +55,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
 
   const closeManually = useCallback(() => {
     if (busy) return;
-    if (window.history.state?.stoyanguComposer) {
-      window.history.replaceState({}, '', window.location.href);
-    }
+    clearHistoryFlag('stoyanguComposer');
     onClose();
   }, [busy, onClose]);
 
@@ -134,27 +132,24 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   // A history entry lets the device/browser back gesture move between the
   // full-page details and media steps without navigating away from the store.
   useEffect(() => {
-    const previousState = window.history.state;
-    window.history.pushState({ ...(previousState && typeof previousState === 'object' ? previousState : {}), stoyanguComposer: true }, '', window.location.href);
-    return () => {
-      if (window.history.state?.stoyanguComposer) window.history.replaceState(previousState || {}, '', window.location.href);
-    };
+    pushHistoryFlag('stoyanguComposer');
+    return () => clearHistoryFlag('stoyanguComposer');
   }, []);
 
   useEffect(() => {
     return pushBackHandler(() => {
       if (cameraOpen) {
         setCameraOpen(false);
-        window.history.pushState({ stoyanguComposer: true }, '', window.location.href);
+        pushHistoryFlag('stoyanguComposer');
         return true;
       }
       if (busy) {
-        window.history.pushState({ stoyanguComposer: true }, '', window.location.href);
+        pushHistoryFlag('stoyanguComposer');
         return true;
       }
       if (step === 'details') {
         setStep('media');
-        window.history.pushState({ stoyanguComposer: true }, '', window.location.href);
+        pushHistoryFlag('stoyanguComposer');
         return true;
       }
       onClose();
@@ -278,9 +273,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       await writeDraft(draftKey, null).catch(() => undefined);
       setResult({ draft: asDraft, results: response.results || {} });
       onPosted();
-      if (!asDraft && Object.values(response.results || {}).some((postResult) => postResult.ok) && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification('Post accepted', { body: 'Your connected accounts accepted the post. Check each result for delivery.', icon: '/favicon-192.png' });
-      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to post. Your work is saved on this device; please retry.');
     } finally {

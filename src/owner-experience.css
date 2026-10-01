@@ -63,8 +63,8 @@
 .owner-sticky-header .owner-store-logo { width: 96px; height: 96px; }
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { width: 96px; height: 96px; }
 .owner-sticky-header .owner-header-copy { flex: 1; }
-.owner-sticky-header .owner-header-copy h1 { font-size: 2rem; }
-.owner-sticky-header .owner-store-link { margin: 2px 0 5px; }
+.owner-sticky-header .owner-header-copy h1 { font-size: 2.3rem; line-height: 1.02; margin: .1rem 0 0; }
+.owner-sticky-header .owner-store-link { margin: 0 0 5px; }
 .owner-sticky-header .tiktok-stats-row { margin-top: 4px; gap: clamp(18px, 4vw, 34px); }
 .owner-loading { gap: 16px; }
 
@@ -297,7 +297,7 @@
   flex: 0 0 auto;
   padding: 0;
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .94), 0 0 8px 2px rgba(255, 255, 255, .26), 0 10px 30px rgba(0, 0, 0, .25);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .94), 0 0 4px 1px rgba(255, 255, 255, .2);
 }
 .owner-sticky-header .owner-store-logo { object-fit: cover; }
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { object-fit: contain; }
@@ -439,6 +439,7 @@
 
 @media (max-width: 560px) {
   .owner-sticky-header { padding: 8px 10px 10px !important; }
+  .owner-page .owner-main { padding-top: 20px; }
   .owner-sticky-header .owner-header-identity { gap: 16px; }
   .owner-logo-column { width: 78px; height: 72px; flex-basis: 78px; }
   .owner-sticky-header .owner-store-logo,
@@ -449,7 +450,7 @@
     height: 94px !important;
   }
   .owner-sticky-header .owner-header-copy { flex: 1; }
-  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.2rem, 5.5vw, 1.55rem); line-height: 1; }
+  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.5rem, 7.2vw, 1.85rem); line-height: 1; margin: .1rem 0 0; }
   .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
   .owner-analytics-row { gap: 5px; }
   .owner-sticky-header .tiktok-stats-row { gap: clamp(5px, 1.5vw, 8px); }
@@ -587,3 +588,21 @@
   .disconnect-confirm-inline .secondary-button { grid-column: 2; }
   .settings-action-row.settings-action-simple { min-height: 52px; }
 }
+
+.social-inbox-skeleton { display: grid; gap: 14px; padding: 18px 14px; color: #819087; }
+.social-inbox-skeleton > strong { color: #52645a; font-size: .75rem; }
+.social-skeleton-thread { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid #edf0ec; }
+.social-skeleton-avatar, .social-skeleton-copy i { display: block; background: linear-gradient(100deg, #edf1ed 20%, #f7f9f7 42%, #edf1ed 64%); background-size: 220% 100%; animation: social-skeleton-shimmer 1.35s ease-in-out infinite; }
+.social-skeleton-avatar { width: 42px; height: 42px; border-radius: 50%; }
+.social-skeleton-copy { display: grid; gap: 7px; }
+.social-skeleton-copy i { height: 8px; border-radius: 999px; }
+.social-skeleton-copy i:first-child { width: 48%; height: 10px; }
+.social-skeleton-copy i:last-child { width: 76%; }
+.social-inbox-load-error { padding-top: 30px; }
+.social-inbox-load-error .secondary-button { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; }
+.social-inbox-load-error .secondary-button svg { width: 14px; height: 14px; }
+@keyframes social-skeleton-shimmer { to { background-position-x: -220%; } }
+
+.owner-offline-banner { display: flex; align-items: center; gap: 8px; margin: 10px 16px 0; padding: 9px 11px; border: 1px solid #d7e5dc; border-radius: 10px; background: #edf5ef; color: #45604f; font-size: .68rem; line-height: 1.4; }
+.owner-offline-banner svg { width: 15px; height: 15px; flex: 0 0 auto; color: #60856b; }
+@media (max-width: 560px) { .owner-offline-banner { margin: 7px 12px 0; padding: 8px 9px; font-size: .62rem; } }

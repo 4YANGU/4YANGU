@@ -306,7 +306,7 @@ async function handleSocialPublish(req, res, profile, storeId, asDraft) {
     posted_at: asDraft ? null : new Date().toISOString(),
   }).select().single();
   if (error) throw error;
-  if (!asDraft && Object.values(results).some(r => r.ok)) await pushStoreEvent(storeId, 'Post accepted', 'Your connected accounts accepted your new post. Check each platform for delivery.', `post-${data.id}`);
+  if (!asDraft && Object.values(results).some(r => r.ok)) await pushStoreEvent(storeId, 'Post sent', 'Your connected account accepted the post. Check the platform for delivery status.', `post-${data.id}`);
   return res.status(201).json({ post: data, mode, results });
 }
 

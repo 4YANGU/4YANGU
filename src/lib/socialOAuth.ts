@@ -14,7 +14,7 @@ export function clearOAuthReturn(storeId: number, finished = true) {
   try { if (finished) localStorage.removeItem(pendingKey(storeId)); } catch { /* Server state remains authoritative. */ }
   const params = new URLSearchParams(window.location.search);
   for (const key of ['oauth', 'oauth_state', 'oauth_pick', 'oauth_error', 'platform']) params.delete(key);
-  window.history.replaceState({}, '', `${window.location.pathname}${params.size ? `?${params}` : ''}${window.location.hash}`);
+  window.history.replaceState(window.history.state || {}, '', `${window.location.pathname}${params.size ? `?${params}` : ''}${window.location.hash}`);
 }
 export async function startConnection(storeId: number, platform: string): Promise<OAuthOutcome> {
   // Open synchronously, before any await. Browsers otherwise block this window.

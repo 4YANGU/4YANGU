@@ -8,28 +8,31 @@ import { slugVariants } from './stores.js';
 // site as a web app from Chrome. Every generated manifest is named StoYangu;
 // its home-screen icon uses that owner's store logo at full clarity.
 
-const MANIFEST = (store, slug) => ({
-  id: '/owner',
-  // The installed product is always StoYangu. A store's identity belongs in
-  // its in-app header and launch logo, never in the operating-system app name.
-  name: 'StoYangu',
-  short_name: 'StoYangu',
-  description: 'Manage your products, customers, posts and orders with StoYangu.',
-  start_url: '/app?source=pwa',
-  scope: '/',
-  display: 'standalone',
-  display_override: ['standalone', 'minimal-ui'],
-  background_color: '#101f30',
-  theme_color: '#101f30',
-  orientation: 'portrait-primary',
-  prefer_related_applications: false,
-  categories: ['business', 'shopping', 'productivity'],
-  icons: [
-    { src: `/api/store-pwa/icon?slug=${encodeURIComponent(slug)}&size=192`, sizes: '192x192', type: 'image/png', purpose: 'any' },
-    { src: `/api/store-pwa/icon?slug=${encodeURIComponent(slug)}&size=512`, sizes: '512x512', type: 'image/png', purpose: 'any' },
-    { src: `/api/store-pwa/icon?slug=${encodeURIComponent(slug)}&size=512&purpose=maskable`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-  ],
-});
+const MANIFEST = (store, slug) => {
+  const iconQuery = `slug=${encodeURIComponent(slug)}&v=${encodeURIComponent(store.updated_at || '')}`;
+  return {
+    id: '/owner',
+    // The installed product is always StoYangu. A store's identity belongs in
+    // its in-app header and launch logo, never in the operating-system app name.
+    name: 'StoYangu',
+    short_name: 'StoYangu',
+    description: 'Manage your products, customers, posts and orders with StoYangu.',
+    start_url: '/app?source=pwa',
+    scope: '/',
+    display: 'standalone',
+    display_override: ['standalone', 'minimal-ui'],
+    background_color: '#101f30',
+    theme_color: '#101f30',
+    orientation: 'portrait-primary',
+    prefer_related_applications: false,
+    categories: ['business', 'shopping', 'productivity'],
+    icons: [
+      { src: `/api/store-pwa/icon?${iconQuery}&size=192`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: `/api/store-pwa/icon?${iconQuery}&size=512`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: `/api/store-pwa/icon?${iconQuery}&size=512&purpose=maskable`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+  };
+};
 
 // Best-effort in-memory cache (serverless instances are short-lived).
 const storeCache = new Map();
@@ -39,16 +42,16 @@ async function findStore(slug, storeId) {
   if (hit && Date.now() - hit.at < 60_000) return hit.store;
   let result = null;
   if (storeId && Number.isSafeInteger(Number(storeId)) && Number(storeId) > 0) {
-    const byId = await supabase.from('stores').select('id,slug,name,logo_url').eq('id', Number(storeId)).maybeSingle();
+    const byId = await supabase.from('stores').select('id,slug,name,logo_url,updated_at').eq('id', Number(storeId)).maybeSingle();
     if (!byId.error && byId.data) result = byId.data;
   }
   if (!result && slug) {
     for (const variant of slugVariants(slug)) {
-      const bySlug = await supabase.from('stores').select('id,slug,name,logo_url').eq('slug', variant).maybeSingle();
+      const bySlug = await supabase.from('stores').select('id,slug,name,logo_url,updated_at').eq('slug', variant).maybeSingle();
       if (!bySlug.error && bySlug.data) { result = bySlug.data; break; }
       const { data: alias } = await supabase.from('store_aliases').select('store_id').eq('slug', variant).eq('active', true).maybeSingle();
       if (alias?.store_id) {
-        const byAlias = await supabase.from('stores').select('id,slug,name,logo_url').eq('id', alias.store_id).maybeSingle();
+        const byAlias = await supabase.from('stores').select('id,slug,name,logo_url,updated_at').eq('id', alias.store_id).maybeSingle();
         if (!byAlias.error && byAlias.data) { result = byAlias.data; break; }
       }
     }
@@ -65,19 +68,24 @@ function requestOrigin(req) {
   return url.replace(/\/$/, '');
 }
 
-// Render the store's logo as a square icon at exactly `size` px.
-// 'any' → full-bleed high-clarity crop (lanczos3). 'maskable' → logo centred
-// in the 80% safe zone on a white field so every OS mask looks clean.
+// Render a circular, cover-cropped store logo on the StoYangu navy app field.
+// The white stroke is intentionally fine; a soft white halo gives the same
+// light edge as the logo in the owner header without making it look outlined.
 async function renderLogoIcon(bytes, size, maskable) {
-  if (maskable) {
-    const inner = Math.round(size * 0.8);
-    const logo = await sharp(bytes).rotate().resize(inner, inner, { fit: 'cover', kernel: 'lanczos3' }).png().toBuffer();
-    const pad = Math.round((size - inner) / 2);
-    return sharp({ create: { width: size, height: size, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 255 } } })
-      .composite([{ input: logo, left: pad, top: pad }])
-      .png({ compressionLevel: 9 }).toBuffer();
-  }
-  return sharp(bytes).rotate().resize(size, size, { fit: 'cover', kernel: 'lanczos3' }).png({ compressionLevel: 9 }).toBuffer();
+  const diameter = Math.round(size * (maskable ? 0.68 : 0.82));
+  const offset = Math.round((size - diameter) / 2);
+  const radius = diameter / 2;
+  const center = size / 2;
+  const blur = Math.max(2, Math.round(size * 0.014));
+  const stroke = Math.max(1.5, size * 0.004);
+  const crop = await sharp(bytes).rotate().resize(diameter, diameter, { fit: 'cover', kernel: 'lanczos3' }).png().toBuffer();
+  const maskSvg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${diameter}" height="${diameter}"><circle cx="${radius}" cy="${radius}" r="${radius}" fill="#fff"/></svg>`);
+  const circularLogo = await sharp(crop).composite([{ input: maskSvg, blend: 'dest-in' }]).png().toBuffer();
+  const finishSvg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><defs><filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="${blur}"/></filter></defs><circle cx="${center}" cy="${center}" r="${radius}" fill="#fff" opacity=".38" filter="url(#glow)"/><circle cx="${center}" cy="${center}" r="${radius - stroke / 2}" fill="none" stroke="#fff" stroke-width="${stroke}" opacity=".92"/></svg>`);
+  const pad = { r: 16, g: 31, b: 48, alpha: 255 };
+  return sharp({ create: { width: size, height: size, channels: 4, background: pad } })
+    .composite([{ input: circularLogo, left: offset, top: offset }, { input: finishSvg }])
+    .png({ compressionLevel: 9 }).toBuffer();
 }
 
 // Branded fallback when the store has no logo (or it cannot be fetched):
@@ -114,7 +122,7 @@ export async function handlePwaStore(req, res) {
   const store = await findStore(null, id);
   if (!store) return res.status(404).json({ error: 'Store not found.' });
   res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ id: store.id, slug: store.slug, name: store.name });
+  return res.status(200).json({ id: store.id, slug: store.slug, name: store.name, updated_at: store.updated_at || null });
 }
 
 export async function handlePwaManifest(req, res) {

@@ -22,8 +22,8 @@ if (earlyPath === '/owner' || earlyPath === '/app') {
       if (!session?.access_token) return;
       const response = await fetch('/api/stores?pwa=store', { headers: { Authorization: `Bearer ${session.access_token}` } });
       if (!response.ok) return;
-      const payload = (await response.json()) as { slug?: string };
-      if (payload.slug) applyStoreManifest(`slug=${encodeURIComponent(payload.slug)}`);
+      const payload = (await response.json()) as { slug?: string; updated_at?: string | null };
+      if (payload.slug) applyStoreManifest(`slug=${encodeURIComponent(payload.slug)}`, payload.updated_at || undefined);
     } catch { /* StoreDashboard re-applies the manifest after its data loads. */ }
   })();
 } else if (/^\/manage\/\d+/.test(earlyPath)) {

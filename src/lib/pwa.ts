@@ -5,21 +5,34 @@
 // StoYangu manifest whose icon uses the current store logo. The operating-
 // system app name remains exactly "StoYangu" everywhere.
 
-export function manifestHref(query: string): string {
-  return `/api/store-pwa/manifest?${query}`;
+export function manifestHref(query: string, iconVersion?: string): string {
+  const version = iconVersion ? `&v=${encodeURIComponent(iconVersion)}` : '';
+  return `/api/store-pwa/manifest?${query}${version}`;
 }
 
-export function applyStoreManifest(query: string): void {
+export function applyStoreManifest(query: string, iconVersion?: string): void {
   if (typeof document === 'undefined') return;
-  const href = manifestHref(query);
+  const href = manifestHref(query, iconVersion);
   let link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
   if (!link) {
     link = document.createElement('link');
     link.rel = 'manifest';
     document.head.appendChild(link);
   }
-  if (link.getAttribute('href') === href) return;
-  link.setAttribute('href', href);
+  if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+
+  // Android reads its icon from the manifest; iOS still relies on
+  // apple-touch-icon when adding the installed web app to the Home Screen.
+  const iconVersionQuery = iconVersion ? `&v=${encodeURIComponent(iconVersion)}` : '';
+  const iconHref = `/api/store-pwa/icon?${query}${iconVersionQuery}&size=512`;
+  let touchIcon = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+  if (!touchIcon) {
+    touchIcon = document.createElement('link');
+    touchIcon.rel = 'apple-touch-icon';
+    document.head.appendChild(touchIcon);
+  }
+  touchIcon.sizes = '180x180';
+  if (touchIcon.getAttribute('href') !== iconHref) touchIcon.setAttribute('href', iconHref);
 }
 
 // Removes the generic manifest while the signed-in store is being resolved,
