@@ -63,7 +63,7 @@
 .owner-sticky-header .owner-store-logo { width: 96px; height: 96px; }
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { width: 96px; height: 96px; }
 .owner-sticky-header .owner-header-copy { flex: 1; }
-.owner-sticky-header .owner-header-copy h1 { font-size: 1.55rem; }
+.owner-sticky-header .owner-header-copy h1 { font-size: 1.65rem; }
 .owner-sticky-header .owner-store-link { margin: 2px 0 5px; }
 .owner-sticky-header .tiktok-stats-row { margin-top: 4px; gap: clamp(18px, 4vw, 34px); }
 
@@ -412,7 +412,7 @@
     height: 94px !important;
   }
   .owner-sticky-header .owner-header-copy { flex: 1; }
-  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1rem, 4.5vw, 1.2rem); line-height: 1; }
+  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.05rem, 4.8vw, 1.3rem); line-height: 1; }
   .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
   .owner-analytics-row { gap: 5px; }
   .owner-sticky-header .tiktok-stats-row { gap: clamp(4px, 1.6vw, 9px); }
