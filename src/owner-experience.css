@@ -291,11 +291,14 @@
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
   position: relative;
   top: -6px;
-  width: 108px;
-  height: 108px;
+  left: -2px;
+  width: 116px;
+  height: 116px;
   padding: 0;
-  object-fit: contain;
+  border-radius: 50%;
 }
+.owner-sticky-header .owner-store-logo { object-fit: cover; }
+.owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { object-fit: contain; }
 .owner-sticky-header .owner-header-copy {
   min-width: 0;
   flex: 1;
@@ -411,8 +414,9 @@
   .owner-sticky-header .owner-store-logo,
   .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
     top: -1px;
-    width: 74px !important;
-    height: 74px !important;
+    left: -5px;
+    width: 84px !important;
+    height: 84px !important;
   }
   .owner-sticky-header .owner-header-copy { flex: 1; }
   .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1rem, 4.5vw, 1.2rem); line-height: 1; }
