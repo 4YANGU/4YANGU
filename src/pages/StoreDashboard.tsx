@@ -476,6 +476,7 @@ export default function StoreDashboard() {
         onChangePassword={() => setPasswordOpen(true)}
         onInstall={installApp}
         onSignOut={signOut}
+        onPaymentComplete={load}
       />}
       {installOpen && <Modal title="Install StoYangu" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install <strong>StoYangu</strong> on your phone so it opens directly from your home screen. The app name always stays StoYangu, while the opening animation uses your store logo.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New versions load automatically after updates — no reinstall needed.</p></div></Modal>}
       {passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}
@@ -486,7 +487,7 @@ export default function StoreDashboard() {
 
 }
 
-function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut }: {
+function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut, onPaymentComplete }: {
   store: Store;
   data: DashboardData;
   lifetimeProductViews: number;
@@ -495,6 +496,7 @@ function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally
   onChangePassword: () => void;
   onInstall: () => void;
   onSignOut: () => Promise<void>;
+  onPaymentComplete: () => Promise<void>;
 }) {
   const [installMessage, setInstallMessage] = useState('');
   const install = () => {
@@ -533,7 +535,7 @@ function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally
         <NotificationPermissionButton installedLocally={installedLocally} />
       </section>
 
-      <PaymentSection store={store} />
+      <PaymentSection store={store} onPaid={onPaymentComplete} />
 
       <section className="settings-section" aria-labelledby="account-settings-title">
         <div className="settings-section-heading settings-heading-simple"><h2 id="account-settings-title">Account</h2></div>
@@ -627,14 +629,28 @@ function normalizeKenyanPhone(value: string) {
   return /^254[17]\d{8}$/.test(digits) ? `+${digits}` : '';
 }
 
-function PaymentSection({ store }: { store: Store }) {
+function PaymentSection({ store, onPaid }: { store: Store; onPaid: () => Promise<void> }) {
   const [phone, setPhone] = useState(store.phone || store.whatsapp || '');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [paymentInfo, setPaymentInfo] = useState<{ configured: boolean; sandbox: boolean; paymentWindowOpen: boolean; nextPeriodPaid: boolean } | null>(null);
   const cycleEnd = store.upkeep_period_ends_at ? new Date(store.upkeep_period_ends_at) : null;
   const periodState = store.management_locked ? 'Payment due' : store.upkeep_plan === 'TRIAL' ? 'Free trial' : 'Active';
+  const alreadyPrepaid = Boolean(cycleEnd && store.billing_paid_until && new Date(store.billing_paid_until).getTime() > cycleEnd.getTime());
+  const nextPeriodAlreadyPaid = Boolean(paymentInfo?.nextPeriodPaid || alreadyPrepaid);
+  const paymentWindowOpen = Boolean(paymentInfo?.paymentWindowOpen || store.management_locked || Number(store.upkeep_period_day || 0) >= 12);
+  const canPayNow = Boolean(paymentInfo?.configured && (paymentInfo.sandbox || (paymentWindowOpen && !nextPeriodAlreadyPaid)));
 
-  const submit = (event: FormEvent) => {
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ configured: boolean; sandbox: boolean; paymentWindowOpen: boolean; nextPeriodPaid: boolean }>('/api/stores?daraja=payment-info')
+      .then((info) => { if (!cancelled) setPaymentInfo(info); })
+      .catch(() => { if (!cancelled) setPaymentInfo({ configured: false, sandbox: false, paymentWindowOpen: false, nextPeriodPaid: false }); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
     setError('');
@@ -643,8 +659,47 @@ function PaymentSection({ store }: { store: Store }) {
       setError('Enter a valid Kenyan M-Pesa number, such as 0712 345 678.');
       return;
     }
+    if (!canPayNow) {
+      setError(alreadyPrepaid ? 'Your next 14-day period is already paid.' : 'The payment prompt opens during the final three days of your period, or once payment is due.');
+      return;
+    }
+
     setPhone(normalized);
-    setMessage(`M-Pesa prompt preview prepared for ${normalized}. Daraja is not connected yet, so no payment has been requested or charged.`);
+    setBusy(true);
+    try {
+      const request = await apiFetch<{ paymentId: number }>('/api/stores?daraja=stk', {
+        method: 'POST',
+        body: JSON.stringify({ phone: normalized }),
+      });
+      setMessage(`M-Pesa prompt sent to ${normalized}. Enter your PIN on that phone to complete the KES 200 payment. Waiting for confirmation…`);
+
+      for (let attempt = 0; attempt < 45; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 4000));
+        const status = await apiFetch<{ status: string; receipt_number?: string | null }>(`/api/stores?daraja=payment-status&paymentId=${encodeURIComponent(request.paymentId)}`);
+        if (status.status === 'sandbox_paid') {
+          setMessage(`Sandbox test succeeded${status.receipt_number ? ` · test receipt ${status.receipt_number}` : ''}. No real payment was taken and your store billing was not changed.`);
+          return;
+        }
+        if (status.status === 'paid') {
+          setMessage(`Payment confirmed${status.receipt_number ? ` · receipt ${status.receipt_number}` : ''}. Your store billing has been updated.`);
+          await onPaid().catch(() => undefined);
+          return;
+        }
+        if (status.status === 'failed' || status.status === 'expired') {
+          setError('The payment was not completed. If you cancelled the M-Pesa prompt, you can try again when this payment request has cleared.');
+          return;
+        }
+        if (status.status === 'review') {
+          setError('Safaricom sent a payment response that needs a quick check. Please contact StoYangu support before trying again.');
+          return;
+        }
+      }
+      setMessage('No final confirmation yet. If you entered your PIN, leave this page open for a little longer or check back shortly; a confirmed payment will unlock your store automatically.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not start the M-Pesa payment. Please try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return <section className="settings-section payment-settings" aria-labelledby="payment-settings-title">
@@ -658,11 +713,14 @@ function PaymentSection({ store }: { store: Store }) {
     <form className="payment-phone-form" onSubmit={submit}>
       <label htmlFor="mpesa-phone">M-Pesa phone number</label>
       <input id="mpesa-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" />
-      <button type="submit" className="button-primary"><BellRing /> Preview KES 200 M-Pesa prompt</button>
+      <button type="submit" className="button-primary" disabled={busy || !canPayNow}><BellRing /> {busy ? 'Waiting for M-Pesa…' : 'Pay KES 200 by M-Pesa'}</button>
     </form>
+    {!paymentInfo && <small className="payment-preview-note">Checking the M-Pesa setup…</small>}
+    {paymentInfo && !paymentInfo.configured && <small className="payment-preview-note">M-Pesa is not configured yet. Please ask StoYangu support to finish the sandbox setup.</small>}
+    {paymentInfo?.configured && !paymentInfo.sandbox && !canPayNow && <small className="payment-preview-note">{nextPeriodAlreadyPaid ? 'Your next 14-day period is already paid. No payment is needed now.' : 'The M-Pesa prompt becomes available during the final three days of your period, or once payment is due.'}</small>}
     {error && <div className="form-error" role="alert">{error}</div>}
     {message && <div className="form-success" role="status">{message}</div>}
-    <small className="payment-preview-note">Preview only: Safaricom Daraja is not connected, so this will not charge your phone. To pay now, contact StoYangu on WhatsApp 0793 533 683.</small>
+    {paymentInfo?.configured && <small className="payment-preview-note">{paymentInfo.sandbox ? 'Sandbox test only: no real payment will be taken, and successful tests do not change store billing.' : 'An M-Pesa prompt will be sent to the number above. Confirm the KES 200 amount and enter your PIN only if you want to pay. A successful payment is recorded automatically.'}</small>}
   </section>;
 }
 

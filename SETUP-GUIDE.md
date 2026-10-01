@@ -168,7 +168,25 @@ AI discovery files help compliant crawlers understand the business, but AI answe
 10. At 7:30 PM, verify each owner receives only their store's message.
 11. Test a custom notification to one store, then to all installed owners.
 
-The customer-facing KES 200 / 14-day M-Pesa screen is a preview only and does not charge anyone. To activate real STK Push later, follow the **Safaricom M-Pesa setup** checklist on the Founder Dashboard: obtain Daraja sandbox and production credentials, configure server-only environment variables and a verified HTTPS callback, and test payment confirmation before going live. Until then, mark a store paid only after manually verifying the payment.
+### Daraja sandbox M-Pesa test
+
+The app now sends the owner’s KES 200 / 14-day payment request to Daraja STK Push and records the public callback on the server. It defaults to **sandbox**; production payments are not enabled unless you deliberately change the environment later.
+
+Before testing:
+
+1. In Supabase, open **SQL Editor → New query**. Copy all of `supabase/migrations/202610010001_mpesa_upkeep.sql` into the query and press **Run**. This creates the private payment ledger and the database function that updates billing once, even if Safaricom repeats a callback.
+2. In Vercel, open the StoYangu project → **Settings → Environment Variables**. Add these for the **Production** environment:
+   - `DARAJA_ENV` = `sandbox`
+   - `DARAJA_CONSUMER_KEY` = your Daraja sandbox Consumer Key
+   - `DARAJA_CONSUMER_SECRET` = your Daraja sandbox Consumer Secret
+   - `DARAJA_SHORTCODE` = your sandbox Business Shortcode
+   - `DARAJA_PASSKEY` = your sandbox Lipa Na M-Pesa Passkey
+   - `DARAJA_CALLBACK_URL` = `https://stoyangu.com/api/stores?daraja=callback`
+3. Use that exact public HTTPS address, not a protected Vercel preview link. Do not paste any credential into chat, this repository, or a browser field. Daraja’s STK **Password** is generated automatically for every request; you do not need a separate static password setting.
+4. Save the environment values and redeploy the latest version from Vercel.
+5. Sign in as a store owner and open **Settings → Payment**. In sandbox, the button is available any time; check the phone number and choose **Pay KES 200 by M-Pesa**, then use Daraja's simulator/test phone flow. A successful sandbox callback is recorded for testing only—it takes no real payment and does not change billing. In production, the prompt is limited to the last three days or when payment is due; billing changes only after a callback matches the saved request, amount, phone and receipt.
+
+A declined, cancelled or mismatched payment will not unlock the store. Duplicate callbacks are safe. Keep `DARAJA_ENV=sandbox` while testing; switch to `production` only after Safaricom has approved your live shortcode and you deliberately want to accept real payments. Until sandbox setup is complete, use the founder’s **Mark KES 200 paid** action only after manually verifying a payment.
 
 Push notifications require HTTPS, valid VAPID keys, permission from the owner, and a supported browser. On iPhone, install through Safari's Add to Home Screen flow, open the installed app, and allow notifications from **My App** settings.
 
