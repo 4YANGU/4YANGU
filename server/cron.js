@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
 import { syncStoreInbox } from './media.js';
@@ -129,13 +130,62 @@ async function runInboxSync(res) {
   });
 }
 
+function replizWebhookSecrets(req) {
+  const authorization = String(req.headers?.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
+  const values = [
+    req.headers?.['x-repliz-webhook-secret'],
+    req.headers?.['x-webhook-secret'],
+    req.headers?.['x-webhook-token'],
+    bearer,
+    req.query?.secret,
+    req.query?.token,
+    req.query?.verify_token,
+    req.query?.['hub.verify_token'],
+  ];
+  return values.flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function secretsMatch(provided, expected) {
+  const candidate = Buffer.from(provided, 'utf8');
+  const configured = Buffer.from(expected, 'utf8');
+  return candidate.length === configured.length && timingSafeEqual(candidate, configured);
+}
+
+async function handleReplizWebhook(req, res) {
+  const expected = String(process.env.REPLIZ_WEBHOOK_SECRET || '').trim();
+  if (expected.length < 32) return res.status(503).json({ error: 'Repliz webhook is not configured. Set a 32-character-or-longer REPLIZ_WEBHOOK_SECRET.' });
+  if (!replizWebhookSecrets(req).some((provided) => secretsMatch(provided, expected))) {
+    return res.status(401).json({ error: 'Unauthorized Repliz webhook.' });
+  }
+
+  if (req.method === 'GET') {
+    const challenge = req.query?.challenge || req.query?.['hub.challenge'];
+    if (challenge !== undefined) return res.status(200).send(String(challenge));
+    return res.status(200).json({ ok: true });
+  }
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST');
+    return res.status(405).json({ error: 'Method not allowed.' });
+  }
+
+  // Treat Repliz's event as a wake-up signal. The authenticated Repliz API is
+  // the source of truth, so we do not guess at or store an undocumented event
+  // payload. New rows are deduplicated and push-notified by syncStoreInbox.
+  return await runInboxSync(res);
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Repliz-Webhook-Secret, X-Webhook-Secret, X-Webhook-Token');
   if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const requestedJob = String(req.query?.job || '');
+  if (req.method !== 'GET' && requestedJob !== 'repliz-webhook') return res.status(405).json({ error: 'Method not allowed' });
   try {
+    if (requestedJob === 'repliz-webhook') return await handleReplizWebhook(req, res);
     const expected = process.env.CRON_SECRET;
     const provided = req.headers.authorization?.replace('Bearer ', '');
     if (!expected) return res.status(503).json({ error: 'Cron secret is not configured.' });
@@ -147,7 +197,7 @@ export default async function handler(req, res) {
     if (job === 'inbox') return await runInboxSync(res);
     return res.status(400).json({ error: 'Unknown or missing job. Use ?job=daily | send | inbox' });
   } catch (err) {
-    console.error('Cron API error:', err);
-    return res.status(500).json({ error: 'Could not run the scheduled job.' });
+    console.error(requestedJob === 'repliz-webhook' ? 'Repliz webhook sync error:' : 'Cron API error:', err);
+    return res.status(500).json({ error: requestedJob === 'repliz-webhook' ? 'Could not sync the Repliz inbox.' : 'Could not run the scheduled job.' });
   }
 }

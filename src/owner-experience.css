@@ -439,7 +439,6 @@
 
 @media (max-width: 560px) {
   .owner-sticky-header { padding: 8px 10px 10px !important; }
-  .owner-page .owner-main { padding-top: 20px; }
   .owner-sticky-header .owner-header-identity { gap: 16px; }
   .owner-logo-column { width: 78px; height: 72px; flex-basis: 78px; }
   .owner-sticky-header .owner-store-logo,
