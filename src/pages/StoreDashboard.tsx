@@ -38,6 +38,21 @@ const markAppInstalled = () =>
 
 type NotificationEnableResult = { status: 'granted' | 'denied' | 'unsupported'; testSent?: boolean; message?: string };
 
+function ensureSettingsHistoryEntry() {
+  const currentState = window.history.state;
+  if (currentState?.stoyanguSettings) return;
+  const preservedState = currentState && typeof currentState === 'object' ? currentState : {};
+  window.history.pushState({ ...preservedState, stoyanguSettings: true }, '', window.location.href);
+}
+
+function clearSettingsHistoryEntry() {
+  const currentState = window.history.state;
+  if (!currentState || typeof currentState !== 'object' || !currentState.stoyanguSettings) return;
+  const nextState = { ...currentState };
+  delete nextState.stoyanguSettings;
+  window.history.replaceState(nextState, '', window.location.href);
+}
+
 async function enableStoreNotifications(): Promise<NotificationEnableResult> {
   if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return { status: 'unsupported', message: 'This browser does not support push notifications.' };
   const config = await apiFetch<{ publicKey: string; pushConfigured?: boolean }>('/api/subscriptions');
@@ -119,6 +134,9 @@ export default function StoreDashboard() {
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
   useEffect(() => { splashStartRef.current = Date.now(); }, []);
+  useEffect(() => {
+    if (settingsOpen) ensureSettingsHistoryEntry();
+  }, [settingsOpen]);
 
   // Push back handler for store owner navigation (Task 2)
   useEffect(() => {
@@ -137,6 +155,7 @@ export default function StoreDashboard() {
       }
       if (settingsOpen) {
         sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`);
+        clearSettingsHistoryEntry();
         setSettingsOpen(false);
         return true;
       }
@@ -173,8 +192,16 @@ export default function StoreDashboard() {
   }, [data?.store, storeId]);
   useEffect(() => { document.title = 'StoYangu'; }, []);
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
-  const openSettings = () => { sessionStorage.setItem(`stoyangu-settings-${storeId || 'owner'}`, '1'); setSettingsOpen(true); };
-  const closeSettings = () => { sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`); setSettingsOpen(false); };
+  const openSettings = () => {
+    ensureSettingsHistoryEntry();
+    sessionStorage.setItem(`stoyangu-settings-${storeId || 'owner'}`, '1');
+    setSettingsOpen(true);
+  };
+  const closeSettings = () => {
+    sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`);
+    clearSettingsHistoryEntry();
+    setSettingsOpen(false);
+  };
   const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
   const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); };
 
