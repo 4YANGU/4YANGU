@@ -126,6 +126,11 @@ async function runInboxSync(res) {
   return res.status(200).json({
     storesChecked: storeIds.length,
     added: outcomes.reduce((total, outcome) => total + Number(outcome.added || 0), 0),
+    notifications: {
+      sent: outcomes.reduce((total, outcome) => total + Number(outcome.notifications?.sent || 0), 0),
+      failed: outcomes.reduce((total, outcome) => total + Number(outcome.notifications?.failed || 0), 0),
+      issues: [...new Set(outcomes.flatMap((outcome) => outcome.notifications?.issues || []))],
+    },
     errors: [...errors, ...outcomes.flatMap((outcome) => (outcome.errors || []).map((message) => ({ store_id: outcome.storeId, error: message })))],
   });
 }
@@ -183,7 +188,17 @@ async function handleReplizWebhook(req, res) {
   // Repliz sends chat/comment details in its event. Save and alert directly;
   // use the existing inbox sync only when the event cannot be matched.
   const result = await processReplizWebhookEvent(payload);
-  if (result.handled) return res.status(200).json(result);
+  if (result.handled) {
+    console.info('Repliz webhook accepted:', {
+      eventType: String(payload.type || 'unknown').slice(0, 40),
+      handled: result.handled,
+      reason: result.reason || null,
+      added: Number(result.added || 0),
+      duplicates: Number(result.duplicates || 0),
+      notifications: result.notifications || null,
+    });
+    return res.status(200).json(result);
+  }
   return await runInboxSync(res);
 }
 

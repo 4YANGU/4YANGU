@@ -8,6 +8,7 @@ import { SOCIAL_PLATFORMS } from '../lib/socialPlatforms';
 import type { Order, SocialMessage, SocialThread } from '../types';
 import { readableMessage } from '../lib/messageText';
 import { clearHistoryFlag, pushBackHandler, pushHistoryFlag } from '../lib/backNavigation';
+import supabase from '../lib/supabase';
 
 const PLATFORMS = SOCIAL_PLATFORMS;
 
@@ -65,6 +66,7 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const loadRef = useRef<() => void>(() => undefined);
+  const liveRefreshTimer = useRef<number | undefined>(undefined);
   const lastRefreshSignal = useRef(refreshSignal);
   const load = useCallback(async (silent = false, background = false, syncNow = false) => {
     if (!active) return;
@@ -102,6 +104,18 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, active]);
 
+  const scheduleLiveRefresh = useCallback(() => {
+    if (liveRefreshTimer.current !== undefined) window.clearTimeout(liveRefreshTimer.current);
+    liveRefreshTimer.current = window.setTimeout(() => {
+      liveRefreshTimer.current = undefined;
+      void load(true, false, false);
+    }, 100);
+  }, [load]);
+
+  useEffect(() => () => {
+    if (liveRefreshTimer.current !== undefined) window.clearTimeout(liveRefreshTimer.current);
+  }, []);
+
   useEffect(() => {
     if (!active || hasLoadedRef.current) return;
     let alive = true;
@@ -132,13 +146,44 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
     return () => window.clearTimeout(timer);
   }, [active, load, refreshSignal]);
   useEffect(() => {
+    if (!active) return;
+    const channel = supabase
+      .channel(`social-inbox-${storeId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'social_messages',
+        filter: `store_id=eq.${storeId}`,
+      }, (event) => {
+        const message = event.new as SocialMessage;
+        if (message.direction === 'in') scheduleLiveRefresh();
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [active, scheduleLiveRefresh, storeId]);
+
+  useEffect(() => {
+    if (!active || !('serviceWorker' in navigator)) return;
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      const message = event.data as { type?: string; storeId?: number | string } | null;
+      if (message?.type !== 'stoyangu-inbox-update') return;
+      const messageStoreId = Number(message.storeId);
+      if (Number.isSafeInteger(messageStoreId) && messageStoreId > 0 && messageStoreId !== storeId) return;
+      scheduleLiveRefresh();
+    };
+    navigator.serviceWorker.addEventListener('message', onServiceWorkerMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onServiceWorkerMessage);
+  }, [active, scheduleLiveRefresh, storeId]);
+
+  useEffect(() => {
     const onOnline = () => { if (active) void load(true, true, true); };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, [active, load]);
 
-  // Quiet refresh while My Customers is open, visible and the owner is not
-  // typing. The mounted view is retained when the owner switches tabs.
+  // Realtime handles new rows immediately; this 20-second sync is only a
+  // recovery check if the live connection or webhook is temporarily unavailable.
+  // The mounted view is retained when the owner switches tabs.
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => {

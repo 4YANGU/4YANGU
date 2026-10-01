@@ -113,7 +113,19 @@ self.addEventListener('push', event => {
   if (data.image) options.image = data.image;
   if (data.tag) options.tag = data.tag;
   if ('vibrate' in self.navigator) options.vibrate = [200, 100, 200];
-  event.waitUntil(self.registration.showNotification(data.title || 'StoYangu', options));
+  event.waitUntil((async () => {
+    const notification = self.registration.showNotification(data.title || 'StoYangu', options);
+    if (String(data.tag || '').startsWith('inbox-')) {
+      const storeId = Number(data.storeId);
+      if (Number.isSafeInteger(storeId) && storeId > 0) {
+        try {
+          const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          for (const client of windows) client.postMessage({ type: 'stoyangu-inbox-update', storeId });
+        } catch { /* Keep showing the notification if refreshing an open page fails. */ }
+      }
+    }
+    await notification;
+  })());
 });
 
 self.addEventListener('notificationclick', event => {

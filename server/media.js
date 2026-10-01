@@ -497,6 +497,9 @@ export async function syncStoreInbox(storeId) {
     });
     if (candidate.kind === 'comment') knownComments.push(candidate);
   }
+  let pushSent = 0;
+  let pushFailed = 0;
+  const pushIssues = new Set();
   if (fresh.length) {
     const attempt = await supabase.from('social_messages').insert(fresh);
     if (attempt.error) {
@@ -508,9 +511,20 @@ export async function syncStoreInbox(storeId) {
         throw attempt.error;
       }
     }
-    await Promise.allSettled(fresh.filter(row => row.direction === 'in').map(row => pushStoreEvent(storeId, row.kind === 'comment' ? 'New comment' : 'New message', `${row.sender_name}: ${row.body.slice(0, 110)}`, `inbox-${row.external_id || `${row.thread_key}-${row.created_at}`}`, '/owner?inbox=1')));
+    const pushResults = await Promise.all(fresh
+      .filter(row => row.direction === 'in')
+      .map(row => pushStoreEvent(storeId, row.kind === 'comment' ? 'New comment' : 'New message', `${row.sender_name}: ${row.body.slice(0, 110)}`, `inbox-${row.external_id || `${row.thread_key}-${row.created_at}`}`, '/owner?inbox=1')));
+    pushSent = pushResults.reduce((total, result) => total + Number(result.sent || 0), 0);
+    pushFailed = pushResults.reduce((total, result) => total + Number(result.failed || 0), 0);
+    for (const result of pushResults) if (result.reason) pushIssues.add(result.reason);
   }
-  return { ok: true, mode: 'live', added: fresh.length, errors };
+  return {
+    ok: true,
+    mode: 'live',
+    added: fresh.length,
+    errors,
+    notifications: { sent: pushSent, failed: pushFailed, issues: [...pushIssues] },
+  };
 }
 
 function webhookObject(value) {
@@ -598,6 +612,9 @@ export async function processReplizWebhookEvent(payload) {
   const createdAt = webhookTimestamp(candidate.created_at);
   let added = 0;
   let duplicates = 0;
+  let pushSent = 0;
+  let pushFailed = 0;
+  const pushIssues = new Set();
 
   for (const storeId of storeIds) {
     const row = {
@@ -636,17 +653,27 @@ export async function processReplizWebhookEvent(payload) {
         throw inserted.error;
       }
     }
-    await pushStoreEvent(
+    const pushResult = await pushStoreEvent(
       storeId,
       candidate.kind === 'comment' ? 'New comment' : 'New message',
       `${row.sender_name}: ${body.slice(0, 110)}`,
       `inbox-${externalId || `${row.thread_key}-${createdAt}`}`,
       '/owner?inbox=1',
     );
+    pushSent += Number(pushResult.sent || 0);
+    pushFailed += Number(pushResult.failed || 0);
+    if (pushResult.reason) pushIssues.add(pushResult.reason);
     added++;
   }
 
-  return { handled: true, ok: true, storesChecked: storeIds.length, added, duplicates };
+  return {
+    handled: true,
+    ok: true,
+    storesChecked: storeIds.length,
+    added,
+    duplicates,
+    notifications: { sent: pushSent, failed: pushFailed, issues: [...pushIssues] },
+  };
 }
 
 async function handleSocialSyncInbox(req, res, profile, storeId) {
