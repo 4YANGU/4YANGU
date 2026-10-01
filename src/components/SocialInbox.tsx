@@ -1,19 +1,20 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Camera, CheckCheck, ExternalLink, Inbox as InboxIcon, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send } from 'lucide-react';
 import MediaCaptureSheet from './MediaCaptureSheet';
-import { apiFetch } from '../lib/api';
+import { apiFetch, readCachedApi } from '../lib/api';
 import PlatformLogo from './PlatformLogo';
 import { platformLabel } from '../lib/platforms';
 import { SOCIAL_PLATFORMS } from '../lib/socialPlatforms';
 import type { Order, SocialMessage, SocialThread } from '../types';
 import { readableMessage } from '../lib/messageText';
-import { pushBackHandler } from '../lib/backNavigation';
+import { clearHistoryFlag, pushBackHandler, pushHistoryFlag } from '../lib/backNavigation';
+import supabase from '../lib/supabase';
 
 const PLATFORMS = SOCIAL_PLATFORMS;
 
 type InboxResponse = { threads: SocialThread[] };
 
-type Props = { storeId: number; storeName: string; onActivity?: () => void };
+type Props = { storeId: number; storeName: string; active?: boolean; refreshSignal?: number; onActivity?: () => void };
 
 function dateLabel(iso: string) {
   const date = new Date(iso);
@@ -35,9 +36,23 @@ function fullTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-export default function SocialInbox({ storeId, onActivity }: Props) {
+function mergeInboxThreads(storeId: number, inbox?: InboxResponse, orders?: Order[]) {
+  const allThreads = [...(inbox?.threads || [])];
+  for (const order of orders || []) {
+    const threadKey = `order:${order.order_key || order.id}`;
+    if (allThreads.some(thread => thread.thread_key === threadKey)) continue;
+    const body = `Store Order: ${order.product_name} · KES ${Number(order.product_price || 0).toLocaleString('en-KE')}${order.color ? ` · ${order.color}` : ''}${order.size ? ` · ${order.size}` : ''}. ${order.fulfilment || 'Delivery'}. ${order.note || ''}`.trim();
+    const message: SocialMessage = { id: -Math.abs(order.id), store_id: storeId, platform: 'storefront', kind: 'dm', thread_key: threadKey, sender_name: order.customer_phone, sender_handle: order.customer_phone, sender_avatar: null, body, direction: 'in', is_read: false, is_resolved: false, external_id: order.order_key, post_ref: '', post_title: order.product_name, post_url: '', created_at: order.created_at };
+    allThreads.push({ thread_key: threadKey, platform: 'storefront', kind: 'dm', sender_name: order.customer_phone, sender_handle: order.customer_phone, sender_avatar: null, last_body: body, last_at: order.created_at, unread: 1, resolved: false, source_ref: '', source_title: order.product_name, source_url: '', messages: [message] });
+  }
+  return allThreads.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+}
+
+export default function SocialInbox({ storeId, onActivity, active = true, refreshSignal = 0 }: Props) {
   const [threads, setThreads] = useState<SocialThread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
@@ -51,15 +66,18 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const loadRef = useRef<() => void>(() => undefined);
+  const liveRefreshTimer = useRef<number | undefined>(undefined);
+  const lastRefreshSignal = useRef(refreshSignal);
   const load = useCallback(async (silent = false, background = false, syncNow = false) => {
-    if (background) { /* live mode syncs silently below — never show spinners */ }
-    else if (silent) setRefreshing(true);
+    if (!active) return;
+    if (background) { /* background refreshes stay quiet */ }
+    else if (silent || hasLoadedRef.current) setRefreshing(true);
     else setLoading(true);
     if (!background) setError('');
     try {
       if (background || syncNow) {
-        // Pull newest Repliz comments/chats before reading the inbox. This runs
-        // immediately on opening or manually refreshing, plus on the quiet timer.
+        // Pull recent provider messages before reading the inbox. The server
+        // cron covers closed-app alerts; this keeps the open app current too.
         await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: storeId }) }).catch(() => undefined);
       }
       const [inbox, orderResult] = await Promise.allSettled([
@@ -67,16 +85,15 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
         apiFetch<Order[]>(`/api/orders?storeId=${storeId}`),
       ]);
       if (inbox.status === 'rejected' && orderResult.status === 'rejected') throw inbox.reason;
-      const allThreads = inbox.status === 'fulfilled' ? [...(inbox.value.threads || [])] : [];
-      if (orderResult.status === 'fulfilled') for (const order of orderResult.value) {
-        const threadKey = `order:${order.order_key || order.id}`;
-        if (allThreads.some(thread => thread.thread_key === threadKey)) continue;
-        const body = `Store Order: ${order.product_name} · KES ${Number(order.product_price || 0).toLocaleString('en-KE')}${order.color ? ` · ${order.color}` : ''}${order.size ? ` · ${order.size}` : ''}. ${order.fulfilment || 'Delivery'}. ${order.note || ''}`.trim();
-        const message: SocialMessage = { id: -Math.abs(order.id), store_id: storeId, platform: 'storefront', kind: 'dm', thread_key: threadKey, sender_name: order.customer_phone, sender_handle: order.customer_phone, sender_avatar: null, body, direction: 'in', is_read: false, is_resolved: false, external_id: order.order_key, post_ref: '', post_title: order.product_name, post_url: '', created_at: order.created_at };
-        allThreads.push({ thread_key: threadKey, platform: 'storefront', kind: 'dm', sender_name: order.customer_phone, sender_handle: order.customer_phone, sender_avatar: null, last_body: body, last_at: order.created_at, unread: 1, resolved: false, source_ref: '', source_title: order.product_name, source_url: '', messages: [message] });
-      }
-      allThreads.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+      const allThreads = mergeInboxThreads(
+        storeId,
+        inbox.status === 'fulfilled' ? inbox.value : undefined,
+        orderResult.status === 'fulfilled' ? orderResult.value : undefined,
+      );
       setThreads(allThreads);
+      setError('');
+      hasLoadedRef.current = true;
+      setHasLoaded(true);
       onActivity?.();
     } catch (err) {
       if (!background) setError(err instanceof Error ? err.message : 'Could not load the inbox.');
@@ -85,33 +102,105 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       setRefreshing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeId]);
+  }, [storeId, active]);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void load(false, false, true); }, 0);
-    return () => window.clearTimeout(timer);
+  const scheduleLiveRefresh = useCallback(() => {
+    if (liveRefreshTimer.current !== undefined) window.clearTimeout(liveRefreshTimer.current);
+    liveRefreshTimer.current = window.setTimeout(() => {
+      liveRefreshTimer.current = undefined;
+      void load(true, false, false);
+    }, 100);
   }, [load]);
-  useEffect(() => { loadRef.current = () => load(true, true); }, [load]);
 
-  // Woyoyo-004: social-style auto-refresh — the inbox quietly checks for new
-  // DMs and comments every 20 seconds (only when the tab is visible and the
-  // owner is not typing a reply), so nothing is ever missed.
+  useEffect(() => () => {
+    if (liveRefreshTimer.current !== undefined) window.clearTimeout(liveRefreshTimer.current);
+  }, []);
+
   useEffect(() => {
+    if (!active || hasLoadedRef.current) return;
+    let alive = true;
+    void Promise.all([
+      readCachedApi<InboxResponse>(`/api/media?action=social&op=inbox&storeId=${storeId}`),
+      readCachedApi<Order[]>(`/api/orders?storeId=${storeId}`),
+    ]).then(([inbox, orders]) => {
+      if (!alive || hasLoadedRef.current || (inbox === undefined && orders === undefined)) return;
+      setThreads(mergeInboxThreads(storeId, inbox, orders));
+      hasLoadedRef.current = true;
+      setHasLoaded(true);
+      setLoading(false);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [active, storeId]);
+
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setTimeout(() => { void load(hasLoadedRef.current, false, true); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [active, load]);
+  useEffect(() => { loadRef.current = () => { if (active) void load(true, true, true); }; }, [active, load]);
+  useEffect(() => {
+    if (lastRefreshSignal.current === refreshSignal) return;
+    lastRefreshSignal.current = refreshSignal;
+    if (!active) return;
+    const timer = window.setTimeout(() => { void load(true, true, true); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [active, load, refreshSignal]);
+  useEffect(() => {
+    if (!active) return;
+    const channel = supabase
+      .channel(`social-inbox-${storeId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'social_messages',
+        filter: `store_id=eq.${storeId}`,
+      }, (event) => {
+        const message = event.new as SocialMessage;
+        if (message.direction === 'in') scheduleLiveRefresh();
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [active, scheduleLiveRefresh, storeId]);
+
+  useEffect(() => {
+    if (!active || !('serviceWorker' in navigator)) return;
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      const message = event.data as { type?: string; storeId?: number | string } | null;
+      if (message?.type !== 'stoyangu-inbox-update') return;
+      const messageStoreId = Number(message.storeId);
+      if (Number.isSafeInteger(messageStoreId) && messageStoreId > 0 && messageStoreId !== storeId) return;
+      scheduleLiveRefresh();
+    };
+    navigator.serviceWorker.addEventListener('message', onServiceWorkerMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onServiceWorkerMessage);
+  }, [active, scheduleLiveRefresh, storeId]);
+
+  useEffect(() => {
+    const onOnline = () => { if (active) void load(true, true, true); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [active, load]);
+
+  // Realtime handles new rows immediately; this 20-second sync is only a
+  // recovery check if the live connection or webhook is temporarily unavailable.
+  // The mounted view is retained when the owner switches tabs.
+  useEffect(() => {
+    if (!active) return;
     const timer = window.setInterval(() => {
       if (document.hidden) return;
-      const active = document.activeElement;
-      if (active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT')) return;
+      const focused = document.activeElement;
+      if (focused && (focused.tagName === 'TEXTAREA' || focused.tagName === 'INPUT')) return;
       loadRef.current();
     }, 20000);
-    const onVisible = () => { if (!document.hidden) loadRef.current(); };
+    const onVisible = () => { if (active && !document.hidden) loadRef.current(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, []);
+  }, [active]);
 
   const selected = useMemo(() => threads.find((t) => t.thread_key === selectedKey) || null, [threads, selectedKey]);
   useEffect(() => {
-    chatOpenRef.current = detailOpen;
-  }, [detailOpen]);
+    chatOpenRef.current = active && detailOpen;
+  }, [active, detailOpen]);
 
   const closeThread = useCallback(() => {
     chatOpenRef.current = false;
@@ -119,46 +208,46 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     setSelectedKey(null);
     setReply('');
     setAttachment(null);
-    if (window.history.state?.stoyanguChat) {
-      // Closing the visible chat back button must only reveal the customer list;
-      // history.back() fired the dashboard's tab handler and jumped to Products.
-      window.history.replaceState({}, '', window.location.href);
-    }
+    clearHistoryFlag('stoyanguChat');
   }, []);
+
+  useEffect(() => {
+    if (active) return;
+    chatOpenRef.current = false;
+    clearHistoryFlag('stoyanguChat');
+  }, [active]);
 
   // Phone hardware back button & gesture navigation handler.
   useEffect(() => {
-    if (!detailOpen) return;
+    if (!active || !detailOpen) return;
     return pushBackHandler(() => {
       if (mediaPickerOpen) {
         setMediaPickerOpen(false);
-        window.history.pushState({ stoyanguChat: selectedKey }, '', window.location.href);
+        pushHistoryFlag('stoyanguChat', selectedKey);
         return true;
       }
-      chatOpenRef.current = false;
-      setDetailOpen(false);
-      setSelectedKey(null);
-      setReply('');
-      setAttachment(null);
+      closeThread();
       return true;
     });
-  }, [detailOpen, mediaPickerOpen, selectedKey]);
+  }, [active, closeThread, detailOpen, mediaPickerOpen, selectedKey]);
 
   useEffect(() => {
     const onBack = () => {
-      if (!chatOpenRef.current) return;
+      // Returning from the nested camera/gallery sheet lands on this chat's
+      // history entry; it must not also close the conversation.
+      if (window.history.state?.stoyanguChat || !active || !chatOpenRef.current) return;
       chatOpenRef.current = false;
       setDetailOpen(false); setSelectedKey(null); setReply(''); setAttachment(null);
     };
     window.addEventListener('popstate', onBack);
     return () => window.removeEventListener('popstate', onBack);
-  }, []);
+  }, [active]);
 
   // Use the visual viewport while the phone keyboard is visible. CSS 100vh
   // follows the layout viewport on several mobile browsers and used to leave
   // a large blank strip between the keyboard and composer.
   useEffect(() => {
-    if (!detailOpen || !window.matchMedia('(max-width: 720px)').matches) return;
+    if (!active || !detailOpen || !window.matchMedia('(max-width: 720px)').matches) return;
     const viewport = window.visualViewport;
     const updateViewport = () => {
       const height = viewport?.height || window.innerHeight;
@@ -179,7 +268,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       document.documentElement.style.removeProperty('--chat-viewport-height');
       document.documentElement.style.removeProperty('--chat-viewport-top');
     };
-  }, [detailOpen]);
+  }, [active, detailOpen]);
 
   useEffect(() => {
     window.requestAnimationFrame(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }));
@@ -195,7 +284,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
   }, [threads, query, unreadOnly]);
 
   const openThread = async (thread: SocialThread) => {
-    window.history.pushState({ stoyanguChat: thread.thread_key }, '', window.location.href);
+    pushHistoryFlag('stoyanguChat', thread.thread_key);
     chatOpenRef.current = true;
     setSelectedKey(thread.thread_key);
     setDetailOpen(true);
@@ -285,7 +374,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
-  if (loading) return <section className="social-inbox" aria-label="Inbox"><div className="social-loading"><RefreshCw className="spin" /> Opening your inbox…</div></section>;
+  if (loading && !hasLoaded) return <section className="social-inbox" aria-label="Inbox"><div className="social-inbox-skeleton" role="status" aria-label="Loading My Customers"><strong>Loading My Customers…</strong>{Array.from({ length: 5 }, (_, index) => <div className="social-skeleton-thread" key={index} aria-hidden="true"><span className="social-skeleton-avatar" /><span className="social-skeleton-copy"><i /><i /><i /></span></div>)}</div></section>;
 
   return <section className="social-inbox" aria-label="Inbox">
     <div className="social-inbox-head social-inbox-head-row">
@@ -305,8 +394,10 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
       </div>
     </div>
 
-    {!threads.length
-      ? <div className="social-empty"><InboxIcon /><h3>No customers yet</h3><p>Connect accounts in Settings. New messages and comments will appear here.</p></div>
+    {!threads.length && error
+      ? <div className="social-empty social-inbox-load-error"><InboxIcon /><h3>Your saved inbox is not available yet</h3><p>{error}</p><button className="secondary-button" onClick={() => load(false, false, true)}><RefreshCw /> Try again</button></div>
+      : !threads.length
+        ? <div className="social-empty"><InboxIcon /><h3>No customers yet</h3><p>Connect accounts in Settings. New messages and comments will appear here.</p></div>
       : !visibleThreads.length
         ? <div className="orders-empty">No customers match these filters.</div>
         : <div className={`social-threads ${detailOpen && selected ? 'show-detail fullscreen-chat' : ''}`}>

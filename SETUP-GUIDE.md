@@ -103,11 +103,18 @@ npx web-push generate-vapid-keys
 
 The downloadable `vercel.json` contains routes, security headers and schedules only. It contains no environment values, so it cannot override the Vercel and Supabase connection.
 
-Browser push requires three VAPID settings because Supabase cannot create web-push keys automatically: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. The scheduled endpoints also need a separate `CRON_SECRET`. Add all four in Vercel after the main website and login are working. Reuse `CRON_SECRET` for the optional Supabase background-sync job below; never put it in this repository or share it in chat.
+Browser push requires three VAPID settings because Supabase cannot create web-push keys automatically: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. The scheduled endpoints also need a separate `CRON_SECRET`. Add all four in Vercel after the main website and login are working. Reuse `CRON_SECRET` for the required Supabase background inbox job below; never put it in this repository or share it in chat.
 
-Vercel reads the scheduled jobs from `vercel.json`. On Hobby, the app keeps only the once-daily review and scheduled-notification jobs; it does not use a Vercel cron to fetch social inbox messages. Opening or manually refreshing **My Customers** syncs connected social messages right away, then the visible inbox checks every 20 seconds. The Products screen syncs when opened and then every 30 seconds. Website orders are saved directly and do not wait for a cron. If an owner is away, opening **My Customers** triggers a fresh sync when they return, so the inbox does not wait for a daily Vercel job.
+Vercel reads scheduled jobs from `vercel.json`. On Hobby, Vercel cron is not suitable for real-time social inbox updates. While open, **My Customers** syncs connected social messages when opened/refreshed and then checks every 20 seconds; the Products screen syncs when opened and then every 30 seconds. Website orders are saved directly and their push alert is sent as soon as the order is accepted. For closed-app DM/comment alerts, StoYangu now supports Repliz webhooks: a protected Repliz event reaches StoYangu immediately, the app saves the incoming message/comment and sends a push alert. If the event cannot be matched to a connected account, it falls back to the existing Repliz inbox sync.
 
-If you also want social inbox push alerts to arrive while all owner dashboards are closed, you can use [Supabase's built-in Cron](https://supabase.com/docs/guides/cron) as a separate background service. In the Supabase Dashboard, open **Integrations → Cron → Create job**, make an HTTP request every minute (`* * * * *`) using **GET** to `https://YOUR-LIVE-DOMAIN/api/cron?job=inbox`, and add the header `Authorization: Bearer YOUR_CRON_SECRET` (use the same secret already saved in Vercel). Save the job and check its **History** for successful responses. It keeps Vercel Hobby-compatible and normally picks up background social messages and push alerts on the next successful run. Supabase Cron can run HTTP jobs as frequently as seconds; once per minute is recommended here to limit repeated Repliz/API calls. Vercel Hobby cron timing is only precise to the hour and does not allow a five-minute Vercel Cron schedule.
+### Connect Repliz webhooks for immediate DM/comment alerts
+
+1. Make a new random token at least 32 characters long (a password manager can generate one). Add it in Vercel → **Settings → Environment Variables** as `REPLIZ_WEBHOOK_SECRET` for **Production**, then redeploy. Do not reuse `CRON_SECRET` or send the token in chat.
+2. In [Repliz → Settings → Webhook](https://repliz.com/user/setting/webhook), put `https://stoyangu.com/api/cron?job=repliz-webhook` in **URL** and the exact same token in **Token**. Repliz sends it in the `x-token` header.
+3. Save the webhook. Repliz sends chat/comment events as shown on that page. StoYangu saves incoming messages and sends the existing push alert; outgoing messages and unrelated events are ignored. If an event cannot be matched to a connected account, the existing inbox sync is used as a fallback.
+4. Use Repliz’s test option if available. A successful event returns HTTP 200. A `401` means the two token values do not match; a `503` means the Vercel token is missing or too short. Confirm that the owner’s installed app has notifications allowed.
+
+You may keep Supabase Cron as a safety net for missed webhooks: configure [Supabase's built-in Cron](https://supabase.com/docs/guides/cron) to call `https://YOUR-LIVE-DOMAIN/api/cron?job=inbox` with **GET**, once per minute (`* * * * *`), and header `Authorization: Bearer YOUR_CRON_SECRET`. This fallback is optional once webhooks are confirmed; it is one-minute recovery polling, not one-second polling. Website and app-level push still require valid VAPID setup and the owner's notification permission.
 
 ---
 
@@ -163,12 +170,31 @@ AI discovery files help compliant crawlers understand the business, but AI answe
 5. In **My App**, press **Allow notifications** and confirm the test alert arrives on that phone. On iPhone, first use Safari's Share → Add to Home Screen, open the installed app, then allow notifications.
 6. Return to the founder dashboard and check the app/notification status for that store.
 7. Add a product with seven photos, edit it, open its storefront and test WhatsApp ordering.
-8. Send a test DM/comment to a connected social account. With **My Customers** open, it syncs on opening/refresh and then every 20 seconds. To test background delivery, close the owner dashboard and check Supabase Cron **History**; with the optional every-minute job enabled, the message and push alert should be picked up on its next successful run.
+8. Send a test DM/comment to a connected social account. With **My Customers** open, it syncs on opening/refresh and then every 20 seconds. To test closed-app delivery, close the owner dashboard, send a test DM/comment, and verify the configured Repliz webhook receives it and the installed app gets a push alert. If you kept Supabase Cron as a fallback, its **History** should also show a successful run.
 9. At 7 PM, review the combined daily messages. Confirm before 7:30 PM and verify they do not send immediately.
 10. At 7:30 PM, verify each owner receives only their store's message.
 11. Test a custom notification to one store, then to all installed owners.
 
-The customer-facing KES 200 / 14-day M-Pesa screen is a preview only and does not charge anyone. To activate real STK Push later, follow the **Safaricom M-Pesa setup** checklist on the Founder Dashboard: obtain Daraja sandbox and production credentials, configure server-only environment variables and a verified HTTPS callback, and test payment confirmation before going live. Until then, mark a store paid only after manually verifying the payment.
+### Daraja sandbox M-Pesa test
+
+The app sends the owner’s KES 200 / 14-day payment request through Daraja STK Push and records the public callback on the server. The API environment is selected by `DARAJA_ENV` (which defaults to **sandbox**). Before testing, verify the Vercel environment and credentials. Use only Safaricom’s documented sandbox test phone and test flow for sandbox checks—never send a sandbox request to a real M-Pesa wallet or enter a real PIN just because a page says “sandbox.”
+
+Before testing:
+
+1. In Supabase, open **SQL Editor → New query**. Copy all of `supabase/migrations/202610010001_mpesa_upkeep.sql` into the query and press **Run**. This creates the private payment ledger and the database function that updates billing once, even if Safaricom repeats a callback.
+2. In Vercel, open the StoYangu project → **Settings → Environment Variables**. Add these for the **Production** environment:
+   - `DARAJA_ENV` = `sandbox`
+   - `DARAJA_CONSUMER_KEY` = your Daraja sandbox Consumer Key
+   - `DARAJA_CONSUMER_SECRET` = your Daraja sandbox Consumer Secret
+   - `DARAJA_SHORTCODE` = the sandbox Business/HO shortcode shown by Daraja
+   - `DARAJA_TILL_NUMBER` = the sandbox Buy Goods Till/PartyB value shown by Daraja
+   - `DARAJA_PASSKEY` = your sandbox Lipa Na M-Pesa Passkey
+   - `DARAJA_CALLBACK_URL` = `https://stoyangu.com/api/stores?daraja=callback`
+3. Use that exact public HTTPS address, not a protected Vercel preview link. Do not paste any credential into chat, this repository, or a browser field. Daraja’s STK **Password** is generated automatically for every request; you do not need a separate static password setting.
+4. Save the environment values and redeploy the latest version from Vercel.
+5. Sign in as a store owner and open **Settings → Payment**. In sandbox, the button is available any time. Use only Safaricom’s documented sandbox test number and test flow; do not use a personal/customer number or approve a PIN prompt on a real M-Pesa wallet. A successful sandbox callback is recorded for testing only and does not change store billing. In production, the prompt is limited to the last three days or when payment is due; billing changes only after a callback matches the saved request, amount, phone and receipt. If a real number receives an unexpected prompt, do not enter a PIN—stop testing and verify the Vercel environment and Daraja credentials first.
+
+A declined, cancelled or mismatched payment will not unlock the store. Duplicate callbacks are safe. Keep `DARAJA_ENV=sandbox` while testing. Switch to `production` only after Safaricom has approved your live Business/HO shortcode and Till, issued production credentials and passkey, and you deliberately want to accept real payments. In production, set `DARAJA_SHORTCODE` to the approved Business/HO shortcode and `DARAJA_TILL_NUMBER` to the approved Till. Until then, use the founder’s **Mark KES 200 paid** action only after manually verifying a payment.
 
 Push notifications require HTTPS, valid VAPID keys, permission from the owner, and a supported browser. On iPhone, install through Safari's Add to Home Screen flow, open the installed app, and allow notifications from **My App** settings.
 

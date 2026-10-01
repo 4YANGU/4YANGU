@@ -1,5 +1,5 @@
 import supabase from '../lib/db-client.js';
-import webpush from 'web-push';
+import { pushStoreEvent } from '../lib/push-events.js';
 import { deleteFallbackOrder, fallbackOrders, missingOrdersTable, saveFallbackOrder, storeOrders, updateFallbackOrder } from '../lib/order-fallback.js';
 
 const cors = (res) => {
@@ -34,30 +34,18 @@ async function resolveStore(slug) {
 }
 
 async function sendInstantOrderPush(storeId, order, product) {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
-  try {
-    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:info@stoyangu.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
-  } catch (vapidError) {
-    // Wame fix: invalid VAPID keys used to throw here on EVERY order, which
-    // turned the whole order request into a 500 after the order was already
-    // saved — customers never reached WhatsApp. Push now simply stays off
-    // until the keys are fixed.
-    console.error('VAPID keys are invalid - order push disabled until they are corrected:', vapidError.message);
-    return;
-  }
-  const { data: subscriptions } = await supabase.from('push_subscriptions').select('*').eq('store_id', storeId);
   const variant = [order.color, order.size].filter(Boolean).join(' · ');
   const body = `${variant || 'Confirmed order'}\nCustomer: ${order.customer_phone}`;
   const rootDomain = process.env.ROOT_DOMAIN || 'stoyangu.com';
   const image = product?.image_url ? (product.image_url.startsWith('http') ? product.image_url : `https://${rootDomain}${product.image_url}`) : undefined;
-  for (const subscription of subscriptions || []) {
-    try {
-      await webpush.sendNotification(subscription.subscription, JSON.stringify({ title: `New order: ${order.product_name}`, body, image, icon: image, product: { id: product.id, name: product.name, image }, customer_phone: order.customer_phone, url: '/owner', tag: `order-${order.id}` }));
-    } catch (error) {
-      if (error.statusCode === 404 || error.statusCode === 410) await supabase.from('push_subscriptions').delete().eq('id', subscription.id);
-      else console.error('Instant order push failed:', error.message);
-    }
-  }
+  return pushStoreEvent(
+    storeId,
+    `New order: ${order.product_name}`,
+    body,
+    `order-${order.id || order.order_key}`,
+    '/owner?inbox=1',
+    { image },
+  );
 }
 
 export default async function handler(req, res) {

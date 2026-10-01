@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, ImagePlus, Mic, Video, X } from 'lucide-react';
+import { clearHistoryFlag, pushBackHandler, pushHistoryFlag } from '../lib/backNavigation';
 
 type MediaItem = { file: File; url: string; kind: 'image' | 'video' };
 type Props = {
@@ -33,6 +34,17 @@ export default function MediaCaptureSheet({ onClose, onUse, title = 'Add media',
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlsRef = useRef(new Set<string>());
   const swipeStartY = useRef<number | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    pushHistoryFlag('stoyanguMediaCapture');
+    const removeBackHandler = pushBackHandler(() => { onCloseRef.current(); return true; });
+    return () => {
+      removeBackHandler();
+      clearHistoryFlag('stoyanguMediaCapture');
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;

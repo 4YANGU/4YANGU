@@ -57,7 +57,28 @@ the result screen shows success/failure for each platform, and replies are alway
 4. If Repliz ever renames an endpoint, only `lib/repliz.js` changes — every live
    HTTP call is marked `ADAPTER-VERIFY` in that one file.
 
-## 6. Function-count safety
+## 6. Near-instant inbox updates and phone alerts
+
+Repliz sends each new chat or comment to StoYangu through its webhook. In
+Repliz **Settings → Webhook**, use the existing **URL** and **Token** fields:
+
+- URL: `https://stoyangu.com/api/cron?job=repliz-webhook`
+- Token: the same private value as Vercel's `REPLIZ_WEBHOOK_SECRET` (at least
+  32 characters). Repliz sends it as `x-token`; the app checks it securely.
+
+Do not put the token in source code or share it in chat. Phone alerts also need
+`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` on the production Vercel deployment,
+and notifications enabled on the owner's phone. The webhook response and
+Vercel function log report whether an alert was sent or why it could not be
+sent (for example, missing push keys or no subscribed phone).
+
+For inbox updates while **My Customers** is open, run
+`supabase/migrations/202610010002_social_inbox_realtime.sql` once in Supabase
+Dashboard → SQL Editor. Owners can receive live update signals only for their
+own store. The existing 20-second refresh remains only as a recovery check;
+there is no one-second polling.
+
+## 7. Function-count safety
 
 `api/` still contains exactly **12 files** — the social endpoints live inside
 the existing `api/media.js` (`?action=social`), and Repliz logic lives in

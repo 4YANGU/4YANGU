@@ -63,11 +63,12 @@
 .owner-sticky-header .owner-store-logo { width: 96px; height: 96px; }
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { width: 96px; height: 96px; }
 .owner-sticky-header .owner-header-copy { flex: 1; }
-.owner-sticky-header .owner-header-copy h1 { font-size: 1.55rem; }
-.owner-sticky-header .owner-store-link { margin: 2px 0 5px; }
+.owner-sticky-header .owner-header-copy h1 { font-size: 2.3rem; line-height: 1.02; margin: .1rem 0 0; }
+.owner-sticky-header .owner-store-link { margin: 0 0 5px; }
 .owner-sticky-header .tiktok-stats-row { margin-top: 4px; gap: clamp(18px, 4vw, 34px); }
+.owner-loading { gap: 16px; }
 
-/* Products and customers are true pages, not cards floating inside a card. */
+/* Products and My Customers are true pages, not cards floating inside a card. */
 .owner-page .owner-main {
   width: 100%;
   max-width: none;
@@ -254,8 +255,6 @@
   .owner-sticky-header .owner-store-link { max-width: calc(100vw - 110px); font-size: .59rem; overflow: hidden; }
   .owner-sticky-header .tiktok-stats-row { gap: clamp(9px, 3vw, 16px); margin-top: 2px; }
   .owner-sticky-header .tiktok-stat { min-width: 44px; }
-  .owner-sticky-header .tiktok-stat strong { font-size: .88rem; }
-  .owner-sticky-header .tiktok-stat .stat-today { font-size: .48rem; padding: 2px 4px; }
   .owner-page .products-panel,
   .owner-page .social-inbox { padding: 16px 12px 96px; min-height: calc(100vh - 150px); }
   .owner-main-notice { width: calc(100% - 24px); }
@@ -274,7 +273,7 @@
    header edges and the period counter clearly labels its analytics window. */
 .owner-sticky-header .owner-header-identity {
   align-items: flex-start;
-  gap: 16px;
+  gap: 22px;
 }
 .owner-logo-column {
   width: 112px;
@@ -291,11 +290,17 @@
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
   position: relative;
   top: -6px;
-  width: 108px;
-  height: 108px;
+  left: -7px;
+  width: 126px;
+  height: 126px;
+  max-width: none;
+  flex: 0 0 auto;
   padding: 0;
-  object-fit: contain;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .94), 0 0 4px 1px rgba(255, 255, 255, .2);
 }
+.owner-sticky-header .owner-store-logo { object-fit: cover; }
+.owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { object-fit: contain; }
 .owner-sticky-header .owner-header-copy {
   min-width: 0;
   flex: 1;
@@ -315,15 +320,6 @@
   border-color: rgba(143, 211, 167, .8);
 }
 .owner-sticky-header .owner-settings-button svg { width: 18px; height: 18px; }
-.owner-analytics-label {
-  margin: 1px 0 4px;
-  color: #8fd3a7;
-  font-size: .52rem;
-  font-weight: 900;
-  letter-spacing: .13em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
 .owner-analytics-row {
   display: flex;
   align-items: center;
@@ -334,7 +330,29 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  gap: clamp(14px, 3vw, 30px);
+  gap: clamp(18px, 3vw, 34px);
+}
+.owner-sticky-header .tiktok-stat { flex: 1 1 0; }
+.owner-sticky-header .tiktok-stat-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  column-gap: clamp(2px, .35vw, 4px);
+  max-width: 100%;
+}
+.owner-sticky-header .tiktok-stat-value strong {
+  font-size: 1.55rem;
+  white-space: nowrap;
+}
+.owner-sticky-header .tiktok-stat span { font-size: .7rem; }
+.owner-sticky-header .stat-change {
+  color: #a8e6bf;
+  font-size: .56rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .period-counter {
   position: relative;
@@ -380,50 +398,66 @@
   50% { box-shadow: 0 0 0 4px rgba(120,190,150,.12), 0 0 23px rgba(120,190,150,.36), inset 0 0 15px rgba(120,190,150,.13); }
 }
 
-/* My Customers stays part of the document's natural scroll on desktop. A long
-   inbox used to be trapped in a fixed-height inner list with no page scroll. */
+/* Desktop keeps the customer list and open conversation side by side. The
+   list scrolls on its own, so choosing a low conversation never hides the reply box. */
 @media (min-width: 721px) {
   .owner-page,
   .owner-page .owner-main,
   .owner-page .social-inbox { overflow: visible; }
   .owner-page .social-inbox { height: auto; }
-  .owner-page .social-threads { align-items: start; }
+  .owner-page .social-threads {
+    align-items: stretch;
+    grid-template-columns: minmax(280px, 36%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 18px;
+    height: clamp(360px, calc(100dvh - 390px), 760px);
+    min-height: 0;
+  }
   .owner-page .social-thread-list {
+    min-height: 0;
     max-height: none !important;
-    overflow: visible !important;
-    padding-right: 0;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 8px;
   }
   .owner-page .social-thread-detail {
-    max-height: min(640px, calc(100vh - 240px));
-    min-height: 480px;
+    box-sizing: border-box;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    min-width: 0;
   }
+  .owner-page .social-thread-detail .social-detail-head { flex: 0 0 auto; }
   .owner-page .social-thread-detail .social-messages {
     min-height: 0;
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
 @media (max-width: 560px) {
   .owner-sticky-header { padding: 8px 10px 10px !important; }
-  .owner-sticky-header .owner-header-identity { gap: 8px; }
-  .owner-logo-column { width: 74px; height: 72px; flex-basis: 74px; }
+  .owner-sticky-header .owner-header-identity { gap: 16px; }
+  .owner-logo-column { width: 78px; height: 72px; flex-basis: 78px; }
   .owner-sticky-header .owner-store-logo,
   .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
-    top: -1px;
-    width: 74px !important;
-    height: 74px !important;
+    top: 3px;
+    left: -4px;
+    width: 94px !important;
+    height: 94px !important;
   }
   .owner-sticky-header .owner-header-copy { flex: 1; }
-  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1rem, 4.5vw, 1.2rem); line-height: 1; }
+  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.5rem, 7.2vw, 1.85rem); line-height: 1; margin: .1rem 0 0; }
   .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
-  .owner-analytics-label { margin: 0 0 2px; font-size: .42rem; line-height: 1; }
   .owner-analytics-row { gap: 5px; }
-  .owner-sticky-header .tiktok-stats-row { gap: clamp(4px, 1.6vw, 9px); }
+  .owner-sticky-header .tiktok-stats-row { gap: clamp(5px, 1.5vw, 8px); }
   .owner-sticky-header .tiktok-stat { min-width: 0; }
-  .owner-sticky-header .tiktok-stat strong { font-size: clamp(.72rem, 3.4vw, .86rem); }
-  .owner-sticky-header .tiktok-stat span { font-size: .46rem; }
-  .owner-sticky-header .tiktok-stat .stat-today { font-size: .42rem; padding: 2px 3px; }
+  .owner-sticky-header .tiktok-stat-value { column-gap: 2px; }
+  .owner-sticky-header .tiktok-stat-value strong { font-size: clamp(.9rem, 4.2vw, 1.05rem); }
+  .owner-sticky-header .tiktok-stat span { font-size: clamp(.42rem, 2.2vw, .55rem); }
+  .owner-sticky-header .stat-change { font-size: clamp(.38rem, 1.7vw, .48rem); }
   .period-counter { min-width: 43px; padding: 5px 5px; border-radius: 10px; }
   .period-counter small { font-size: .39rem; }
   .period-counter strong { font-size: .96rem; }
@@ -553,3 +587,21 @@
   .disconnect-confirm-inline .secondary-button { grid-column: 2; }
   .settings-action-row.settings-action-simple { min-height: 52px; }
 }
+
+.social-inbox-skeleton { display: grid; gap: 14px; padding: 18px 14px; color: #819087; }
+.social-inbox-skeleton > strong { color: #52645a; font-size: .75rem; }
+.social-skeleton-thread { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid #edf0ec; }
+.social-skeleton-avatar, .social-skeleton-copy i { display: block; background: linear-gradient(100deg, #edf1ed 20%, #f7f9f7 42%, #edf1ed 64%); background-size: 220% 100%; animation: social-skeleton-shimmer 1.35s ease-in-out infinite; }
+.social-skeleton-avatar { width: 42px; height: 42px; border-radius: 50%; }
+.social-skeleton-copy { display: grid; gap: 7px; }
+.social-skeleton-copy i { height: 8px; border-radius: 999px; }
+.social-skeleton-copy i:first-child { width: 48%; height: 10px; }
+.social-skeleton-copy i:last-child { width: 76%; }
+.social-inbox-load-error { padding-top: 30px; }
+.social-inbox-load-error .secondary-button { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; }
+.social-inbox-load-error .secondary-button svg { width: 14px; height: 14px; }
+@keyframes social-skeleton-shimmer { to { background-position-x: -220%; } }
+
+.owner-offline-banner { display: flex; align-items: center; gap: 8px; margin: 10px 16px 0; padding: 9px 11px; border: 1px solid #d7e5dc; border-radius: 10px; background: #edf5ef; color: #45604f; font-size: .68rem; line-height: 1.4; }
+.owner-offline-banner svg { width: 15px; height: 15px; flex: 0 0 auto; color: #60856b; }
+@media (max-width: 560px) { .owner-offline-banner { margin: 7px 12px 0; padding: 8px 9px; font-size: .62rem; } }

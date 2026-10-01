@@ -37,6 +37,7 @@ export type Store = {
   upkeep_period_ends_at?: string;
   metrics_date: string;
   created_at: string;
+  updated_at?: string;
 };
 
 export type Order = {

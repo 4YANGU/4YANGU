@@ -1,4 +1,4 @@
-import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users, WifiOff } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -9,7 +9,7 @@ import SocialAccountsSettings from '../components/SocialAccountsSettings';
 import SocialInbox from '../components/SocialInbox';
 import { useAuth } from '../contexts/useAuth';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
-import { pushBackHandler } from '../lib/backNavigation';
+import { activateOwnerBackGuard, pushBackHandler } from '../lib/backNavigation';
 import { applyStoreManifest, readSplashCache, saveSplashCache, splashCacheKey } from '../lib/pwa';
 import supabase from '../lib/supabase';
 import type { DashboardData, Product, Store } from '../types';
@@ -37,6 +37,21 @@ const markAppInstalled = () =>
   }).catch((reason) => console.warn('Could not record the installation yet:', reason));
 
 type NotificationEnableResult = { status: 'granted' | 'denied' | 'unsupported'; testSent?: boolean; message?: string };
+
+function ensureSettingsHistoryEntry() {
+  const currentState = window.history.state;
+  if (currentState?.stoyanguSettings) return;
+  const preservedState = currentState && typeof currentState === 'object' ? currentState : {};
+  window.history.pushState({ ...preservedState, stoyanguSettings: true }, '', window.location.href);
+}
+
+function clearSettingsHistoryEntry() {
+  const currentState = window.history.state;
+  if (!currentState || typeof currentState !== 'object' || !currentState.stoyanguSettings) return;
+  const nextState = { ...currentState };
+  delete nextState.stoyanguSettings;
+  window.history.replaceState(nextState, '', window.location.href);
+}
 
 async function enableStoreNotifications(): Promise<NotificationEnableResult> {
   if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return { status: 'unsupported', message: 'This browser does not support push notifications.' };
@@ -109,6 +124,7 @@ export default function StoreDashboard() {
   const [splashFading, setSplashFading] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
   const splashStartRef = useRef(0);
+  const dashboardSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   // WOYOYO-013: My Products and My Customers are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
@@ -116,11 +132,26 @@ export default function StoreDashboard() {
     catch { return 'products'; }
   });
   const [composerOpen, setComposerOpen] = useState(() => sessionStorage.getItem(`stoyangu-composer-${storeId || 'owner'}`) === '1');
+  const [inboxMounted, setInboxMounted] = useState(() => activeTab === 'customers');
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
+  const [offlineCacheUsed, setOfflineCacheUsed] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  const canExitOwnerRef = useRef(false);
+  useEffect(() => {
+    canExitOwnerRef.current = activeTab === 'products' && !editing && !passwordOpen && !installOpen && !settingsOpen && !composerOpen;
+  }, [activeTab, editing, installOpen, passwordOpen, settingsOpen, composerOpen]);
   useEffect(() => { splashStartRef.current = Date.now(); }, []);
+  useEffect(() => activateOwnerBackGuard(() => canExitOwnerRef.current), []);
+  useEffect(() => {
+    if (settingsOpen) ensureSettingsHistoryEntry();
+  }, [settingsOpen]);
 
-  // Push back handler for store owner navigation (Task 2)
+  const showCustomers = () => {
+    setInboxMounted(true);
+    setActiveTab('customers');
+  };
+
+  // Push back handler for store owner navigation.
   useEffect(() => {
     return pushBackHandler(() => {
       if (editing) {
@@ -137,6 +168,7 @@ export default function StoreDashboard() {
       }
       if (settingsOpen) {
         sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`);
+        clearSettingsHistoryEntry();
         setSettingsOpen(false);
         return true;
       }
@@ -168,13 +200,21 @@ export default function StoreDashboard() {
   useEffect(() => {
     const storeData = data?.store;
     if (!storeData) return;
-    applyStoreManifest(`slug=${encodeURIComponent(storeData.slug)}`);
+    applyStoreManifest(`slug=${encodeURIComponent(storeData.slug)}`, storeData.updated_at || undefined);
     saveSplashCache(splashCacheKey(storeId), { id: storeData.id, name: storeData.name, slug: storeData.slug, logo_url: storeData.logo_url });
   }, [data?.store, storeId]);
   useEffect(() => { document.title = 'StoYangu'; }, []);
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
-  const openSettings = () => { sessionStorage.setItem(`stoyangu-settings-${storeId || 'owner'}`, '1'); setSettingsOpen(true); };
-  const closeSettings = () => { sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`); setSettingsOpen(false); };
+  const openSettings = () => {
+    ensureSettingsHistoryEntry();
+    sessionStorage.setItem(`stoyangu-settings-${storeId || 'owner'}`, '1');
+    setSettingsOpen(true);
+  };
+  const closeSettings = () => {
+    sessionStorage.removeItem(`stoyangu-settings-${storeId || 'owner'}`);
+    clearSettingsHistoryEntry();
+    setSettingsOpen(false);
+  };
   const openComposer = () => { sessionStorage.setItem(`stoyangu-composer-${storeId || 'owner'}`, '1'); setComposerOpen(true); };
   const closeComposer = () => { sessionStorage.removeItem(`stoyangu-composer-${storeId || 'owner'}`); setComposerOpen(false); };
 
@@ -186,7 +226,7 @@ export default function StoreDashboard() {
       if (!params.get('inbox') && !params.get('storeId')) return;
       params.delete('inbox'); params.delete('storeId');
       const rest = params.toString();
-      window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+      window.history.replaceState(window.history.state || {}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
     } catch { /* params stay — harmless */ }
   }, []);
   useEffect(() => { window.scrollTo(0, 0); }, [activeTab]);
@@ -196,6 +236,23 @@ export default function StoreDashboard() {
       setSocialUnread(Number(status.unread?.total || 0));
     } catch { /* badge stays hidden until the inbox loads */ }
   }, []);
+  useEffect(() => {
+    const onOffline = () => setOfflineCacheUsed(true);
+    const onOnline = () => {
+      setOfflineCacheUsed(false);
+      void load();
+      if (data?.store?.id) void refreshSocialUnread(data.store.id);
+    };
+    const onCacheFallback = () => setOfflineCacheUsed(true);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('stoyangu:offline-cache-used', onCacheFallback);
+    return () => {
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('stoyangu:offline-cache-used', onCacheFallback);
+    };
+  }, [data?.store?.id, load, refreshSocialUnread]);
   useEffect(() => {
     const id = data?.store?.id;
     if (!id) return;
@@ -270,12 +327,12 @@ export default function StoreDashboard() {
     <div className={`store-splash${splashFading ? ' fading' : ''}`} role="status" aria-label="Opening your store workspace">
       <div className="store-splash-logo-wrap">
         <img className="store-splash-logo" src={splashStoreLogo} alt="" />
-        <span className="store-splash-ring" aria-hidden="true" />
       </div>
     </div>
   ) : null;
-  if (loading) return <>{splashEl}<div className="owner-loading" role="status"><RefreshCw className="spin" /><p>Getting your store ready…</p></div></>;
-  if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
+  const storeLoadingLogo = splashStoreLogo ? <img className="store-splash-logo" src={splashStoreLogo} alt="" /> : null;
+  if (loading) return <>{splashEl}<div className="owner-loading" role="status">{storeLoadingLogo}<RefreshCw className="spin" /><p>Getting your store ready…</p></div></>;
+  if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status">{storeLoadingLogo}<div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
   const store = data.store;
   const handleStorefrontClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
     const prompt = window.__STOYANGU_NATIVE_INSTALL_PROMPT;
@@ -302,6 +359,7 @@ export default function StoreDashboard() {
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = Math.min(14, Math.max(1, Number(upkeep.upkeep_period_day || 1)));
   const periodCustomers = Number(data.customersThisPeriod ?? data.customers ?? 0);
+  const customersToday = Number(data.customersToday ?? 0);
   const periodVisitors = Number(store.visitors_this_period ?? store.visitor_total ?? 0);
   const lifetimeProductViews = (data.products || []).reduce((sum, product) => sum + Number(product.views_total || 0), 0);
 
@@ -323,12 +381,11 @@ export default function StoreDashboard() {
             <a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>
               {storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span>
             </a>
-            <div className="owner-analytics-label">14-day analytics</div>
             <div className="owner-analytics-row" aria-label={`Analytics for the current 14-day period, day ${cycleDay} of 14`}>
               <div className="tiktok-stats-row">
-                <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div>
-                <div className="tiktok-stat"><strong>{periodVisitors.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div>
-                <div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div>
+                <div className="tiktok-stat"><div className="tiktok-stat-value"><strong>{periodCustomers.toLocaleString()}</strong><small className="stat-change">(+{customersToday})</small></div><span>customers</span></div>
+                <div className="tiktok-stat"><div className="tiktok-stat-value"><strong>{periodVisitors.toLocaleString()}</strong><small className="stat-change">(+{store.visitor_today || 0})</small></div><span>visitors</span></div>
+                <div className="tiktok-stat"><div className="tiktok-stat-value"><strong>{upkeepOrders.toLocaleString()}</strong><small className="stat-change">(+{store.orders_today || 0})</small></div><span>orders</span></div>
               </div>
               <span className="period-counter" aria-label={`Day ${cycleDay} of 14 days`}><small>DAY</small><strong>{cycleDay}<i>/14</i></strong></span>
             </div>
@@ -337,50 +394,76 @@ export default function StoreDashboard() {
         </div>
       </header>
 
-      <main className="owner-main">
+      <main
+        className="owner-main"
+        onTouchStart={(event) => {
+          const touch = event.touches[0];
+          const target = event.target;
+          const interactiveTarget = target instanceof Element && target.closest('input, textarea, select, a, button:not(.social-thread), [contenteditable="true"], [role="dialog"], .social-thread-detail');
+          if (event.touches.length !== 1 || !touch || interactiveTarget || settingsOpen || editing || passwordOpen || installOpen || composerOpen) {
+            dashboardSwipeStartRef.current = null;
+            return;
+          }
+          dashboardSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+        }}
+        onTouchEnd={(event) => {
+          const start = dashboardSwipeStartRef.current;
+          const touch = event.changedTouches[0];
+          dashboardSwipeStartRef.current = null;
+          if (!start || !touch || settingsOpen || editing || passwordOpen || installOpen || composerOpen) return;
+          const deltaX = touch.clientX - start.x;
+          const deltaY = touch.clientY - start.y;
+          if (Math.abs(deltaX) < 64 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
+          if (activeTab === 'products' && deltaX < 0) showCustomers();
+          else if (activeTab === 'customers' && deltaX > 0) setActiveTab('products');
+        }}
+        onTouchCancel={() => { dashboardSwipeStartRef.current = null; }}
+      >
+        {offlineCacheUsed && <div className="owner-offline-banner" role="status"><WifiOff /> Showing your saved store data. New messages and orders sync when your connection returns.</div>}
         {error && <div className="dashboard-error owner-main-notice">{error}</div>}
-        {activeTab === 'customers'
-          ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
-          : <>
-            {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 200{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
-            {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 200 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
-            {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
-            <section className="products-panel">
-              <div className="dash-section-head">
-                <h2>My Products</h2>
-                <span className="order-status-count">{(data.products || []).length}</span>
-              </div>
-              <div className="owner-product-list">
-                {data.products?.map((product) => (
-                  <article key={product.id} className="owner-product-card">
-                    <div className="product-media-group">
-                      <img className="product-cover" loading="lazy" src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'} alt={product.name} />
-                    </div>
-                    <div className="owner-product-name">
-                      <h3>{product.name}</h3>
-                      <strong>{formatMoney(product.price)}</strong>
-                    </div>
-                    <div className="word-stats" aria-label={`${product.name} current period analytics`}>
-                      <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this period</small></p>
-                      <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this period</small></p>
-                    </div>
-                    <div className="product-actions">
-                      <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
-                      <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              {!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}
-            </section>
-          </>}
+        {activeTab === 'products' && <>
+          {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 200{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
+          {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 200 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
+          {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
+          <section className="products-panel">
+            <div className="dash-section-head">
+              <h2>My Products</h2>
+              <span className="order-status-count">{(data.products || []).length}</span>
+            </div>
+            <div className="owner-product-list">
+              {data.products?.map((product) => (
+                <article key={product.id} className="owner-product-card">
+                  <div className="product-media-group">
+                    <img className="product-cover" loading="lazy" src={product.image_url || product.images?.[0] || '/stoyangu-logo.png'} alt={product.name} />
+                  </div>
+                  <div className="owner-product-name">
+                    <h3>{product.name}</h3>
+                    <strong>{formatMoney(product.price)}</strong>
+                  </div>
+                  <div className="word-stats" aria-label={`${product.name} current cycle analytics`}>
+                    <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
+                    <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
+                  </div>
+                  <div className="product-actions">
+                    <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
+                    <button type="button" className="danger" onClick={() => remove(product)} disabled={locked} aria-label={`Delete ${product.name}`}><Trash2 size={16} /> Delete</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            {!data.products?.length && <div className="empty-products"><StoreIcon /><h3>Your shelf is empty</h3><p>Tap the + button below to create a post — you can add your first product while posting. A photo, name and price is enough.</p></div>}
+          </section>
+        </>}
+        {inboxMounted && <div className="owner-inbox-persistent" hidden={activeTab !== 'customers'} aria-hidden={activeTab !== 'customers'}>
+          <SocialInbox key={store.id} storeId={store.id} storeName={store.name} active={activeTab === 'customers'} refreshSignal={inboxKey} onActivity={() => refreshSocialUnread(store.id)} />
+        </div>}
       </main>
 
       <nav className="manage-bottom-nav manage-bottom-nav-tiktok" aria-label="Manage store navigation">
         <div className="manage-bottom-nav-inner">
           <button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button>
           <button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button>
-          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
+          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={showCustomers} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
         </div>
       </nav>
 
@@ -393,6 +476,7 @@ export default function StoreDashboard() {
         onChangePassword={() => setPasswordOpen(true)}
         onInstall={installApp}
         onSignOut={signOut}
+        onPaymentComplete={load}
       />}
       {installOpen && <Modal title="Install StoYangu" onClose={() => setInstallOpen(false)}><div className="install-guide"><p>Install <strong>StoYangu</strong> on your phone so it opens directly from your home screen. The app name always stays StoYangu, while the opening animation uses your store logo.</p><p><strong>Android Chrome:</strong> tap the browser menu (⋮) and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p><p><strong>iPhone Safari:</strong> tap Share, then <strong>Add to Home Screen</strong>.</p><p>New versions load automatically after updates — no reinstall needed.</p></div></Modal>}
       {passwordOpen && <PasswordChangeModal onClose={() => setPasswordOpen(false)} />}
@@ -403,7 +487,7 @@ export default function StoreDashboard() {
 
 }
 
-function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut }: {
+function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut, onPaymentComplete }: {
   store: Store;
   data: DashboardData;
   lifetimeProductViews: number;
@@ -412,6 +496,7 @@ function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally
   onChangePassword: () => void;
   onInstall: () => void;
   onSignOut: () => Promise<void>;
+  onPaymentComplete: () => Promise<void>;
 }) {
   const [installMessage, setInstallMessage] = useState('');
   const install = () => {
@@ -450,7 +535,7 @@ function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally
         <NotificationPermissionButton installedLocally={installedLocally} />
       </section>
 
-      <PaymentSection store={store} />
+      <PaymentSection store={store} onPaid={onPaymentComplete} />
 
       <section className="settings-section" aria-labelledby="account-settings-title">
         <div className="settings-section-heading settings-heading-simple"><h2 id="account-settings-title">Account</h2></div>
@@ -544,14 +629,28 @@ function normalizeKenyanPhone(value: string) {
   return /^254[17]\d{8}$/.test(digits) ? `+${digits}` : '';
 }
 
-function PaymentSection({ store }: { store: Store }) {
+function PaymentSection({ store, onPaid }: { store: Store; onPaid: () => Promise<void> }) {
   const [phone, setPhone] = useState(store.phone || store.whatsapp || '');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [paymentInfo, setPaymentInfo] = useState<{ configured: boolean; sandbox: boolean; paymentWindowOpen: boolean; nextPeriodPaid: boolean } | null>(null);
   const cycleEnd = store.upkeep_period_ends_at ? new Date(store.upkeep_period_ends_at) : null;
   const periodState = store.management_locked ? 'Payment due' : store.upkeep_plan === 'TRIAL' ? 'Free trial' : 'Active';
+  const alreadyPrepaid = Boolean(cycleEnd && store.billing_paid_until && new Date(store.billing_paid_until).getTime() > cycleEnd.getTime());
+  const nextPeriodAlreadyPaid = Boolean(paymentInfo?.nextPeriodPaid || alreadyPrepaid);
+  const paymentWindowOpen = Boolean(paymentInfo?.paymentWindowOpen || store.management_locked || Number(store.upkeep_period_day || 0) >= 12);
+  const canPayNow = Boolean(paymentInfo?.configured && (paymentInfo.sandbox || (paymentWindowOpen && !nextPeriodAlreadyPaid)));
 
-  const submit = (event: FormEvent) => {
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ configured: boolean; sandbox: boolean; paymentWindowOpen: boolean; nextPeriodPaid: boolean }>('/api/stores?daraja=payment-info')
+      .then((info) => { if (!cancelled) setPaymentInfo(info); })
+      .catch(() => { if (!cancelled) setPaymentInfo({ configured: false, sandbox: false, paymentWindowOpen: false, nextPeriodPaid: false }); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
     setMessage('');
     setError('');
@@ -560,8 +659,51 @@ function PaymentSection({ store }: { store: Store }) {
       setError('Enter a valid Kenyan M-Pesa number, such as 0712 345 678.');
       return;
     }
+    if (!canPayNow) {
+      setError(alreadyPrepaid ? 'Your next 14-day period is already paid.' : 'The payment prompt opens during the final three days of your period, or once payment is due.');
+      return;
+    }
+
     setPhone(normalized);
-    setMessage(`M-Pesa prompt preview prepared for ${normalized}. Daraja is not connected yet, so no payment has been requested or charged.`);
+    setBusy(true);
+    try {
+      const request = await apiFetch<{ paymentId: number }>('/api/stores?daraja=stk', {
+        method: 'POST',
+        body: JSON.stringify({ phone: normalized }),
+      });
+      setMessage(paymentInfo?.sandbox
+        ? `Sandbox prompt requested for ${normalized}. Use only Daraja's documented test flow; never enter a real M-Pesa PIN for a sandbox test. Waiting for the test result…`
+        : `M-Pesa prompt sent to ${normalized}. Confirm the KES 200 amount and enter your PIN only if you want to pay. Waiting for confirmation…`);
+
+      for (let attempt = 0; attempt < 45; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 4000));
+        const status = await apiFetch<{ status: string; receipt_number?: string | null }>(`/api/stores?daraja=payment-status&paymentId=${encodeURIComponent(request.paymentId)}`);
+        if (status.status === 'sandbox_paid') {
+          setMessage(`Sandbox test succeeded${status.receipt_number ? ` · test receipt ${status.receipt_number}` : ''}. Your store billing was not changed.`);
+          return;
+        }
+        if (status.status === 'paid') {
+          setMessage(`Payment confirmed${status.receipt_number ? ` · receipt ${status.receipt_number}` : ''}. Your store billing has been updated.`);
+          await onPaid().catch(() => undefined);
+          return;
+        }
+        if (status.status === 'failed' || status.status === 'expired') {
+          setError('The payment was not completed. If you cancelled the M-Pesa prompt, you can try again when this payment request has cleared.');
+          return;
+        }
+        if (status.status === 'review') {
+          setError('Safaricom sent a payment response that needs a quick check. Please contact StoYangu support before trying again.');
+          return;
+        }
+      }
+      setMessage(paymentInfo?.sandbox
+        ? 'No final sandbox result yet. Use only Daraja’s documented test flow; never enter a real M-Pesa PIN for a sandbox test. Check back shortly.'
+        : 'No final confirmation yet. If you entered your PIN, leave this page open for a little longer or check back shortly; a confirmed payment will unlock your store automatically.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not start the M-Pesa payment. Please try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return <section className="settings-section payment-settings" aria-labelledby="payment-settings-title">
@@ -575,11 +717,14 @@ function PaymentSection({ store }: { store: Store }) {
     <form className="payment-phone-form" onSubmit={submit}>
       <label htmlFor="mpesa-phone">M-Pesa phone number</label>
       <input id="mpesa-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" />
-      <button type="submit" className="button-primary"><BellRing /> Preview KES 200 M-Pesa prompt</button>
+      <button type="submit" className="button-primary" disabled={busy || !canPayNow}><BellRing /> {busy ? 'Waiting for M-Pesa…' : 'Pay KES 200 by M-Pesa'}</button>
     </form>
+    {!paymentInfo && <small className="payment-preview-note">Checking the M-Pesa setup…</small>}
+    {paymentInfo && !paymentInfo.configured && <small className="payment-preview-note">M-Pesa is not ready yet. StoYangu must finish setting up its business Till before payments can be requested.</small>}
+    {paymentInfo?.configured && !paymentInfo.sandbox && !canPayNow && <small className="payment-preview-note">{nextPeriodAlreadyPaid ? 'Your next 14-day period is already paid. No payment is needed now.' : 'The M-Pesa prompt becomes available during the final three days of your period, or once payment is due.'}</small>}
     {error && <div className="form-error" role="alert">{error}</div>}
     {message && <div className="form-success" role="status">{message}</div>}
-    <small className="payment-preview-note">Preview only: Safaricom Daraja is not connected, so this will not charge your phone. To pay now, contact StoYangu on WhatsApp 0793 533 683.</small>
+    {paymentInfo?.configured && <small className="payment-preview-note">{paymentInfo.sandbox ? 'Sandbox is for testing: use only Daraja’s documented test phone and test flow. Never enter a real M-Pesa PIN for a sandbox test. Successful sandbox callbacks do not change store billing.' : 'An M-Pesa prompt will be sent to the number above. Confirm the KES 200 amount and enter your PIN only if you want to pay. A successful payment is recorded automatically.'}</small>}
   </section>;
 }
 

@@ -1,20 +1,13 @@
-/* === Per-store web app install: branded launch splash ===
-   Shown while the INSTALLED (standalone) app opens, before the dashboard
-   data lands. The store's own logo (from Manage store details) plays the
-   hero, so the app feels like the store's own product. */
-
+/* Store-specific launch loading: a circular, cover-cropped store logo on navy. */
 .store-splash {
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: #ffffff;
+  background: #101f30;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0;
   padding: 24px;
-  text-align: center;
   transition: opacity 0.45s ease, visibility 0.45s ease;
 }
 .store-splash.fading {
@@ -22,67 +15,22 @@
   visibility: hidden;
 }
 .store-splash-logo-wrap {
-  position: relative;
-  width: 170px;
-  height: 170px;
+  width: 148px;
+  height: 148px;
   display: grid;
   place-items: center;
 }
 .store-splash-logo {
-  width: 148px;
-  height: 148px;
-  object-fit: contain;
-  border-radius: 30px;
-  background: #ffffff;
-  box-shadow: 0 10px 30px rgba(16, 31, 48, 0.12);
+  display: block;
+  width: 126px;
+  height: 126px;
+  object-fit: cover;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .94), 0 0 4px 1px rgba(255, 255, 255, .2);
   animation: store-splash-pop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both,
     store-splash-breathe 2.2s ease-in-out 0.7s infinite;
 }
-/* Rotating brand ring around the logo — the loading animation. */
-.store-splash-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(from 0deg, transparent 0deg, rgba(16, 163, 74, 0) 220deg, #16a34a 320deg, rgba(22, 163, 74, 0.9) 360deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
-  animation: store-splash-rotate 1.15s linear infinite;
-}
-.store-splash-name {
-  margin: 26px 0 0;
-  color: #101f30;
-  font-family: 'Manrope', 'DM Sans', sans-serif;
-  font-size: 1.35rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  max-width: 90vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.store-splash-sub {
-  margin: 8px 0 0;
-  color: #738079;
-  font-size: 0.78rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.store-splash-dots {
-  display: inline-flex;
-  gap: 3px;
-  margin-left: 2px;
-}
-.store-splash-dots i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #16a34a;
-  animation: store-splash-dot 1.2s ease-in-out infinite;
-}
-.store-splash-dots i:nth-child(2) { animation-delay: 0.15s; }
-.store-splash-dots i:nth-child(3) { animation-delay: 0.3s; }
 
 @keyframes store-splash-pop {
   0% { transform: scale(0.6); opacity: 0; }
@@ -92,17 +40,8 @@
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.035); }
 }
-@keyframes store-splash-rotate {
-  to { transform: rotate(360deg); }
-}
-@keyframes store-splash-dot {
-  0%, 100% { opacity: 0.25; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-3px); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .store-splash-logo,
-  .store-splash-ring,
-  .store-splash-dots i {
+  .store-splash-logo {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
   }

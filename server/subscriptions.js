@@ -1,5 +1,6 @@
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
+import { storePushIcon } from '../lib/push-events.js';
 
 async function owner(req) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -103,6 +104,7 @@ export default async function handler(req, res) {
               title: 'Notifications are working',
               body: 'This phone is ready for new orders, messages, comments, and post updates.',
               url: '/owner',
+              icon: await storePushIcon(profile.store_id),
               tag: `notification-test-${Date.now()}`,
             }));
             testSent = true;
@@ -121,6 +123,7 @@ export default async function handler(req, res) {
             title: 'Karibu StoYangu 👋',
             body: 'Notifications are on for this device. You can receive alerts for orders, messages, comments, and post updates.',
             url: '/owner',
+            icon: await storePushIcon(profile.store_id),
             tag: 'stoyangu-welcome',
           }));
           welcomeSent = true;

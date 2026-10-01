@@ -1,18 +1,80 @@
 import supabase from './supabase';
+import { readOfflineData, writeOfflineData } from './offlineCache';
+
+function offlineCacheKey(path: string, userId?: string) {
+  if (!userId || typeof window === 'undefined') return null;
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    const cacheable = url.pathname === '/api/dashboard'
+      || url.pathname === '/api/orders'
+      || url.pathname === '/api/products'
+      || (url.pathname === '/api/media'
+        && url.searchParams.get('action') === 'social'
+        && ['inbox', 'status', 'posts'].includes(url.searchParams.get('op') || ''));
+    if (!cacheable) return null;
+    return `api:${userId}:${url.pathname}${url.search}`;
+  } catch {
+    return null;
+  }
+}
+
+function announceOfflineCache() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('stoyangu:offline-cache-used'));
+}
+
+export async function readCachedApi<T>(path: string): Promise<T | undefined> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const key = offlineCacheKey(path, session?.user.id);
+  return key ? readOfflineData<T>(key) : undefined;
+}
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { data: { session } } = await supabase.auth.getSession();
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (session?.access_token) headers.set('Authorization', `Bearer ${session.access_token}`);
+
+  const method = (init.method || 'GET').toUpperCase();
+  const cacheKey = method === 'GET' ? offlineCacheKey(path, session?.user.id) : null;
+  const readCached = () => cacheKey ? readOfflineData<T>(cacheKey) : Promise.resolve(undefined);
+  const offlineFallback = async () => {
+    const cached = await readCached();
+    if (cached !== undefined) {
+      announceOfflineCache();
+      return cached;
+    }
+    return undefined;
+  };
+
+  if (cacheKey && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    const cached = await offlineFallback();
+    if (cached !== undefined) return cached;
+    throw new Error('No saved copy is available yet. Connect once to save this screen for offline use.');
+  }
+
   let response: Response;
-  try { response = await fetch(path, { ...init, headers, credentials: 'same-origin' }); }
-  catch { throw new Error('Connection interrupted. Your work is saved; check your internet and retry.'); }
+  try {
+    response = await fetch(path, { ...init, headers, credentials: 'same-origin' });
+  } catch {
+    const cached = await offlineFallback();
+    if (cached !== undefined) return cached;
+    throw new Error('Connection interrupted. Your saved view is unchanged; reconnect and retry your changes.');
+  }
+
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = typeof payload.error === 'string' && payload.error.trim().length > 2 ? payload.error.trim() : 'The request could not be completed. Your work is saved; please retry.';
+    if (cacheKey && response.status >= 500) {
+      const cached = await offlineFallback();
+      if (cached !== undefined) return cached;
+    }
+    const message = typeof payload.error === 'string' && payload.error.trim().length > 2
+      ? payload.error.trim()
+      : 'The request could not be completed. Reconnect and retry.';
     throw new Error(message);
   }
+
+  if (cacheKey) await writeOfflineData(cacheKey, payload);
   return payload as T;
 }
 
@@ -49,7 +111,7 @@ async function putWithRetry(signedUrl: string, file: File, contentType = file.ty
     } catch { /* A temporary network drop can be retried safely with the same signed upload URL. */ }
     if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
   }
-  throw new Error('Upload interrupted. Check your connection and retry; your work is saved.');
+  throw new Error('Upload interrupted. Your form is still open; reconnect and retry.');
 }
 
 export function formatMoney(value: number | string) {
@@ -110,7 +172,7 @@ export async function uploadImage(file: File, scope: 'logos' | 'products') {
       });
       return { url: res.url };
     } catch {
-      throw new Error('Upload interrupted. Check your connection and retry; your work is saved.');
+      throw new Error('Upload interrupted. Your form is still open; reconnect and retry.');
     }
   }
 }
@@ -187,6 +249,6 @@ export async function uploadPostMedia(file: File): Promise<{ url: string; kind: 
         // Fall through to error
       }
     }
-    throw err instanceof Error ? err : new Error('Upload interrupted. Check your connection and retry; your work is saved.');
+    throw err instanceof Error ? err : new Error('Upload interrupted. Your form is still open; reconnect and retry.');
   }
 }

@@ -10,13 +10,11 @@ import supabase from './lib/supabase';
 void handleGoogleRedirect();
 initBackNavigation();
 
-// Per-store web app install: on the store dashboard routes, swap the generic
-// platform manifest for the store's own manifest BEFORE the dashboard renders,
-// so Chrome's "Install app" prompt always offers the store's name + logo icon.
-// (The install prompt fires on user gesture; by then the manifest link must
-// already point at /api/store-pwa/manifest.)
+// Per-store web app install: on owner dashboard and PWA resume routes, swap
+// the generic platform manifest for the store's own manifest before the
+// workspace renders, so launch screens and install prompts use the store logo.
 const earlyPath = window.location.pathname;
-if (earlyPath === '/owner') {
+if (earlyPath === '/owner' || earlyPath === '/app') {
   clearGenericManifest();
   void (async () => {
     try {
@@ -24,8 +22,8 @@ if (earlyPath === '/owner') {
       if (!session?.access_token) return;
       const response = await fetch('/api/stores?pwa=store', { headers: { Authorization: `Bearer ${session.access_token}` } });
       if (!response.ok) return;
-      const payload = (await response.json()) as { slug?: string };
-      if (payload.slug) applyStoreManifest(`slug=${encodeURIComponent(payload.slug)}`);
+      const payload = (await response.json()) as { slug?: string; updated_at?: string | null };
+      if (payload.slug) applyStoreManifest(`slug=${encodeURIComponent(payload.slug)}`, payload.updated_at || undefined);
     } catch { /* StoreDashboard re-applies the manifest after its data loads. */ }
   })();
 } else if (/^\/manage\/\d+/.test(earlyPath)) {
