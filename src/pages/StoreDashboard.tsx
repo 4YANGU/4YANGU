@@ -323,7 +323,6 @@ export default function StoreDashboard() {
             <a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>
               {storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span>
             </a>
-            <div className="owner-analytics-label">14-day analytics</div>
             <div className="owner-analytics-row" aria-label={`Analytics for the current 14-day period, day ${cycleDay} of 14`}>
               <div className="tiktok-stats-row">
                 <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div>

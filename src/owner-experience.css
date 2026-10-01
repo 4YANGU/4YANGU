@@ -274,7 +274,7 @@
    header edges and the period counter clearly labels its analytics window. */
 .owner-sticky-header .owner-header-identity {
   align-items: flex-start;
-  gap: 16px;
+  gap: 22px;
 }
 .owner-logo-column {
   width: 112px;
@@ -320,15 +320,6 @@
   border-color: rgba(143, 211, 167, .8);
 }
 .owner-sticky-header .owner-settings-button svg { width: 18px; height: 18px; }
-.owner-analytics-label {
-  margin: 1px 0 4px;
-  color: #8fd3a7;
-  font-size: .52rem;
-  font-weight: 900;
-  letter-spacing: .13em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
 .owner-analytics-row {
   display: flex;
   align-items: center;
@@ -411,7 +402,7 @@
 
 @media (max-width: 560px) {
   .owner-sticky-header { padding: 8px 10px 10px !important; }
-  .owner-sticky-header .owner-header-identity { gap: 8px; }
+  .owner-sticky-header .owner-header-identity { gap: 16px; }
   .owner-logo-column { width: 74px; height: 72px; flex-basis: 74px; }
   .owner-sticky-header .owner-store-logo,
   .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
@@ -423,7 +414,6 @@
   .owner-sticky-header .owner-header-copy { flex: 1; }
   .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1rem, 4.5vw, 1.2rem); line-height: 1; }
   .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
-  .owner-analytics-label { margin: 0 0 2px; font-size: .42rem; line-height: 1; }
   .owner-analytics-row { gap: 5px; }
   .owner-sticky-header .tiktok-stats-row { gap: clamp(4px, 1.6vw, 9px); }
   .owner-sticky-header .tiktok-stat { min-width: 0; }
