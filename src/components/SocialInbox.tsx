@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { ArrowLeft, Camera, CheckCheck, ExternalLink, Inbox as InboxIcon, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send } from 'lucide-react';
 import MediaCaptureSheet from './MediaCaptureSheet';
 import { apiFetch } from '../lib/api';
-import PlatformLogo, { platformLabel } from './PlatformLogo';
+import PlatformLogo from './PlatformLogo';
+import { platformLabel } from '../lib/platforms';
 import { SOCIAL_PLATFORMS } from '../lib/socialPlatforms';
 import type { Order, SocialMessage, SocialThread } from '../types';
 import { readableMessage } from '../lib/messageText';

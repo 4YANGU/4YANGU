@@ -4,13 +4,14 @@ import {
   ExternalLink, Instagram, Mail, MapPin, Menu, MessageCircle, Search, ShieldCheck, ShoppingBag,
   Sparkles, Star, Truck, X, type LucideIcon,
 } from 'lucide-react';
-import { CSSProperties, useEffect, useMemo, useState } from 'react';
+import { CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import type { Product, Store } from '../types';
 import { formatMoney } from '../lib/api';
 import '../storefront.css';
 import '../order-update.css';
 
-type Obj = Record<string, any>;
+type Obj = Record<string, unknown>;
+type MotionSettings = Pick<React.ComponentProps<typeof motion.div>, 'initial' | 'animate' | 'whileInView' | 'exit' | 'viewport' | 'transition'>;
 type RendererProps = {
   store: Store;
   products: Product[];
@@ -24,8 +25,11 @@ const ICONS: Record<string, LucideIcon> = {
   Sparkles, Star, Truck, X,
 };
 const isObj = (value: unknown): value is Obj => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-const array = (value: unknown): any[] => Array.isArray(value) ? value : isObj(value) ? Object.entries(value).map(([id, item]) => isObj(item) ? { id, ...item } : { id, value: item }) : value == null ? [] : [value];
-const get = (object: unknown, path: string) => path.split('.').reduce<any>((value, key) => isObj(value) ? value[key] : undefined, object);
+const EMPTY_OBJ = Object.create(null) as Obj;
+const asObj = (value: unknown): Obj => isObj(value) ? value : EMPTY_OBJ;
+const nestedObj = (source: unknown, key: string): Obj => isObj(source) ? asObj(source[key]) : EMPTY_OBJ;
+const array = (value: unknown): unknown[] => Array.isArray(value) ? value : isObj(value) ? Object.entries(value).map(([id, item]) => isObj(item) ? { id, ...item } : { id, value: item }) : value == null ? [] : [value];
+const get = (object: unknown, path: string): unknown => path.split('.').reduce<unknown>((value, key) => isObj(value) ? value[key] : undefined, object);
 const first = (object: Obj | undefined, ...keys: string[]) => keys.map((key) => object?.[key]).find((value) => value !== undefined && value !== null);
 const label = (value: unknown) => String(value ?? '').replace(/[_-]+/g, ' ').trim();
 const idSafe = (value: unknown) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -106,31 +110,31 @@ function Icon({ name, size = 18 }: { name?: unknown; size?: number }) {
   return <Component size={size} aria-hidden="true" />;
 }
 
-function stateToMotion(state: unknown): Obj | undefined {
+function stateToMotion(state: unknown): MotionSettings['whileInView'] {
   if (!isObj(state)) return undefined;
-  const result: Obj = {};
+  const result: Obj = {} as Obj;
   Object.entries(state).forEach(([key, value]) => {
     const mapped = key === 'translate_y_px' ? 'y' : key === 'translate_x_px' ? 'x' : key === 'rotate_deg' ? 'rotate' : key;
     result[mapped] = value;
   });
-  return result;
+  return result as MotionSettings['whileInView'];
 }
 
 function findAnimation(design: Obj, node: Obj, preferred?: string): Obj {
-  const animations = isObj(design.animations) ? design.animations : {};
+  const animations = asObj(design.animations);
   const references = [preferred, node.animation_reference, ...array(node.animations_used)].filter(Boolean).map(String);
   for (const reference of references) {
     const found = animations[reference];
     if (isObj(found)) {
-      const inherited = typeof found.animation === 'string' && isObj(animations[found.animation]) ? animations[found.animation] : {};
+      const inherited = typeof found.animation === 'string' ? asObj(animations[found.animation]) : EMPTY_OBJ;
       return { ...inherited, ...found };
     }
   }
   const own = first(node, 'motion', 'animation');
-  return isObj(own) ? own : {};
+  return isObj(own) ? own : EMPTY_OBJ;
 }
 
-function animationProps(design: Obj, node: Obj, preferred: string | undefined, reduced: boolean, index = 0) {
+function animationProps(design: Obj, node: Obj, preferred: string | undefined, reduced: boolean, index = 0): MotionSettings {
   if (reduced) return { initial: false };
   const spec = findAnimation(design, node, preferred);
   const initial = stateToMotion(first(spec, 'initial', 'incoming', 'start'));
@@ -139,15 +143,17 @@ function animationProps(design: Obj, node: Obj, preferred: string | undefined, r
   const parsedStagger = typeof spec.stagger_rule === 'string' ? Number(spec.stagger_rule.match(/(0?\.\d+)\s*seconds?/)?.[1] || 0) : 0;
   const stagger = Number(first(spec, 'stagger_seconds', 'item_stagger_seconds', 'stagger') || parsedStagger || 0);
   const delay = Number(first(spec, 'delay_seconds', 'delay') || (Number(spec.delay_ms) / 1000) || 0) + index * stagger;
-  const ease = first(spec, 'easing', 'ease') || first(design.animations, 'default_easing') || [0.16, 1, 0.3, 1];
+  const rawEase = first(spec, 'easing', 'ease') || first(asObj(design.animations), 'default_easing');
+  const ease = typeof rawEase === 'string' || Array.isArray(rawEase) ? rawEase : [0.16, 1, 0.3, 1];
   const repeat = spec.repeat === 'infinite' || spec.repeat === true ? Infinity : Number(spec.repeat || 0);
-  const keyframeMotion: Obj = {};
+  const repeatType = spec.repeat_type === 'reverse' || spec.repeat_type === 'mirror' ? spec.repeat_type : 'loop';
+  const keyframeMotion: Obj = Object.create(null) as Obj;
   if (Array.isArray(spec.keyframes_y_px)) keyframeMotion.y = spec.keyframes_y_px;
   if (Array.isArray(spec.keyframes_x_px)) keyframeMotion.x = spec.keyframes_x_px;
   if (Array.isArray(spec.keyframes_scale)) keyframeMotion.scale = spec.keyframes_scale;
   if (Array.isArray(spec.keyframes_opacity)) keyframeMotion.opacity = spec.keyframes_opacity;
-  if (Object.keys(keyframeMotion).length) return { initial: false, animate: keyframeMotion, transition: { duration, delay, ease, repeat: repeat || Infinity } };
-  const transition = { duration, delay, ease, repeat, repeatType: spec.repeat_type || 'loop' };
+  if (Object.keys(keyframeMotion).length) return { initial: false, animate: keyframeMotion as MotionSettings['animate'], transition: { duration, delay, ease, repeat: repeat || Infinity } as MotionSettings['transition'] };
+  const transition = { duration, delay, ease, repeat, repeatType } as MotionSettings['transition'];
   const exit = stateToMotion(spec.exit || spec.outgoing);
   if (repeat === Infinity || spec.starts_on === 'page load' || spec.trigger === 'page load') return { initial: initial || false, animate, exit, transition };
   return { initial: initial || (animate ? { opacity: 0 } : undefined), whileInView: animate, exit, viewport: { once: spec.repeat !== true, amount: Number(spec.viewport_amount || .15) }, transition };
@@ -160,10 +166,10 @@ function Reveal({ design, node, animation, index = 0, className = '', style, chi
 
 function themeVars(design: Obj): CSSProperties {
   const theme = isObj(design.theme) ? design.theme : design;
-  const colours = first(theme, 'colours', 'colors', 'palette') || first(design, 'colours', 'colors') || {};
-  const typography = isObj(theme.typography) ? theme.typography : {};
-  const out: Obj = {};
-  if (isObj(colours)) Object.entries(colours).forEach(([key, value]) => {
+  const colours = asObj(first(theme, 'colours', 'colors', 'palette') || first(design, 'colours', 'colors'));
+  const typography = asObj(theme.typography);
+  const out: Obj = Object.create(null) as Obj;
+  Object.entries(colours).forEach(([key, value]) => {
     const safe = safeCss(isObj(value) ? value.value : value);
     if (safe !== undefined) out[`--sj-${idSafe(key)}`] = safe;
   });
@@ -172,7 +178,7 @@ function themeVars(design: Obj): CSSProperties {
   let background = first(colours, 'canvas', 'background', 'surface', 'white') || '#FFFDF7';
   let ink = first(colours, 'ink', 'text', 'foreground', 'navy_deep') || '#17261F';
   // Specs that declare dark mode but leave a light canvas: honour the mode.
-  const modeDark = /dark|night|black/i.test(String((isObj(theme) && (theme.mode || theme.name)) || ''));
+  const modeDark = /dark|night|black/i.test(String(theme.mode || theme.name || ''));
   const looksLight = /^\s*#((f[de]|e[89def])([0-9a-f]){5})|white|ivory|cream/i.test(String(background));
   if (modeDark && looksLight) {
     background = first(colours, 'background_dark', 'night', 'concrete_grey', 'charcoal', 'dark', 'primary') || '#0B0D0F';
@@ -180,11 +186,12 @@ function themeVars(design: Obj): CSSProperties {
   }
   const muted = first(colours, 'muted', 'subtle') || '#6B776F';
   out['--sj-primary'] = safeCss(primary); out['--sj-accent'] = safeCss(accent); out['--sj-bg'] = safeCss(background); out['--sj-ink'] = safeCss(ink); out['--sj-muted'] = safeCss(muted);
-  out['--sj-body-font'] = safeCss(first(typography, 'body_family', 'body_font', 'everything_else_font') || typography.body?.family || 'Inter, sans-serif');
-  out['--sj-display-font'] = safeCss(first(typography, 'display_family', 'headings_font', 'heading_font') || typography.hero_heading?.family || 'Inter, sans-serif');
+  const bodyFont = first(typography, 'body_family', 'body_font', 'everything_else_font') || first(nestedObj(typography, 'body'), 'family');
+  const displayFont = first(typography, 'display_family', 'headings_font', 'heading_font') || first(nestedObj(typography, 'hero_heading'), 'family');
+  out['--sj-body-font'] = safeCss(bodyFont || 'Inter, sans-serif');
+  out['--sj-display-font'] = safeCss(displayFont || 'Inter, sans-serif');
   return out as CSSProperties;
 }
-
 function useDesignFonts(design: Obj) {
   useEffect(() => {
     const stack: unknown[] = [design.theme, design.typography];
@@ -211,10 +218,11 @@ function resolveLogo(config: Obj | undefined, store: Store) {
 }
 
 function ScrollProgress({ design }: { design: Obj }) {
-  const config = design.global_ui?.scroll_progress;
+  const config = nestedObj(design.global_ui, 'scroll_progress');
+  const scrollAnimation = nestedObj(design.animations, 'scroll_progress');
   const { scrollYProgress } = useScroll();
-  const scaleX = useSpring(scrollYProgress, { stiffness: Number(design.animations?.scroll_progress?.stiffness || 120), damping: Number(design.animations?.scroll_progress?.damping || 30), restDelta: .001 });
-  if (!config?.visible) return null;
+  const scaleX = useSpring(scrollYProgress, { stiffness: Number(scrollAnimation.stiffness || 120), damping: Number(scrollAnimation.damping || 30), restDelta: .001 });
+  if (!config.visible) return null;
   return <motion.div className="sj-scroll-progress" style={{ scaleX, height: safeCss(config.height), background: safeCss(config.colour) }} />;
 }
 
@@ -232,39 +240,40 @@ function Announcement({ config }: { config: Obj }) {
 }
 
 function Header({ design, store, onSectionNavigate }: { design: Obj; store: Store; onSectionNavigate?: (target: string) => void }) {
-  const config = isObj(design.global_ui?.header) ? design.global_ui.header : {};
-  const menuConfig = isObj(design.global_ui?.mobile_menu) ? design.global_ui.mobile_menu : {};
+  const globalUI = asObj(design.global_ui);
+  const config = nestedObj(globalUI, 'header');
+  const menuConfig = nestedObj(globalUI, 'mobile_menu');
   const [open, setOpen] = useState(false);
   const navLocal = array(first(config, 'navigation', 'nav', 'links'));
-  const navGroup = first(design.global_ui, 'navigation', 'nav');
+  const navGroup = first(globalUI, 'navigation', 'nav');
   const nav = navLocal.length ? navLocal : isObj(navGroup) ? array(first(navGroup, 'links', 'items')) : array(navGroup);
-  const shopUIKeys = first(design.global_ui, 'shop_now_button', 'shop_button', 'primary_action');
-  const shopConfig = isObj(shopUIKeys) ? shopUIKeys : {};
+  const shopConfig = asObj(first(globalUI, 'shop_now_button', 'shop_button', 'primary_action'));
   const menuItems = array(first(menuConfig, 'items', 'navigation'));
-  const logoConfig = isObj(config.logo) ? config.logo : { image: config.logo_image, is_store_logo: true };
-  const logo = resolveLogo(logoConfig, store);
-  const shop = isObj(config.shop_now_button) && Object.keys(config.shop_now_button).length ? config.shop_now_button : shopConfig;
+  const logoConfig = asObj(isObj(config.logo) ? config.logo : { image: config.logo_image, is_store_logo: true });
+  const configuredShop = asObj(config.shop_now_button);
+  const shop = Object.keys(configuredShop).length ? configuredShop : shopConfig;
+  const mobileButton = nestedObj(config, 'mobile_menu_button');
+  const menuMotion = nestedObj(design.animations, 'mobile_menu');
   const handleSection = (event: React.MouseEvent<HTMLAnchorElement>, target: string) => { if (onSectionNavigate) { event.preventDefault(); onSectionNavigate(target); } };
   return <>
     <header className={`sj-header ${config.position === 'sticky' || config.sticky ? 'is-sticky' : ''}`} style={mergedStyle(design, config)}>
-      <a className="sj-store-logo" href="#home" onClick={(event) => handleSection(event, '#home')} aria-label={`${store.name} home`}>{logo ? <img src={logo} alt={String(logoConfig.alt || `${store.name} logo`)} style={{ height: safeCss(logoConfig.display_height) }} /> : <><ShoppingBag /><strong>{String(design.store_name || store.name)}</strong></>}</a>
-      <nav className="sj-desktop-nav" aria-label="Store navigation">{nav.map((item, index) => { const entry = isObj(item) ? item : { label: item }; const target = safeHref(first(entry, 'target', 'href', 'url'), `#${idSafe(entry.label)}`); return <a key={index} href={target} onClick={(event) => handleSection(event, target)}>{String(first(entry, 'label', 'text', 'title') || '')}</a>; })}</nav>
+      <a className="sj-store-logo" href="#home" onClick={(event) => handleSection(event, '#home')} aria-label={`${store.name} home`}>{resolveLogo(logoConfig, store) ? <img src={resolveLogo(logoConfig, store)} alt={String(logoConfig.alt || `${store.name} logo`)} style={{ height: safeCss(logoConfig.display_height) }} /> : <><ShoppingBag /><strong>{String(design.store_name || store.name)}</strong></>}</a>
+      <nav className="sj-desktop-nav" aria-label="Store navigation">{nav.map((item, index) => { const entry = asObj(isObj(item) ? item : { label: item }); const target = safeHref(first(entry, 'target', 'href', 'url'), `#${idSafe(entry.label)}`); return <a key={index} href={target} onClick={(event) => handleSection(event, target)}>{String(first(entry, 'label', 'text', 'title') || '')}</a>; })}</nav>
       {Object.keys(shop).length > 0 && <a className="sj-header-shop" href={safeHref(first(shop, 'target', 'href'), '#products')} onClick={(event) => handleSection(event, safeHref(first(shop, 'target', 'href'), '#products'))} style={mergedStyle(design, shop)}>{String(shop.label || 'Shop now')}<Icon name={shop.icon || 'ArrowRight'} size={16} /></a>}
-      <button className="sj-menu-trigger" onClick={() => setOpen(true)} aria-label={String(config.mobile_menu_button?.aria_label || 'Open menu')}><Menu /></button>
+      <button className="sj-menu-trigger" onClick={() => setOpen(true)} aria-label={String(mobileButton.aria_label || 'Open menu')}><Menu /></button>
     </header>
     <AnimatePresence>{open && <motion.div className="sj-menu-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => event.target === event.currentTarget && setOpen(false)}><motion.aside className="sj-mobile-menu" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ duration: .5, ease: [0.16, 1, 0.3, 1] }} style={mergedStyle(design, menuConfig)}>
       <div className="sj-mobile-menu-head">{resolveLogo(menuConfig, store) ? <img src={resolveLogo(menuConfig, store)} alt={`${store.name} logo`} /> : <strong>{store.name}</strong>}<button onClick={() => setOpen(false)} aria-label="Close menu"><X /></button></div>
-      <nav>{(menuItems.length ? menuItems : nav).map((item, index) => { const entry = isObj(item) ? item : { label: item, target: `#${idSafe(item)}` }; const menuMotion = design.animations?.mobile_menu || {}; const target = safeHref(first(entry, 'target', 'href'), '#products'); return <motion.a key={index} initial={{ opacity: Number(menuMotion.item_initial_opacity ?? 0), x: Number(menuMotion.item_initial_translate_x_px ?? -30) }} animate={{ opacity: Number(menuMotion.item_active_opacity ?? 1), x: Number(menuMotion.item_active_translate_x_px ?? 0) }} transition={{ delay: index * Number(menuMotion.item_stagger_seconds || .06), duration: .45 }} href={target} onClick={(event) => { setOpen(false); handleSection(event, target); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{String(first(entry, 'label', 'text') || '')}</strong><ArrowRight /></motion.a>; })}</nav>
+      <nav>{(menuItems.length ? menuItems : nav).map((item, index) => { const entry = asObj(isObj(item) ? item : { label: item, target: `#${idSafe(item)}` }); const target = safeHref(first(entry, 'target', 'href'), '#products'); return <motion.a key={index} initial={{ opacity: Number(menuMotion.item_initial_opacity ?? 0), x: Number(menuMotion.item_initial_translate_x_px ?? -30) }} animate={{ opacity: Number(menuMotion.item_active_opacity ?? 1), x: Number(menuMotion.item_active_translate_x_px ?? 0) }} transition={{ delay: index * Number(menuMotion.item_stagger_seconds || .06), duration: .45 }} href={target} onClick={(event) => { setOpen(false); handleSection(event, target); }}><span>{String(index + 1).padStart(2, '0')}</span><strong>{String(first(entry, 'label', 'text') || '')}</strong><ArrowRight /></motion.a>; })}</nav>
       <a className="sj-menu-action" href={safeHref(menuConfig.bottom_action_target, '#products')} onClick={(event) => { setOpen(false); handleSection(event, safeHref(menuConfig.bottom_action_target, '#products')); }}>{String(menuConfig.bottom_action_label || 'Shop now')}<ArrowRight /></a>
     </motion.aside></motion.div>}</AnimatePresence>
   </>;
 }
-
 function Slideshow({ visual, design }: { visual: Obj; design: Obj }) {
   const slides = array(first(visual, 'slides', 'images', 'items'));
   const [index, setIndex] = useState(0);
   const reduced = Boolean(useReducedMotion());
-  const config = isObj(design.animations?.hero_slideshow) ? design.animations.hero_slideshow : {};
+  const config = nestedObj(design.animations, 'hero_slideshow');
   const interval = Number(first(config, 'auto_advance_interval_ms') || Number(first(visual, 'auto_advance_timing', 'interval') || 5.8) * 1000);
   useEffect(() => {
     if (slides.length < 2) return;
@@ -272,27 +281,31 @@ function Slideshow({ visual, design }: { visual: Obj; design: Obj }) {
     return () => clearInterval(timer);
   }, [slides.length, interval]);
   if (!slides.length) return null;
-  const slide = isObj(slides[index]) ? slides[index] : { image: slides[index] };
+  const slide = asObj(isObj(slides[index]) ? slides[index] : { image: slides[index] });
+  const rawEase = config.easing;
+  const transition = { duration: Number(config.duration_seconds || .8), ease: typeof rawEase === 'string' || Array.isArray(rawEase) ? rawEase : [0.16, 1, 0.3, 1] } as MotionSettings['transition'];
   return <div className="sj-hero-slideshow" style={{ ...toStyle(visual, design), minHeight: safeCss(first(visual, 'desktop_minimum_height', 'minimum_height')) }}>
-    {(visual.side_ribbon || visual.vertical_label || visual.ribbon) && <em className="sj-side-ribbon">{String(first(visual, 'side_ribbon', 'vertical_label', 'ribbon'))}</em>}
-    {visual.brand_motif && <motion.i className="sj-stadium-ring" aria-hidden="true" animate={reduced ? undefined : { rotate: [34, 39, 34], scale: [1, 1.035, 1] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }} />}
-    <AnimatePresence mode="wait"><motion.figure key={index} initial={stateToMotion(config.incoming) || { opacity: 0, scale: 1.03 }} animate={stateToMotion(config.active) || { opacity: 1, scale: 1 }} exit={stateToMotion(config.outgoing) || { opacity: 0 }} transition={{ duration: Number(config.duration_seconds || .8), ease: config.easing || [0.16, 1, 0.3, 1] }}>
+    {Boolean(visual.side_ribbon || visual.vertical_label || visual.ribbon) && <em className="sj-side-ribbon">{String(first(visual, 'side_ribbon', 'vertical_label', 'ribbon'))}</em>}
+    {Boolean(visual.brand_motif) && <motion.i className="sj-stadium-ring" aria-hidden="true" animate={reduced ? undefined : { rotate: [34, 39, 34], scale: [1, 1.035, 1] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }} />}
+    <AnimatePresence mode="wait"><motion.figure key={index} initial={stateToMotion(config.incoming) || { opacity: 0, scale: 1.03 }} animate={stateToMotion(config.active) || { opacity: 1, scale: 1 }} exit={stateToMotion(config.outgoing) || { opacity: 0 }} transition={transition}>
       <img src={safeUrl(first(slide, 'image', 'src', 'url'))} alt={String(slide.alt || slide.label || '')} fetchPriority={index === 0 ? 'high' : 'auto'} decoding="async" />
       {first(slide, 'price_label', 'price_chip', 'price') && <b className="sj-slide-chip">{String(first(slide, 'price_label', 'price_chip', 'price'))}</b>}
-      {slide.label && <figcaption><small>{String(visual.current_story_label || 'Current story')} · {String(index + 1).padStart(visual.slide_number_format === 'two_digit' ? 2 : 1, '0')}</small><strong>{String(slide.label)}</strong></figcaption>}
+      {Boolean(slide.label) && <figcaption><small>{String(visual.current_story_label || 'Current story')} · {String(index + 1).padStart(visual.slide_number_format === 'two_digit' ? 2 : 1, '0')}</small><strong>{String(slide.label)}</strong></figcaption>}
     </motion.figure></AnimatePresence>
     {slides.length > 1 && <><div className="sj-slide-arrows"><button onClick={() => setIndex((index - 1 + slides.length) % slides.length)} aria-label="Previous slide"><ChevronLeft /></button><button onClick={() => setIndex((index + 1) % slides.length)} aria-label="Next slide"><ChevronRight /></button></div><div className="sj-slide-dots">{slides.map((_, itemIndex) => <button key={itemIndex} aria-label={`Show slide ${itemIndex + 1}`} className={itemIndex === index ? 'active' : ''} onClick={() => setIndex(itemIndex)} />)}</div></>}
   </div>;
 }
-
 function HeroSection({ section, design, store }: { section: Obj; design: Obj; store: Store }) {
   const reduced = Boolean(useReducedMotion());
-  const suppliedVisual = isObj(first(section, 'hero_visual', 'visual', 'media', 'slideshow', 'hero_media', 'media_gallery', 'gallery', 'spotlight')) ? first(section, 'hero_visual', 'visual', 'media', 'slideshow', 'hero_media', 'media_gallery', 'gallery', 'spotlight') : {};
-  const visual = Object.keys(suppliedVisual).length ? suppliedVisual : safeUrl(first(section, 'image', 'image_url', 'photo')) ? { slides: [{ image: first(section, 'image', 'image_url', 'photo'), alt: section.alt || section.headline }] } : {};
+  const suppliedVisual = asObj(first(section, 'hero_visual', 'visual', 'media', 'slideshow', 'hero_media', 'media_gallery', 'gallery', 'spotlight'));
+  const fallbackImage = safeUrl(first(section, 'image', 'image_url', 'photo'));
+  const visual = Object.keys(suppliedVisual).length ? suppliedVisual : fallbackImage ? asObj({ slides: [{ image: first(section, 'image', 'image_url', 'photo'), alt: section.alt || section.headline }] }) : EMPTY_OBJ;
   const hasVisual = array(first(visual, 'slides', 'images', 'items')).length > 0;
   // Full-bleed heroes, but ONLY when the spec explicitly calls for that treatment
   // (never hijack a working split hero like Pizzaro's).
-  const intentSignal = [String(first(section, 'presentation', 'treatment', 'hero_mode', 'display_mode') || ''), String(isObj(visual) ? visual.presentation || visual.treatment || '' : ''), String(design.theme?.mode || ''), String(design.theme?.name || ''), String(design.design_scope?.specification_type || '')].join(' ').toLowerCase();
+  const theme = asObj(design.theme);
+  const scope = asObj(design.design_scope);
+  const intentSignal = [String(first(section, 'presentation', 'treatment', 'hero_mode', 'display_mode') || ''), String(first(visual, 'presentation', 'treatment') || ''), String(theme.mode || ''), String(theme.name || ''), String(scope.specification_type || '')].join(' ').toLowerCase();
   const specImage = array(first(visual, 'slides', 'images', 'items'))[0];
   const heroImg = safeUrl(isObj(specImage) ? first(specImage, 'image', 'src', 'url') : specImage) || safeUrl(first(section, 'background_image', 'image', 'image_url', 'backdrop', 'cover_image', 'photo'));
   // Full-bleed only when the spec asks for it AND the hero built no slideshow of its own
@@ -302,25 +315,29 @@ function HeroSection({ section, design, store }: { section: Obj; design: Obj; st
   if (wantsFullbleed && heroImg) { heroStyle.backgroundImage = `url("${heroImg}")`; heroStyle.backgroundSize = 'cover'; heroStyle.backgroundPosition = 'center'; }
   const lines = array(section.headline_lines);
   const actions = array(first(section, 'actions', 'buttons', 'ctas', 'cta_stack', 'links'));
-  const badge = isObj(section.badge) ? section.badge : {};
-  const promo = isObj(section.floating_promo) ? section.floating_promo : {};
-  return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual && !wantsFullbleed ? '' : 'no-visual'} ${wantsFullbleed ? 'sj-hero--fullbleed' : ''}`} style={heroStyle}>{wantsFullbleed && <i className="sj-hero-veil" aria-hidden="true" />}
-    {section.background_watermark?.text && <span className="sj-watermark" style={mergedStyle(design, section.background_watermark)}>{String(section.background_watermark.text)}</span>}
+  const proofPoints = array(section.proof_points).filter((pill): pill is Obj => isObj(pill) && pill.value != null);
+  const badge = asObj(section.badge);
+  const promo = asObj(section.floating_promo);
+  const watermark = asObj(section.background_watermark);
+  const buttons = nestedObj(design.global_ui, 'buttons');
+  const floatingAnimation = nestedObj(design.animations, 'floating_new_drop_note');
+  const featureItems = array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp', 'spec_cards'));
+  return <section id={idSafe(section.id || 'home')} className={`sj-section sj-hero ${hasVisual && !wantsFullbleed ? '' : 'no-visual'} ${wantsFullbleed ? 'sj-hero--fullbleed' : ''}`} style={heroStyle}>{Boolean(wantsFullbleed) && <i className="sj-hero-veil" aria-hidden="true" />}
+    {Boolean(watermark.text) && <span className="sj-watermark" style={mergedStyle(design, watermark)}>{String(watermark.text)}</span>}
     <div className="sj-hero-copy">
       {Object.keys(badge).length > 0 && <Reveal design={design} node={badge} animation="hero_badge_reveal" className="sj-hero-badge" style={mergedStyle(design, badge)}><span style={{ background: safeCss(badge.icon_background) }}>{resolveLogo(badge, store) ? <img src={resolveLogo(badge, store)} alt="" /> : <Icon name={badge.icon} size={14} />}</span>{String(badge.text || '')}</Reveal>}
-      <Reveal design={design} node={section} animation="hero_heading_reveal"><h1>{lines.length ? lines.map((line, index) => { const tone = String(line.style || ''); const ckls = [tone.includes('accent') ? 'accent' : '', /outline|ghost|stroke/.test(tone) ? 'sj-outline-word' : ''].filter(Boolean).join(' '); return <span key={index} className={ckls || undefined}>{String(line.text || line)}</span>; }) : String(section.headline || section.heading || design.store_name || store.name)}</h1></Reveal>
-      {(section.tagline || section.body || section.intro) && <Reveal design={design} node={section} animation="hero_tagline_reveal"><p className="sj-hero-tagline">{String(first(section, 'tagline', 'body', 'intro'))}</p></Reveal>}
-      {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = isObj(action) ? action : { label: action }; const buttons = design.global_ui?.buttons || {}; const entryStyle = entry.style || entry.variant || 'primary'; return <a key={index} className={`sj-action ${entryStyle}`} style={mergedStyle(design, buttons.base, buttons[entryStyle], entry)} href={safeHref(first(entry, 'target', 'href', 'scroll_to'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
-      {array(section.proof_points).some((pill) => isObj(pill) && pill.value != null) && <div className="sj-stat-row">{array(section.proof_points).filter((pill) => isObj(pill) && pill.value != null).map((pill, index) => <div className="sj-stat-card" key={index}><strong>{String(pill.value)}</strong><span>{String(pill.label || '')}</span>{pill.sub && <small>{String(pill.sub)}</small>}</div>)}</div>}
-      {array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp', 'spec_cards')).length > 0 && <div className="sj-hero-features">{array(first(section, 'feature_text', 'features', 'trust_points', 'highlights', 'proof_points', 'usp', 'spec_cards')).map((item, index) => <span key={index}><Icon name={isObj(item) ? item.icon : undefined} size={15} />{String(isObj(item) ? item.text || [item.title, item.desc].filter(Boolean).join(' — ') || item.headline || item.label || '' : item)}</span>)}</div>}
+      <Reveal design={design} node={section} animation="hero_heading_reveal"><h1>{lines.length ? lines.map((line, index) => { const lineConfig = asObj(line); const tone = String(lineConfig.style || ''); const ckls = [tone.includes('accent') ? 'accent' : '', /outline|ghost|stroke/.test(tone) ? 'sj-outline-word' : ''].filter(Boolean).join(' '); return <span key={index} className={ckls || undefined}>{String(lineConfig.text || line)}</span>; }) : String(section.headline || section.heading || design.store_name || store.name)}</h1></Reveal>
+      {Boolean(section.tagline || section.body || section.intro) && <Reveal design={design} node={section} animation="hero_tagline_reveal"><p className="sj-hero-tagline">{String(first(section, 'tagline', 'body', 'intro'))}</p></Reveal>}
+      {actions.length > 0 && <Reveal design={design} node={section} animation="hero_actions_reveal" className="sj-hero-actions">{actions.map((action, index) => { const entry = asObj(isObj(action) ? action : { label: action }); const entryStyle = String(entry.style || entry.variant || 'primary'); return <a key={index} className={`sj-action ${entryStyle}`} style={mergedStyle(design, buttons.base, buttons[entryStyle], entry)} href={safeHref(first(entry, 'target', 'href', 'scroll_to'), '#products')}><span>{String(entry.label || entry.text || '')}</span><Icon name={entry.icon || 'ArrowRight'} /></a>; })}</Reveal>}
+      {proofPoints.length > 0 && <div className="sj-stat-row">{proofPoints.map((pill, index) => <div className="sj-stat-card" key={index}><strong>{String(pill.value)}</strong><span>{String(pill.label || '')}</span>{Boolean(pill.sub) && <small>{String(pill.sub)}</small>}</div>)}</div>}
+      {featureItems.length > 0 && <div className="sj-hero-features">{featureItems.map((item, index) => <span key={index}><Icon name={isObj(item) ? item.icon : undefined} size={15} />{String(isObj(item) ? item.text || [item.title, item.desc].filter(Boolean).join(' — ') || item.headline || item.label || '' : item)}</span>)}</div>}
     </div>
     {hasVisual && !wantsFullbleed && <Reveal design={design} node={visual} animation="hero_slideshow" className="sj-hero-visual">
       <Slideshow visual={visual} design={design} />
-      {Object.keys(promo).length > 0 && <motion.div className="sj-floating-promo" style={mergedStyle(design, promo)} animate={reduced ? undefined : { y: [0, -8, 0] }} transition={{ duration: Number(design.animations?.floating_new_drop_note?.duration_seconds || 4), repeat: Infinity, ease: 'easeInOut' }}><span style={{ background: safeCss(promo.icon_background) }}>{resolveLogo(promo, store) ? <img src={resolveLogo(promo, store)} alt="" /> : <Sparkles />}</span><div><strong>{String(promo.title || '')}</strong><small>{String(promo.body || '')}</small></div></motion.div>}
+      {Object.keys(promo).length > 0 && <motion.div className="sj-floating-promo" style={mergedStyle(design, promo)} animate={reduced ? undefined : { y: [0, -8, 0] }} transition={{ duration: Number(floatingAnimation.duration_seconds || 4), repeat: Infinity, ease: 'easeInOut' }}><span style={{ background: safeCss(promo.icon_background) }}>{resolveLogo(promo, store) ? <img src={resolveLogo(promo, store)} alt="" /> : <Sparkles />}</span><div><strong>{String(promo.title || '')}</strong><small>{String(promo.body || '')}</small></div></motion.div>}
     </Reveal>}
   </section>;
 }
-
 function colourValue(value: string) {
   if (/^#|^rgb|^hsl/i.test(value)) return value;
   const known: Record<string, string> = { black:'#111827',white:'#ffffff',navy:'#172554',green:'#4d7c5b',red:'#dc2626',blue:'#2563eb',pink:'#ec4899',brown:'#795548',beige:'#d6c6a5',gold:'#d4a94c',cream:'#f5edda',sage:'#9caf88',mocha:'#8b6f61',olive:'#6b7245',terracotta:'#c66b4e',sky:'#87ceeb',peach:'#f4a58a',grey:'#6b7280',gray:'#6b7280'};
@@ -353,7 +370,14 @@ function ProductPageDetails({ product, config, design, onClose, onOrder }: { pro
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product.id]);
-  const dialog = isObj(config.dialog) ? config.dialog : {};
+  const dialog = asObj(config.dialog);
+  const animations = asObj(design.animations);
+  const productModal = asObj(animations.product_modal);
+  const sizeSelector = asObj(config.size_selector);
+  const colourSelector = asObj(config.colour_selector);
+  const deliveryNote = asObj(config.delivery_note);
+  const modalEase = productModal.easing;
+  const modalTransition = { duration: Number(productModal.duration_seconds || .5), ease: typeof modalEase === 'string' || Array.isArray(modalEase) ? modalEase : [0.16, 1, 0.3, 1] } as MotionSettings['transition'];
 const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery address: ${deliveryAddress}` : '', orderNote ? `Customer note: ${orderNote}` : ''].filter(Boolean).join('\n');
   return <section className="sj-product-page-detail" aria-label={product.name}>
     <style dangerouslySetInnerHTML={{ __html: [
@@ -379,16 +403,16 @@ const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery addr
       '@media(min-width:900px){.sj-product-page-grid .sj-modal-media{min-height:0;height:min(720px,72vh)}.sj-product-page-grid{max-width:1280px}}',
     ].join('') }} />
     <button className="sj-product-back" onClick={onClose}><ArrowLeft /> Back to all products</button>
-    <motion.div className="sj-product-page-grid" style={{ background: String(safeCss(dialog.background) || '#FFFFFF'), borderRadius: safeCss(dialog.radius), boxShadow: String(safeCss(dialog.box_shadow) || '') }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: Number(design.animations?.product_modal?.duration_seconds || .5), ease: design.animations?.product_modal?.easing || [0.16, 1, 0.3, 1] }}>
+    <motion.div className="sj-product-page-grid" style={{ background: String(safeCss(dialog.background) || '#FFFFFF'), borderRadius: safeCss(dialog.radius), boxShadow: String(safeCss(dialog.box_shadow) || '') }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={modalTransition}>
       <button type="button" className="sj-popup-close" onClick={onClose} aria-label="Close product view"><X /></button>
       <div className="sj-modal-media" style={mergedStyle(design, config.media_panel)}><div className="sj-photo-stack"><img className="sj-photo-sizer" src={activeImage} alt="" aria-hidden="true" />{media.map((image, index) => <img key={image} className={`sj-photo-layer${image === activeImage ? ' active' : ''}`} src={image} alt={image === activeImage ? product.name : ''} decoding="async" fetchPriority={index === 0 ? 'high' : 'auto'} />)}</div>{media.length > 1 && <><button type="button" className="sj-photo-nav prev" aria-label="Previous photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) - 1 + media.length) % media.length])}><ChevronLeft /></button><button type="button" className="sj-photo-nav next" aria-label="Next photo" onClick={() => setActiveImage(media[(Math.max(0, media.indexOf(activeImage)) + 1) % media.length])}><ChevronRight /></button></>}{media.length > 1 && <div className="sj-modal-thumbnails">{media.map((image, index) => <button key={image} className={activeImage === image ? 'active' : ''} onClick={() => setActiveImage(image)} aria-label={`Show product photo ${index + 1}`}><img src={image} alt="" loading="lazy" decoding="async" /></button>)}</div>}</div>
       <div className="sj-modal-content" style={mergedStyle(design, config.content_panel)}><h2>{product.name}</h2><strong className="sj-modal-price">{formatMoney(product.price)}</strong>
-        {product.sizes?.length > 0 && config.size_selector?.visible !== false && <fieldset className="sj-variant"><div><span className="sj-variant-title">{String(config.size_selector?.label || 'Size')}</span><small>{String(config.size_selector?.helper || '')}</small></div><div>{product.sizes.map((item) => <button type="button" className={size === item ? 'selected' : ''} key={item} onClick={() => setSize(item)} aria-pressed={size === item}>{item}</button>)}</div></fieldset>}
-        {product.colors?.length > 0 && config.colour_selector?.visible !== false && <fieldset className="sj-variant colours"><div><span className="sj-variant-title">{String(config.colour_selector?.label || 'Colour')}</span><small>{colour || String(config.colour_selector?.helper || '')}</small></div><div>{product.colors.map((item) => <button type="button" className={colour === item ? 'selected' : ''} key={item} style={{ background: colourValue(item) }} onClick={() => setColour(item)} aria-label={`Choose ${item}`} aria-pressed={colour === item}>{colour === item && <Check />}</button>)}</div></fieldset>}
+        {product.sizes?.length > 0 && sizeSelector.visible !== false && <fieldset className="sj-variant"><div><span className="sj-variant-title">{String(sizeSelector.label || 'Size')}</span><small>{String(sizeSelector.helper || '')}</small></div><div>{product.sizes.map((item) => <button type="button" className={size === item ? 'selected' : ''} key={item} onClick={() => setSize(item)} aria-pressed={size === item}>{item}</button>)}</div></fieldset>}
+        {product.colors?.length > 0 && colourSelector.visible !== false && <fieldset className="sj-variant colours"><div><span className="sj-variant-title">{String(colourSelector.label || 'Colour')}</span><small>{colour || String(colourSelector.helper || '')}</small></div><div>{product.colors.map((item) => <button type="button" className={colour === item ? 'selected' : ''} key={item} style={{ background: colourValue(item) }} onClick={() => setColour(item)} aria-label={`Choose ${item}`} aria-pressed={colour === item}>{colour === item && <Check />}</button>)}</div></fieldset>}
         <fieldset className="sj-fulfilment"><span className="sj-fulfilment-title">Ikufikie aje?</span><div><button type="button" className={fulfilment === 'Walk in Store' ? 'selected' : ''} onClick={() => setFulfilment('Walk in Store')}>Walk in Store</button><button type="button" className={fulfilment === 'Delivery' ? 'selected' : ''} onClick={() => setFulfilment('Delivery')}>Delivery</button></div>{fulfilment === 'Delivery' && <label>Delivery address<textarea value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={300} placeholder="Estate, building and nearest landmark" /></label>}<label>Optional order note<textarea value={orderNote} onChange={(event) => setOrderNote(event.target.value)} maxLength={300} placeholder="Any extra request or question?" /></label></fieldset>
-        {config.delivery_note?.visible !== false && config.delivery_note && <div className="sj-delivery-note" style={mergedStyle(design, config.delivery_note)}><Icon name={config.delivery_note.icon || 'Truck'} /><div><strong>{String(config.delivery_note.title || '')}</strong><span>{String(config.delivery_note.body || '')}</span></div></div>}
+        {deliveryNote.visible !== false && Object.keys(deliveryNote).length > 0 && <div className="sj-delivery-note" style={mergedStyle(design, deliveryNote)}><Icon name={deliveryNote.icon || 'Truck'} /><div><strong>{String(deliveryNote.title || '')}</strong><span>{String(deliveryNote.body || '')}</span></div></div>}
         <button className="sj-modal-order" style={{ background: '#19A45B' }} onClick={() => { setOrderReceived(false); setPhoneStepOpen(true); }}><ShoppingBag /><span>Order</span><ArrowRight /></button>
-        {config.order_note && !/whatsapp/i.test(String(config.order_note)) && <p className="sj-order-note">{String(config.order_note)}</p>}
+        {Boolean(config.order_note) && !/whatsapp/i.test(String(config.order_note)) && <p className="sj-order-note">{String(config.order_note)}</p>}
         <AnimatePresence>{phoneStepOpen && <motion.div className="sj-phone-step-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPhoneStepOpen(false)}><motion.div className="sj-phone-step" initial={{ opacity: 0, y: 18, scale: .98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12 }} onClick={(event) => event.stopPropagation()}><button className="sj-phone-step-close" onClick={() => setPhoneStepOpen(false)} aria-label="Close phone form"><X /></button>{orderReceived ? <div className="sj-order-success"><Check /><h3>Order has been received!</h3><p>We will reply via WhatsApp or call.</p><button className="sj-phone-confirm" onClick={() => { setPhoneStepOpen(false); onClose(); }}>Continue shopping</button></div> : <><h3>Enter WhatsApp number</h3><p>We will contact you via WhatsApp or call to confirm your order.</p><label className="sj-customer-phone"><span>WhatsApp number</span><input type="tel" inputMode="numeric" autoComplete="tel" name="tel" value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value.replace(/[^0-9+\s-]/g, '')); setPhoneError(''); }} placeholder="0712 345 678 or 0112 345 678" aria-invalid={Boolean(phoneError)} autoFocus /><small>{phoneError}</small></label><button className="sj-phone-confirm" disabled={submittingOrder} onClick={async () => { const digits = customerPhone.replace(/\D/g, ''); if (digits.length < 10 || digits.length > 12 || (!digits.startsWith('07') && !digits.startsWith('01') && !digits.startsWith('254'))) { setPhoneError('Enter a valid phone number.'); return; } setSubmittingOrder(true); const saved = await onOrder(product, colour, size, fulfilment, finalNote, customerPhone.trim()); setSubmittingOrder(false); if (saved) { localStorage.setItem('stoyangu-customer-phone', customerPhone.trim()); setOrderReceived(true); } }}>{submittingOrder ? 'Finishing…' : 'Finish'}</button></>}</motion.div></motion.div>}</AnimatePresence>
       </div>
     </motion.div>
@@ -397,7 +421,10 @@ const finalNote = [fulfilment === 'Delivery' && deliveryAddress ? `Delivery addr
 
 function ProductsSection({ section, design, products, onSelectProduct, onView }: { section: Obj; design: Obj; products: Product[]; onSelectProduct: (product: Product) => void; onView: RendererProps['onView'] }) {
   const reduced = Boolean(useReducedMotion());
-  const card = isObj(section.product_card) ? section.product_card : {};
+  const card = asObj(section.product_card);
+  const filterTransition = nestedObj(design.animations, 'product_filter_transition');
+  const filterEase = filterTransition.easing;
+  const gridTransition = { duration: Number(filterTransition.duration_seconds || .45), ease: typeof filterEase === 'string' || Array.isArray(filterEase) ? filterEase : [0.16, 1, 0.3, 1] } as MotionSettings['transition'];
   const [query, setQuery] = useState('');
   const trimmed = query.trim().toLowerCase();
   const visible = trimmed ? products.filter((product) => `${product.name} ${product.colors?.join(' ') || ''} ${product.sizes?.join(' ') || ''}`.toLowerCase().includes(trimmed)) : products;
@@ -408,9 +435,9 @@ function ProductsSection({ section, design, products, onSelectProduct, onView }:
     onView(product.id); onSelectProduct(product);
   };
   return <section id={idSafe(section.id || 'products')} className="sj-section sj-products" style={mergedStyle(design, section.layout, section.style)}>
-    <Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading center"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Products')}</h2>{section.intro && <p>{String(section.intro)}</p>}</Reveal>
+    <Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading center"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Products')}</h2>{Boolean(section.intro) && <p>{String(section.intro)}</p>}</Reveal>
     <div className="sj-product-search" role="search"><Search size={17} aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products…" aria-label="Search products" autoComplete="off" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={15} /></button>}</div>
-    <AnimatePresence mode={design.animations?.product_filter_transition?.presence_mode === 'popLayout' ? 'popLayout' : 'sync'}><motion.div layout key={trimmed} className="sj-product-grid" initial={stateToMotion(design.animations?.product_filter_transition?.incoming)} animate={stateToMotion(design.animations?.product_filter_transition?.active)} exit={stateToMotion(design.animations?.product_filter_transition?.outgoing)} transition={{ duration: Number(design.animations?.product_filter_transition?.duration_seconds || .45) }}>{visible.map((product, index) => <motion.article layout key={product.id} className="sj2-product-card" style={mergedStyle(design, card)} {...animationProps(design, section, 'product_filter_transition', reduced, index)}>
+    <AnimatePresence mode={filterTransition.presence_mode === 'popLayout' ? 'popLayout' : 'sync'}><motion.div layout key={trimmed} className="sj-product-grid" initial={stateToMotion(filterTransition.incoming)} animate={stateToMotion(filterTransition.active)} exit={stateToMotion(filterTransition.outgoing)} transition={gridTransition}>{visible.map((product, index) => <motion.article layout key={product.id} className="sj2-product-card" style={mergedStyle(design, card)} {...animationProps(design, section, 'product_filter_transition', reduced, index)}>
       <button className="sj-product-card-main" onClick={() => openProduct(product)} aria-label={`View ${product.name}`}><div className="sj2-product-image" style={{ borderRadius: safeCss(card.image_radius) }}><img src={product.images?.[0] || product.image_url || '/stoyangu-logo.png'} alt={product.name} loading="lazy" /><span>{String(index + 1).padStart(2, '0')}</span>{(product.images?.length || 0) > 1 && <small>{product.images.length} photos</small>}</div><div className="sj2-product-copy"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong><span className="sj-view-product">{String(card.only_action || 'View product')}<Icon name={card.action_icon || 'ArrowRight'} /></span></div></button>
     </motion.article>)}</motion.div></AnimatePresence>
     {!visible.length && <div className="sj-products-empty"><ShoppingBag /><h3>{trimmed ? `No products match “${query.trim()}”.` : 'New products are coming soon.'}</h3>{trimmed ? <button onClick={() => setQuery('')}>Clear search</button> : null}</div>}
@@ -437,25 +464,33 @@ function ContactSection({ section, design }: { section: Obj; design: Obj }) {
     push('MessageCircle', 'Call', section.phone, typeof section.phone === 'string' ? `tel:${section.phone.replace(/[^\d+]/g, '')}` : undefined);
     push('Mail', 'Email', section.email, typeof section.email === 'string' ? `mailto:${section.email}` : undefined);
     const socials = array(first(section, 'socials', 'social', 'social_links'));
-    socials.forEach((entry) => { const row = isObj(entry) ? entry : { value: entry }; push(String(row.icon || 'Instagram'), String(row.label || 'Social'), first(row, 'handle', 'value', 'text', 'username'), String(first(row, 'url', 'href') || '')); });
+    socials.forEach((item) => { const row = asObj(isObj(item) ? item : { value: item }); push(String(row.icon || 'Instagram'), String(row.label || 'Social'), first(row, 'handle', 'value', 'text', 'username'), String(first(row, 'url', 'href') || '')); });
     contacts = implied;
   }
-  const map = isObj(first(section, 'map_visual', 'map')) ? first(section, 'map_visual', 'map') : {};
+  const map = asObj(first(section, 'map_visual', 'map'));
   const testimonialRaw = first(section, 'testimonial', 'review_quote', 'review', 'testimonial_card');
-  const testimonial = isObj(testimonialRaw) ? testimonialRaw : typeof testimonialRaw === 'string' && testimonialRaw.trim() ? { quote: testimonialRaw } : {};
+  const testimonial = asObj(isObj(testimonialRaw) ? testimonialRaw : typeof testimonialRaw === 'string' && testimonialRaw.trim() ? { quote: testimonialRaw } : undefined);
   if (!testimonial.author && isObj(section.review_author)) testimonial.author = section.review_author;
+  const directionsButton = asObj(map.directions_button);
+  const sectionDirections = asObj(section.directions_button);
   const embed = safeUrl(map.embed_url) || safeUrl(first(section, 'map_embed', 'embed_url', 'google_maps_embed', 'map_iframe_url'));
+  const hasDirections = Boolean(map.directions_url || safeUrl(first(section, 'directions_url', '')) || safeUrl(directionsButton.url) || safeUrl(first(section, 'directions_button', '')) || safeUrl(first(sectionDirections, 'url', 'href')));
+  const directionsTarget = safeHref(map.directions_url || safeUrl(first(sectionDirections, 'url', 'href')) || safeUrl(first(section, 'directions_url', 'directions_button')));
+  const mapAnimation = nestedObj(design.animations, 'contact_map_pin_pulse');
+  const mapStart = asObj(mapAnimation.start);
+  const mapEnd = asObj(mapAnimation.end);
+  const mapEase = mapAnimation.easing;
+  const pulseTransition = { duration: Number(mapAnimation.duration_seconds || 2.2), repeat: Infinity, ease: typeof mapEase === 'string' || Array.isArray(mapEase) ? mapEase : 'easeOut' } as MotionSettings['transition'];
   return <section id={idSafe(section.id || 'contact')} className="sj-section sj-contact" style={mergedStyle(design, section.layout, section.style)}>
-    <div className="sj-contact-copy"><Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Contact')}</h2>{section.body && <p>{String(section.body)}</p>}</Reveal>
-      <div className="sj-contact-list">{contacts.map((item, index) => { const entry = isObj(item) ? item : { value: item }; const href = safeHref(entry.url, ''); const content = <><span><Icon name={entry.icon || 'MapPin'} /></span><div><small>{String(entry.label || '')}</small><strong>{String(entry.value || entry.text || '')}</strong></div>{entry.action_icon && <Icon name={entry.action_icon} size={16} />}</>; return href ? <a key={index} href={href} target={entry.opens_new_tab ? '_blank' : undefined} rel="noreferrer">{content}</a> : <div key={index}>{content}</div>; })}</div>
+    <div className="sj-contact-copy"><Reveal design={design} node={section} animation="section_reveal" className="sj-section-heading"><span>{String(section.eyebrow || '')}</span><h2>{String(first(section, 'headline', 'heading', 'title') || 'Contact')}</h2>{Boolean(section.body) && <p>{String(section.body)}</p>}</Reveal>
+      <div className="sj-contact-list">{contacts.map((item, index) => { const entry = asObj(isObj(item) ? item : { value: item }); const href = safeHref(entry.url, ''); const content = <><span><Icon name={entry.icon || 'MapPin'} /></span><div><small>{String(entry.label || '')}</small><strong>{String(entry.value || entry.text || '')}</strong></div>{entry.action_icon && <Icon name={entry.action_icon} size={16} />}</>; return href ? <a key={index} href={href} target={entry.opens_new_tab ? '_blank' : undefined} rel="noreferrer">{content}</a> : <div key={index}>{content}</div>; })}</div>
     </div>
-    <Reveal design={design} node={map} animation="section_reveal" className="sj-map-wrap" style={mergedStyle(design, map)}>{embed && /^https:\/\/maps\.google\.com/i.test(embed) ? <iframe src={embed} title={String(map.city || 'Store location')} loading="lazy" referrerPolicy="no-referrer-when-downgrade" /> : <div className="sj-map-placeholder"><MapPin /><strong>{String(section.location || map.city || '')}</strong></div>}<motion.span className="sj-map-pulse" animate={reduced ? undefined : { scale: [Number(design.animations?.contact_map_pin_pulse?.start?.scale || .75), Number(design.animations?.contact_map_pin_pulse?.end?.scale || 1.35)], opacity: [Number(design.animations?.contact_map_pin_pulse?.start?.opacity || 1), Number(design.animations?.contact_map_pin_pulse?.end?.opacity || 0)] }} transition={{ duration: Number(design.animations?.contact_map_pin_pulse?.duration_seconds || 2.2), repeat: Infinity, ease: design.animations?.contact_map_pin_pulse?.easing || 'easeOut' }}><MapPin /></motion.span>
-      <div className="sj-map-overlay"><div><small>{String(map.eyebrow || '')}</small><strong>{String(map.city || section.location || '')}</strong><span>{String(map.room_detail || '')}</span></div>{(map.directions_url || safeUrl(first(section, 'directions_url', '')) || safeUrl(map.directions_button?.url) || safeUrl(first(section, 'directions_button', '')) || safeUrl(first(isObj(section.directions_button) ? section.directions_button : {}, 'url', 'href'))) && <a href={safeHref(map.directions_url || safeUrl(first(isObj(section.directions_button) ? section.directions_button : {}, 'url', 'href')) || safeUrl(first(section, 'directions_url', 'directions_button')))} target="_blank" rel="noreferrer">{String(map.directions_button?.label || (isObj(section.directions_button) ? section.directions_button.label : '') || 'Get directions')}<ExternalLink /></a>}</div>
+    <Reveal design={design} node={map} animation="section_reveal" className="sj-map-wrap" style={mergedStyle(design, map)}>{embed && /^https:\/\/maps\.google\.com/i.test(embed) ? <iframe src={embed} title={String(map.city || 'Store location')} loading="lazy" referrerPolicy="no-referrer-when-downgrade" /> : <div className="sj-map-placeholder"><MapPin /><strong>{String(section.location || map.city || '')}</strong></div>}<motion.span className="sj-map-pulse" animate={reduced ? undefined : { scale: [Number(mapStart.scale || .75), Number(mapEnd.scale || 1.35)], opacity: [Number(mapStart.opacity || 1), Number(mapEnd.opacity || 0)] }} transition={pulseTransition}><MapPin /></motion.span>
+      <div className="sj-map-overlay"><div><small>{String(map.eyebrow || '')}</small><strong>{String(map.city || section.location || '')}</strong><span>{String(map.room_detail || '')}</span></div>{hasDirections && <a href={directionsTarget} target="_blank" rel="noreferrer">{String(directionsButton.label || sectionDirections.label || 'Get directions')}<ExternalLink /></a>}</div>
       {Object.keys(testimonial).length > 0 && <motion.blockquote className="sj-testimonial" {...animationProps(design, testimonial, 'testimonial_reveal', reduced)}><div>{Array.from({ length: Math.min(5, Number(testimonial.rating || 0)) }).map((_, index) => <Star key={index} fill="currentColor" />)}</div><p>“{String(testimonial.quote || '')}”</p><cite>{String(testimonial.citation_display || testimonial.author || '')}</cite></motion.blockquote>}
     </Reveal>
   </section>;
 }
-
 const ignoredGeneric = new Set(['style','styles','layout','motion','animation','animations_used','id','name','type','component','kind','nav_label','responsive','accessibility']);
 function GenericValue({ value, design, depth = 0 }: { value: unknown; design: Obj; depth?: number }): React.ReactNode {
   const reduced = Boolean(useReducedMotion());
@@ -471,7 +506,8 @@ function GenericValue({ value, design, depth = 0 }: { value: unknown; design: Ob
   const image = safeUrl(first(value, 'image', 'image_url', 'src', 'photo'));
   const heading = first(value, 'headline', 'heading', 'title');
   const body = first(value, 'body', 'description', 'intro', 'subtitle', 'text');
-  return <motion.article className="sj-generic-card" style={mergedStyle(design, value.style, value.layout, value)} {...animationProps(design, value, array(value.animations_used)[0], reduced)}>{image && <img src={image} alt={String(value.alt || heading || '')} />}{value.eyebrow && <span>{String(value.eyebrow)}</span>}{heading && <h3>{String(heading)}</h3>}{body && <p>{String(body)}</p>}{Object.entries(value).filter(([key, entry]) => !ignoredGeneric.has(key) && !['image','image_url','src','photo','alt','headline','heading','title','body','description','intro','subtitle','text','eyebrow'].includes(key) && typeof entry === 'object').map(([key, entry]) => <GenericValue key={key} value={entry} design={design} depth={depth + 1} />)}</motion.article>;
+  const animationName = array(value.animations_used).find((item): item is string => typeof item === 'string');
+  return <motion.article className="sj-generic-card" style={mergedStyle(design, value.style, value.layout, value)} {...animationProps(design, value, animationName, reduced)}>{image && <img src={image} alt={String(value.alt || heading || '')} />}{Boolean(value.eyebrow) && <span>{String(value.eyebrow)}</span>}{Boolean(heading) && <h3>{String(heading)}</h3>}{Boolean(body) && <p>{String(body)}</p>}{Object.entries(value).filter(([key, entry]) => !ignoredGeneric.has(key) && !['image','image_url','src','photo','alt','headline','heading','title','body','description','intro','subtitle','text','eyebrow'].includes(key) && typeof entry === 'object').map(([key, entry]) => <GenericValue key={key} value={entry} design={design} depth={depth + 1} />)}</motion.article>;
 }
 
 function GenericSection({ section, design }: { section: Obj; design: Obj }) {
@@ -479,12 +515,12 @@ function GenericSection({ section, design }: { section: Obj; design: Obj }) {
 }
 
 function Footer({ design, store, onSectionNavigate }: { design: Obj; store: Store; onSectionNavigate?: (target: string) => void }) {
-  const config = isObj(design.global_ui?.footer) ? design.global_ui.footer : {};
+  const config = nestedObj(design.global_ui, 'footer');
   if (!Object.keys(config).length) return null;
   const navigation = array(first(config, 'navigation', 'links', 'items'));
-  const social = isObj(config.social) ? config.social : {};
+  const social = asObj(config.social);
   const logo = resolveLogo(config, store);
-  return <footer className="sj-footer" style={mergedStyle(design, config)}><div className="sj-footer-brand">{logo ? <img src={logo} alt={`${store.name} logo`} /> : <strong>{String(design.store_name || store.name)}</strong>}<p>{String(config.tagline || '')}</p></div><nav>{navigation.map((item, index) => { const entry = isObj(item) ? item : { label: item }; const target = safeHref(first(entry, 'target', 'href'), `#${idSafe(entry.label)}`); return <a key={index} href={target} onClick={(event) => { if (onSectionNavigate) { event.preventDefault(); onSectionNavigate(target); } }}>{String(entry.label || entry.text || item)}</a>; })}</nav>{Object.keys(social).length > 0 && <a className="sj-footer-social" href={safeHref(social.url, '#')} target="_blank" rel="noreferrer"><Icon name={social.icon || social.platform || 'Instagram'} />{String(social.handle || social.platform || '')}</a>}<small>{String(config.copyright_template || `© {current_year} ${design.store_name || store.name}`).replace('{current_year}', String(new Date().getFullYear()))}</small></footer>;
+  return <footer className="sj-footer" style={mergedStyle(design, config)}><div className="sj-footer-brand">{logo ? <img src={logo} alt={`${store.name} logo`} /> : <strong>{String(design.store_name || store.name)}</strong>}<p>{String(config.tagline || '')}</p></div><nav>{navigation.map((item, index) => { const entry = asObj(isObj(item) ? item : { label: item }); const target = safeHref(first(entry, 'target', 'href'), `#${idSafe(entry.label)}`); return <a key={index} href={target} onClick={(event) => { if (onSectionNavigate) { event.preventDefault(); onSectionNavigate(target); } }}>{String(entry.label || entry.text || item)}</a>; })}</nav>{Object.keys(social).length > 0 && <a className="sj-footer-social" href={safeHref(social.url, '#')} target="_blank" rel="noreferrer"><Icon name={social.icon || social.platform || 'Instagram'} />{String(social.handle || social.platform || '')}</a>}<small>{String(config.copyright_template || `© {current_year} ${design.store_name || store.name}`).replace('{current_year}', String(new Date().getFullYear()))}</small></footer>;
 }
 
 function sectionKind(section: Obj) {
@@ -516,7 +552,7 @@ function designCssBlocks(design: Obj, sections: Obj[]): string[] {
     const css = first(section, 'css', 'custom_css', 'css_overrides');
     if (typeof css === 'string' && css.trim()) blocks.push(`#${idSafe(section.id || 'section')}{\n${css}}`);
   });
-  Object.values(design.global_ui || {}).forEach((part) => {
+  Object.values(asObj(design.global_ui)).forEach((part) => {
     if (isObj(part) && typeof part.css === 'string') blocks.push(part.css);
   });
   return blocks.map(sanitizeCssText).filter(Boolean);
@@ -528,16 +564,20 @@ export default function StorefrontRenderer({ store, products, onOrder, onView }:
   const sections = useMemo(() => {
     const source = first(design, 'sections', 'page_sections', 'content_sections', 'pages');
     const parsed = array(source).filter(isObj);
-    return parsed.length ? parsed : [{ id: 'home', headline: design.store_name || store.name, tagline: 'Karibu. Shop our newest products.' }, { id: 'products', headline: 'Our products', product_card: {} }];
+    return parsed.length ? parsed : [
+      { id: 'home', headline: design.store_name || store.name, tagline: 'Karibu. Shop our newest products.' } as Obj,
+      { id: 'products', headline: 'Our products', product_card: {} } as Obj,
+    ];
   }, [design, store.name]);
-  const productSection = sections.find((section) => sectionKind(section) === 'products') || {};
-  const productPageConfig = isObj(productSection.product_page) ? productSection.product_page : {};
-  const productFromUrl = () => { const id = Number(new URLSearchParams(window.location.search).get('product')); return products.find((product) => product.id === id) || null; };
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(productFromUrl);
-  useEffect(() => { const pop = () => setSelectedProduct(productFromUrl()); window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, [products]);
+  const productSection = sections.find((section) => sectionKind(section) === 'products') || EMPTY_OBJ;
+  const productPageConfig = asObj(productSection.product_page);
+  const productFromUrl = useCallback(() => { const id = Number(new URLSearchParams(window.location.search).get('product')); return products.find((product) => product.id === id) || null; }, [products]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(() => productFromUrl());
+  useEffect(() => { const pop = () => setSelectedProduct(productFromUrl()); window.addEventListener('popstate', pop); return () => window.removeEventListener('popstate', pop); }, [productFromUrl]);
   const selectProduct = (product: Product) => { setSelectedProduct(product); const url = new URL(window.location.href); url.searchParams.set('product', String(product.id)); window.history.pushState({}, '', url); window.scrollTo(0, 0); };
   const leaveProduct = (target = '#products') => { setSelectedProduct(null); const url = new URL(window.location.href); url.searchParams.delete('product'); window.history.replaceState({}, '', url); window.requestAnimationFrame(() => document.querySelector(target)?.scrollIntoView({ behavior: 'smooth' })); };
-  const announcement = isObj(design.global_ui?.announcement_bar) ? design.global_ui.announcement_bar : isObj(design.announcement_bar) ? design.announcement_bar : {};
+  const globalUI = asObj(design.global_ui);
+  const announcement = asObj(globalUI.announcement_bar || design.announcement_bar);
   const specCss = useMemo(() => designCssBlocks(design, sections), [design, sections]);
   return <div className="sj2-storefront" style={themeVars(design)}>
     {specCss.length > 0 && <style dangerouslySetInnerHTML={{ __html: specCss.join('\n') }} />}
@@ -546,10 +586,11 @@ export default function StorefrontRenderer({ store, products, onOrder, onView }:
     <Header design={design} store={store} onSectionNavigate={selectedProduct ? leaveProduct : undefined} />
     <main>{selectedProduct ? <><ProductPageDetails key={selectedProduct.id} product={selectedProduct} config={productPageConfig} design={design} onClose={() => leaveProduct('#products')} onOrder={onOrder} /><SimilarProducts current={selectedProduct} products={products} onSelect={selectProduct} /></> : sections.map((section, index) => {
       const kind = sectionKind(section);
-      if (kind === 'hero') return <HeroSection key={section.id || index} section={section} design={design} store={store} />;
-      if (kind === 'products') return <ProductsSection key={section.id || index} section={section} design={design} products={products} onSelectProduct={selectProduct} onView={onView} />;
-      if (kind === 'contact') return <ContactSection key={section.id || index} section={section} design={design} />;
-      return <GenericSection key={section.id || index} section={section} design={design} />;
+      const sectionKey = String(section.id ?? index);
+      if (kind === 'hero') return <HeroSection key={sectionKey} section={section} design={design} store={store} />;
+      if (kind === 'products') return <ProductsSection key={sectionKey} section={section} design={design} products={products} onSelectProduct={selectProduct} onView={onView} />;
+      if (kind === 'contact') return <ContactSection key={sectionKey} section={section} design={design} />;
+      return <GenericSection key={sectionKey} section={section} design={design} />;
     })}</main>
     <Footer design={design} store={store} onSectionNavigate={selectedProduct ? leaveProduct : undefined} />
     <div className="sj-powered"><img src="/stoyangu-logo.png" alt="StoYangu" /><span>Powered by StoYangu</span></div>

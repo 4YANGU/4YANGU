@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import HtmlEditor from '../components/HtmlEditor';
 import Modal from '../components/Modal';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { apiFetch, storeDomain, storeLink, uploadImage } from '../lib/api';
 import type { Application, DashboardData, Store } from '../types';
 import '../html-storefront.css';

@@ -1,16 +1,4 @@
-import type { ReactNode } from 'react';
-
-export function platformLabel(id: string) {
-  const map: Record<string, string> = {
-    tiktok: 'TikTok',
-    facebook: 'Facebook',
-    instagram: 'Instagram',
-    threads: 'Threads',
-    whatsapp: 'WhatsApp',
-    storefront: 'Store Order',
-  };
-  return map[String(id).toLowerCase()] || String(id);
-}
+import { platformLabel } from '../lib/platforms';
 
 export default function PlatformLogo({ platform, size = 14 }: { platform: string; size?: number }) {
   const id = String(platform).toLowerCase();
@@ -34,6 +22,6 @@ export default function PlatformLogo({ platform, size = 14 }: { platform: string
   return <svg {...frame} aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#5a966e" /><text x="12" y="16" textAnchor="middle" fontSize="11" fontWeight="900" fill="#ffffff" fontFamily="Arial, sans-serif">{(platformLabel(platform)[0] || '?').toUpperCase()}</text></svg>;
 }
 
-export function PlatformBadge({ platform, small = false }: { platform: string; small?: boolean }): ReactNode {
+export function PlatformBadge({ platform, small = false }: { platform: string; small?: boolean }) {
   return <span className={`platform-badge${small ? ' small' : ''}`}><PlatformLogo platform={platform} size={small ? 12 : 14} />{platformLabel(platform)}</span>;
 }

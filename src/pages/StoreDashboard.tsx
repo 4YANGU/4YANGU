@@ -7,7 +7,7 @@ import PostComposer from '../components/PostComposer';
 import ProductModal from '../components/ProductModal';
 import SocialAccountsSettings from '../components/SocialAccountsSettings';
 import SocialInbox from '../components/SocialInbox';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
 import { pushBackHandler } from '../lib/backNavigation';
 import { applyStoreManifest, readSplashCache, saveSplashCache, splashCacheKey } from '../lib/pwa';

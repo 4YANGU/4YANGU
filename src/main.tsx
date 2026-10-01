@@ -39,7 +39,7 @@ if ('serviceWorker' in navigator) {
 }
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault();
-  (window as unknown as { __STOYANGU_NATIVE_INSTALL_PROMPT: Event }).__STOYANGU_NATIVE_INSTALL_PROMPT = event;
+  window.__STOYANGU_NATIVE_INSTALL_PROMPT = event as NonNullable<typeof window.__STOYANGU_NATIVE_INSTALL_PROMPT>;
   window.dispatchEvent(new Event('stoyangu-install-ready'));
 });
 window.addEventListener('appinstalled', () => localStorage.setItem('stoyangu-installed', '1'));

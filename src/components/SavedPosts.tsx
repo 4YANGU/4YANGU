@@ -6,13 +6,25 @@ import type { SocialPost } from '../types';
 export default function SavedPosts({ storeId, onClose }: { storeId: number; onClose: () => void }) {
   const [posts, setPosts] = useState<SocialPost[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const [editing, setEditing] = useState<number | null>(null); const [caption, setCaption] = useState(''); const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { try { const data = await apiFetch<{ posts: SocialPost[] }>(`/api/media?action=social&op=posts&storeId=${storeId}`); setPosts(data.posts.filter(post => post.status === 'draft')); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load drafts.'); } finally { setLoading(false); } }, [storeId]);
-  useEffect(() => { void load(); }, [load]);
+  const loadDrafts = useCallback(() => apiFetch<{ posts: SocialPost[] }>(`/api/media?action=social&op=posts&storeId=${storeId}`), [storeId]);
+  const refreshDrafts = useCallback(async () => {
+    try { const data = await loadDrafts(); setPosts(data.posts.filter(post => post.status === 'draft')); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to load drafts.'); }
+    finally { setLoading(false); }
+  }, [loadDrafts]);
+  useEffect(() => {
+    let active = true;
+    loadDrafts()
+      .then(data => { if (active) setPosts(data.posts.filter(post => post.status === 'draft')); })
+      .catch(e => { if (active) setError(e instanceof Error ? e.message : 'Unable to load drafts.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [loadDrafts]);
   const mutate = async (id: number, remove = false) => {
     if (remove && !window.confirm('Delete this saved draft?')) return;
     if (!remove && !caption.trim()) { setError('A caption is required.'); return; }
     setBusy(true); setError('');
-    try { await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: remove ? 'delete_draft' : 'update_draft', store_id: storeId, id, caption: caption.trim() }) }); await load(); setEditing(null); }
+    try { await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: remove ? 'delete_draft' : 'update_draft', store_id: storeId, id, caption: caption.trim() }) }); await refreshDrafts(); setEditing(null); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to update the draft.'); }
     finally { setBusy(false); }
   };

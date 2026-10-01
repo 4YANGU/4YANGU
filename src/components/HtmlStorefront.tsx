@@ -25,15 +25,14 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
   // handshake), so if nothing arrives within 12s we show a one-tap "reload
   // store" pill that remounts just the frame. Invisible on healthy loads.
   const [frameKey, setFrameKey] = useState(0);
-  const [showReload, setShowReload] = useState(false);
+  const [reloadForFrame, setReloadForFrame] = useState<{ key: number; slug: string; html: string } | null>(null);
   const alive = useRef(false);
 
   useEffect(() => {
     alive.current = false;
-    setShowReload(false);
     if (!stored) return;
     const timer = window.setTimeout(() => {
-      if (!alive.current) setShowReload(true);
+      if (!alive.current) setReloadForFrame({ key: frameKey, slug: store.slug, html: stored });
     }, 12000);
     return () => window.clearTimeout(timer);
   }, [stored, store.slug, frameKey]);
@@ -42,7 +41,7 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || !event.data?.type) return;
       alive.current = true;
-      setShowReload(false);
+      setReloadForFrame(null);
       if (event.data.type === 'stoyangu-phone-get') frame.current?.contentWindow?.postMessage({ type: 'stoyangu-phone-value', value: localStorage.getItem('stoyangu-customer-phone') || '' }, '*');
       if (event.data.type === 'stoyangu-phone-set') localStorage.setItem('stoyangu-customer-phone', String(event.data.value || ''));
       if (event.data.type === 'stoyangu-track') fetch('/api/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: store.slug, event_type: event.data.event_type, product_id: Number(event.data.product_id || 0), session_id: String(event.data.session_id || '') }) }).catch(() => undefined);
@@ -66,7 +65,7 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
 
   const reloadFrame = () => {
     alive.current = false;
-    setShowReload(false);
+    setReloadForFrame(null);
     setFrameKey((key) => key + 1);
   };
 
@@ -82,7 +81,7 @@ export default function HtmlStorefront({ store, products, onOrder, onView }: Pro
         referrerPolicy="no-referrer-when-downgrade"
         onError={reloadFrame}
       />
-      {showReload && (
+      {reloadForFrame?.key === frameKey && reloadForFrame.slug === store.slug && reloadForFrame.html === stored && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 22, zIndex: 60, display: 'flex', justifyContent: 'center', padding: '0 16px', pointerEvents: 'none' }}>
           <button
             type="button"

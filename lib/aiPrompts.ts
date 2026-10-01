@@ -19,4 +19,4 @@ Inside that file, mark the live-injection sockets EXACTLY this way:
 - Anywhere the store's name prints, wrap it with data-store-name. The store's domain uses data-store-domain. Any WhatsApp link element uses data-wa-link.
 - Never invent image URLs for logo/product photos; ask me for the logo/photos or use permanent links only.
 
-The app injects its own runtime into the page; do not add any tracking, forms that POST anywhere, payments, or contact backends. CSS-only motion only (`@keyframes`, transitions) — never JavaScript.`;
+The app injects its own runtime into the page; do not add any tracking, forms that POST anywhere, payments, or contact backends. CSS-only motion only (\`@keyframes\`, transitions) — never JavaScript.`;

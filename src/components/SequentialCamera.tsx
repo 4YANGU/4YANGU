@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, X } from 'lucide-react';
 export default function SequentialCamera({ room, onClose, onUse }: { room: number; onClose: () => void; onUse: (files: File[]) => void }) {
   const finder = useRef<HTMLVideoElement>(null);
-  const stream = useRef<MediaStream | null>(null);
   const previews = useRef(new Set<string>());
   const [shots, setShots] = useState<{ file: File; url: string }[]>([]);
   const [error, setError] = useState('');
@@ -10,17 +9,19 @@ export default function SequentialCamera({ room, onClose, onUse }: { room: numbe
   const [capturing, setCapturing] = useState(false);
   useEffect(() => {
     let alive = true;
+    let activeStream: MediaStream | null = null;
+    const objectUrls = previews.current;
     (async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera unavailable. Please use Gallery instead.');
         const video = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1600 }, height: { ideal: 1600 } } });
         if (!alive) { video.getTracks().forEach(t => t.stop()); return; }
-        stream.current = video;
+        activeStream = video;
         if (finder.current) { finder.current.srcObject = video; await finder.current.play(); }
       } catch { if (alive) setError('Allow camera access in your browser, or use Gallery.'); }
       finally { if (alive) setStarting(false); }
     })();
-    return () => { alive = false; stream.current?.getTracks().forEach(t => t.stop()); previews.current.forEach(URL.revokeObjectURL); };
+    return () => { alive = false; activeStream?.getTracks().forEach(t => t.stop()); objectUrls.forEach(URL.revokeObjectURL); };
   }, []);
   const capture = async () => {
     if (capturing || shots.length >= room || !finder.current?.videoWidth) return;

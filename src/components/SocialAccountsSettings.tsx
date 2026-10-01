@@ -5,7 +5,8 @@ import type { OAuthOutcome } from '../lib/socialOAuth';
 import { apiFetch } from '../lib/api';
 import type { SocialConnection } from '../types';
 import { SOCIAL_PLATFORMS } from '../lib/socialPlatforms';
-import PlatformLogo, { platformLabel } from './PlatformLogo';
+import PlatformLogo from './PlatformLogo';
+import { platformLabel } from '../lib/platforms';
 
 type Picker = {
   platform: string;
