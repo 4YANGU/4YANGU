@@ -26,11 +26,13 @@ export type Store = {
   orders_total: number;
   orders_today: number;
   actual_orders_total?: number;
+  visitors_this_period?: number;
   orders_this_period?: number;
   upkeep_plan?: 'TRIAL' | 'PAID';
   upkeep_due?: 0 | 300;
   upkeep_paid?: boolean;
   management_locked?: boolean;
+  upkeep_period_day?: number;
   upkeep_period_starts_at?: string;
   upkeep_period_ends_at?: string;
   metrics_date: string;
@@ -67,8 +69,10 @@ export type Product = {
   video_url?: string;
   views_total: number;
   views_today: number;
+  views_this_period?: number;
   orders_total: number;
   orders_today: number;
+  orders_this_period?: number;
   metrics_date: string;
   active: boolean;
   created_at: string;
@@ -82,7 +86,7 @@ export type Application = {
   created_at: string;
 };
 
-export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram';
+export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram' | 'threads';
 
 export type SocialConnection = {
   id: number;
@@ -168,4 +172,5 @@ export type DashboardData = {
   notifications?: Array<{ id: number; batch_key?: string; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
   customers?: number;
   customersToday?: number;
+  customersThisPeriod?: number;
 };

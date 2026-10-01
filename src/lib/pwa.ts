@@ -1,10 +1,9 @@
 // Per-store web app install (PWA).
 //
-// index.html links a generic platform manifest so non-store pages stay
-// installable. On the store dashboard routes (/owner, /manage/:id) we swap
-// that link for the store's own manifest (/api/store-pwa/manifest), so
-// Chrome's install prompt shows the store's name and the installed app's
-// home-screen icon is the store's logo.
+// index.html links the generic StoYangu manifest so non-store pages stay
+// installable. On owner dashboard routes we swap that link for the generated
+// StoYangu manifest whose icon uses the current store logo. The operating-
+// system app name remains exactly "StoYangu" everywhere.
 
 export function manifestHref(query: string): string {
   return `/api/store-pwa/manifest?${query}`;
@@ -23,9 +22,8 @@ export function applyStoreManifest(query: string): void {
   link.setAttribute('href', href);
 }
 
-// Removes the generic platform manifest. Used synchronously on /owner while
-// the signed-in store is being resolved, so a generic "StoYangu" app can
-// never be installed by mistake on the store dashboard.
+// Removes the generic manifest while the signed-in store is being resolved,
+// so installation cannot start before the store-logo icon manifest is ready.
 export function clearGenericManifest(): void {
   if (typeof document === 'undefined') return;
   const link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
@@ -50,7 +48,7 @@ export function readSplashCache(key: string): { name: string; logo_url: string }
 export function saveSplashCache(key: string, store: { id?: number; name?: string; slug?: string; logo_url?: string }): void {
   try {
     localStorage.setItem(key, JSON.stringify({ name: store.name || '', logo_url: store.logo_url || '' }));
-  } catch { /* private mode etc. — the splash falls back to the platform logo */ }
+  } catch { /* Private mode: no cached splash is shown until the real store logo loads. */ }
 }
 
 export function splashCacheKey(storeId: string | undefined): string {

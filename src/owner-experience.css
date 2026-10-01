@@ -1,0 +1,271 @@
+/* Owner workspace: sticky store identity, edge-to-edge lists and settings. */
+.owner-sticky-header {
+  position: sticky !important;
+  top: 0;
+  z-index: 55;
+  padding: 14px clamp(16px, 4vw, 28px) 16px !important;
+  box-shadow: 0 8px 28px rgba(7, 17, 29, .22);
+}
+.owner-sticky-header .owner-header-identity {
+  max-width: 1040px;
+  margin: 0 auto;
+  align-items: center;
+  gap: 20px;
+}
+.owner-logo-column {
+  width: 112px;
+  flex: 0 0 112px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+.owner-logo-tools {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.period-counter {
+  color: #dce7e1;
+  font-size: .67rem;
+  font-weight: 850;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.owner-settings-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #eff7f1;
+  background: rgba(255,255,255,.08);
+  padding: 0;
+}
+.owner-settings-button:active { transform: scale(.96); background: rgba(255,255,255,.16); }
+.owner-settings-button svg { width: 15px; height: 15px; }
+.founder-back-button {
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  color: #dce7e1;
+  padding: 5px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .62rem;
+  font-weight: 800;
+}
+.founder-back-button svg { width: 13px; }
+.owner-sticky-header .owner-store-logo { width: 96px; height: 96px; }
+.owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { width: 96px; height: 96px; }
+.owner-sticky-header .owner-header-copy { flex: 1; }
+.owner-sticky-header .owner-header-copy h1 { font-size: 1.55rem; }
+.owner-sticky-header .owner-store-link { margin: 2px 0 5px; }
+.owner-sticky-header .tiktok-stats-row { margin-top: 4px; gap: clamp(18px, 4vw, 34px); }
+
+/* Products and customers are true pages, not cards floating inside a card. */
+.owner-page .owner-main {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0 0 90px;
+}
+.owner-page .products-panel,
+.owner-page .social-inbox {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 24px max(18px, calc((100vw - 1040px) / 2));
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #fff;
+  min-height: calc(100vh - 210px);
+}
+.owner-main-notice {
+  width: min(100% - 32px, 1040px);
+  box-sizing: border-box;
+  margin: 18px auto 0 !important;
+}
+.owner-page .products-panel .dash-section-head,
+.owner-page .social-inbox-head { margin-bottom: 14px; }
+.owner-page .social-thread {
+  border: 0;
+  border-bottom: 1px solid #edf0ec;
+  border-radius: 0;
+  padding: 13px 6px;
+  background: #fff;
+}
+.owner-page .social-thread.unread { background: #f4faf5; }
+.owner-page .social-thread.active { border-color: #d9e4dc; box-shadow: inset 3px 0 0 var(--green); }
+.owner-page .social-thread-list { gap: 0; }
+.owner-page .social-thread-detail { border-radius: 12px; }
+.owner-page .inbox-platform-strip { gap: 5px; }
+.owner-page .inbox-platform-strip svg { width: 23px !important; height: 23px !important; }
+
+/* The native picker intentionally has no capture= attribute: mobile systems
+   offer both camera capture and the existing gallery from the same button. */
+.social-camera { touch-action: manipulation; }
+
+/* Full-screen mobile chat follows the keyboard's visual viewport exactly. */
+@media (max-width: 720px) {
+  .social-threads.fullscreen-chat .social-thread-detail {
+    inset: auto 0 auto 0 !important;
+    top: var(--chat-viewport-top, 0px) !important;
+    height: var(--chat-viewport-height, 100dvh) !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border: 0 !important;
+  }
+  .social-threads.fullscreen-chat .social-thread-detail .social-messages {
+    min-height: 0;
+    max-height: none !important;
+    overscroll-behavior: contain;
+  }
+  .social-threads.fullscreen-chat .social-reply {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 7px 8px max(7px, env(safe-area-inset-bottom)) !important;
+  }
+  .social-threads.fullscreen-chat .social-reply textarea { margin: 0; }
+}
+
+/* Settings is a simple dedicated page rather than another small pop-up. */
+.owner-settings-page {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #f3f5f1;
+  color: var(--navy);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.settings-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  min-height: 66px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: max(11px, env(safe-area-inset-top)) max(16px, calc((100vw - 760px) / 2)) 11px;
+  background: rgba(16,31,48,.98);
+  color: #fff;
+  box-shadow: 0 5px 18px rgba(16,31,48,.18);
+}
+.settings-page-header > button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 50%;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.settings-page-header > button svg { width: 18px; }
+.settings-page-header span { display: block; color: #8fd3a7; font-size: .58rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+.settings-page-header h1 { margin: 0; font-size: 1.18rem; }
+.settings-page-main {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 18px 14px calc(38px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: grid;
+  gap: 14px;
+}
+.settings-section {
+  background: #fff;
+  border: 1px solid #e1e7e2;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 6px 22px rgba(16,31,48,.035);
+  display: grid;
+  gap: 12px;
+}
+.settings-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.settings-section-heading h2 { margin: 2px 0 0; font-size: 1.08rem; color: var(--navy); }
+.settings-section-heading p { margin: 5px 0 0; max-width: 580px; color: #6e7d74; font-size: .7rem; line-height: 1.55; }
+.settings-section-heading > svg { color: var(--green); width: 24px; }
+.settings-account-count { border-radius: 999px; background: #e7f3eb; color: #2e6b44; padding: 5px 9px; font-size: .66rem; font-weight: 900; }
+.lifetime-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.lifetime-grid > div { min-width: 0; padding: 13px 8px; border-radius: 12px; background: #f2f6f2; text-align: center; }
+.lifetime-grid strong { display: block; color: var(--navy); font-size: 1.2rem; overflow-wrap: anywhere; }
+.lifetime-grid span { display: block; margin-top: 3px; color: #718077; font-size: .6rem; font-weight: 750; }
+.settings-period-note { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #edf0ed; padding-top: 11px; font-size: .68rem; color: #718077; }
+.settings-period-note strong { color: #2e6b44; }
+.settings-account-list .account-row { grid-template-columns: 36px 1fr auto; }
+.settings-account-list .account-row > svg { border-radius: 9px; }
+.settings-refresh-accounts { width: max-content; }
+.settings-picker { display: grid; gap: 10px; }
+.settings-action-row {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e1e7e2;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--navy);
+  padding: 11px 12px;
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+.settings-action-row > span:nth-child(2) { min-width: 0; }
+.settings-action-row strong, .settings-action-row small { display: block; }
+.settings-action-row strong { font-size: .76rem; }
+.settings-action-row small { margin-top: 2px; color: #7b8981; font-size: .61rem; }
+.settings-action-row > svg { width: 15px; color: #7b8981; }
+.settings-action-icon { width: 36px; height: 36px; border-radius: 10px; background: #eaf2ec; color: var(--green); display: grid; place-items: center; }
+.settings-action-icon svg { width: 17px; }
+.settings-action-icon.success { background: #def1e4; color: #257343; }
+.settings-action-row.danger { border-color: #f0d8d5; color: #9a403a; }
+.settings-action-row.danger .settings-action-icon { background: #f9e9e7; color: #a74a43; }
+.settings-action-static { cursor: default; }
+.settings-section .notification-setup { margin: 0; box-shadow: none; }
+
+/* Optional video now lives in the real Edit product flow. */
+.product-video-manager { display: grid; gap: 10px; margin: 0 28px 22px; }
+.product-video-preview { position: relative; border-radius: 13px; overflow: hidden; background: #101f30; }
+.product-video-preview video { width: 100%; max-height: 360px; display: block; object-fit: contain; }
+.product-video-preview > button { position: absolute; right: 9px; top: 9px; border: 0; border-radius: 999px; padding: 7px 10px; display: flex; align-items: center; gap: 4px; background: rgba(16,31,48,.88); color: #fff; font-size: .64rem; font-weight: 800; }
+.product-video-preview > button svg { width: 14px; }
+.product-video-upload { min-height: 70px; justify-content: flex-start; text-align: left; }
+.product-video-upload > span { flex: 1; }
+.product-video-upload strong, .product-video-upload small { display: block; }
+.product-video-upload small { margin-top: 3px; color: #7b8981; font-size: .6rem; }
+.product-video-upload > svg:last-child { width: 16px; }
+
+@media (max-width: 560px) {
+  .owner-sticky-header { padding: 9px 12px 11px !important; }
+  .owner-sticky-header .owner-header-identity { gap: 10px; }
+  .owner-logo-column { width: 80px; flex-basis: 80px; gap: 5px; }
+  .owner-sticky-header .owner-store-logo { width: 72px !important; height: 72px !important; padding: 4px; }
+  .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { width: 72px; height: 72px; }
+  .period-counter { font-size: .59rem; }
+  .owner-settings-button { width: 27px; height: 27px; }
+  .owner-sticky-header .owner-header-copy h1 { font-size: 1.15rem; }
+  .owner-sticky-header .owner-store-link { max-width: calc(100vw - 110px); font-size: .59rem; overflow: hidden; }
+  .owner-sticky-header .tiktok-stats-row { gap: clamp(9px, 3vw, 16px); margin-top: 2px; }
+  .owner-sticky-header .tiktok-stat { min-width: 44px; }
+  .owner-sticky-header .tiktok-stat strong { font-size: .88rem; }
+  .owner-sticky-header .tiktok-stat .stat-today { font-size: .48rem; padding: 2px 4px; }
+  .owner-page .products-panel,
+  .owner-page .social-inbox { padding: 16px 12px 96px; min-height: calc(100vh - 150px); }
+  .owner-main-notice { width: calc(100% - 24px); }
+  .owner-page .social-inbox-head-row .inbox-title-row { gap: 6px; }
+  .owner-page .social-inbox-head-row .inbox-title-row h2 { font-size: 1.08rem; }
+  .owner-page .inbox-platform-strip { gap: 3px; }
+  .owner-page .inbox-platform-strip svg { width: 19px !important; height: 19px !important; }
+  .lifetime-grid { grid-template-columns: repeat(2, 1fr); }
+  .settings-section { padding: 15px 12px; border-radius: 14px; }
+  .settings-account-list .account-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
+  .settings-account-list .account-row > svg { width: 32px; height: 32px; }
+  .product-video-manager { margin: 0 18px 20px; }
+}

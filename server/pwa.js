@@ -5,15 +5,16 @@ import { slugVariants } from './stores.js';
 // Per-store web app install (PWA).
 //
 // Replaces the old signed-APK pipeline: the store owner installs the hosted
-// site as a web app from Chrome. Each store gets its OWN manifest, so the
-// installed app is named after the store and its home-screen icon is the
-// store's uploaded logo rendered at full clarity (192/512 px + maskable).
+// site as a web app from Chrome. Every generated manifest is named StoYangu;
+// its home-screen icon uses that owner's store logo at full clarity.
 
 const MANIFEST = (store, slug) => ({
   id: '/owner',
-  name: store.name,
-  short_name: store.name.slice(0, 12) || 'Store',
-  description: `Manage ${store.name} — products, customers and orders.`,
+  // The installed product is always StoYangu. A store's identity belongs in
+  // its in-app header and launch logo, never in the operating-system app name.
+  name: 'StoYangu',
+  short_name: 'StoYangu',
+  description: 'Manage your products, customers, posts and orders with StoYangu.',
   start_url: '/app?source=pwa',
   scope: '/',
   display: 'standalone',

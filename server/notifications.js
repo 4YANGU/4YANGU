@@ -48,8 +48,10 @@ async function sendCustomNotification(req, res, profile) {
 
   // How many installed-owner accounts this reaches (for the response summary).
   const { data: installations, error: installationError } = await supabase.from('pwa_installations').select('id,store_id').eq('installed', true).in('store_id', recipientIds);
-  if (installationError) throw installationError;
-  const installedRecipients = installations?.length || 0;
+  // Installation tracking was added after dashboard notifications. A missing
+  // tracking table must never stop the guaranteed in-app delivery below.
+  if (installationError) console.warn('Could not count installed recipients:', installationError.message);
+  const installedRecipients = installationError ? 0 : (installations?.length || 0);
 
   // 1. Dashboard delivery: every recipient store gets a "Message from StoYangu"
   //    card on its manage page (owners see it even without push allowed).
@@ -67,8 +69,8 @@ async function sendCustomNotification(req, res, profile) {
   if (pushConfigured) {
     webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:info@stoyangu.com', process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
     const { data: subscriptions, error: subscriptionError } = await supabase.from('push_subscriptions').select('*').in('store_id', recipientIds);
-    if (subscriptionError) throw subscriptionError;
-    for (const subscription of subscriptions || []) {
+    if (subscriptionError) console.warn('Could not read push subscriptions:', subscriptionError.message);
+    for (const subscription of subscriptionError ? [] : (subscriptions || [])) {
       try {
         await webpush.sendNotification(subscription.subscription, JSON.stringify({ title, body, url: '/owner', tag: batchKey }));
         sent++;
@@ -128,6 +130,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
     console.error('Notifications API error:', err);
-    return res.status(500).json({ error: 'Could not process daily notifications.' });
+    const detail = err instanceof Error && err.message ? err.message : 'Unexpected notification error.';
+    return res.status(500).json({ error: `Could not process notifications: ${detail}` });
   }
 }

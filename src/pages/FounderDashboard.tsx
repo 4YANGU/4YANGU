@@ -16,7 +16,7 @@ const daysLeft = (store: Store) => {
   const endsAt = store.upkeep_period_ends_at ? new Date(store.upkeep_period_ends_at).getTime() : 0;
   const remaining = endsAt ? Math.max(0, Math.ceil((endsAt - Date.now()) / 86400000)) : 0;
   if (store.upkeep_plan === 'TRIAL') return { label: `FREE TRIAL · ${remaining} days left`, tone: 'active' };
-  return { label: `KES 300 / 30 days · ${remaining} days left`, tone: 'paid' };
+  return { label: `KES 300 / 14 days · ${remaining} days left`, tone: 'paid' };
 };
 
 const CLIENT_STORE_PROMPT = `Design one extraordinary, completely original storefront for this client.
@@ -110,7 +110,7 @@ export default function FounderDashboard() {
   };
   const markPaid = async (store: Store) => {
     try {
-      const confirmed = window.confirm(`Mark ${store.name} as PAID for the current 30 days?\n\nDo this after the owner's KES 300 payment reaches you. It unlocks their product management immediately and covers the current 30-day period.`);
+      const confirmed = window.confirm(`Mark ${store.name} as PAID for the current 14 days?\n\nDo this after the owner's KES 300 payment reaches you. It unlocks their product management immediately and covers the current 14-day period.`);
       if (!confirmed) return;
       await apiFetch('/api/stores', { method: 'PUT', body: JSON.stringify({ action: 'paid', id: store.id }) });
       await load();
