@@ -671,13 +671,15 @@ function PaymentSection({ store, onPaid }: { store: Store; onPaid: () => Promise
         method: 'POST',
         body: JSON.stringify({ phone: normalized }),
       });
-      setMessage(`M-Pesa prompt sent to ${normalized}. Enter your PIN on that phone to complete the KES 200 payment. Waiting for confirmation…`);
+      setMessage(paymentInfo?.sandbox
+        ? `Sandbox prompt requested for ${normalized}. Use only Daraja's documented test flow; never enter a real M-Pesa PIN for a sandbox test. Waiting for the test result…`
+        : `M-Pesa prompt sent to ${normalized}. Confirm the KES 200 amount and enter your PIN only if you want to pay. Waiting for confirmation…`);
 
       for (let attempt = 0; attempt < 45; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 4000));
         const status = await apiFetch<{ status: string; receipt_number?: string | null }>(`/api/stores?daraja=payment-status&paymentId=${encodeURIComponent(request.paymentId)}`);
         if (status.status === 'sandbox_paid') {
-          setMessage(`Sandbox test succeeded${status.receipt_number ? ` · test receipt ${status.receipt_number}` : ''}. No real payment was taken and your store billing was not changed.`);
+          setMessage(`Sandbox test succeeded${status.receipt_number ? ` · test receipt ${status.receipt_number}` : ''}. Your store billing was not changed.`);
           return;
         }
         if (status.status === 'paid') {
@@ -694,7 +696,9 @@ function PaymentSection({ store, onPaid }: { store: Store; onPaid: () => Promise
           return;
         }
       }
-      setMessage('No final confirmation yet. If you entered your PIN, leave this page open for a little longer or check back shortly; a confirmed payment will unlock your store automatically.');
+      setMessage(paymentInfo?.sandbox
+        ? 'No final sandbox result yet. Use only Daraja’s documented test flow; never enter a real M-Pesa PIN for a sandbox test. Check back shortly.'
+        : 'No final confirmation yet. If you entered your PIN, leave this page open for a little longer or check back shortly; a confirmed payment will unlock your store automatically.');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not start the M-Pesa payment. Please try again.');
     } finally {
@@ -716,11 +720,11 @@ function PaymentSection({ store, onPaid }: { store: Store; onPaid: () => Promise
       <button type="submit" className="button-primary" disabled={busy || !canPayNow}><BellRing /> {busy ? 'Waiting for M-Pesa…' : 'Pay KES 200 by M-Pesa'}</button>
     </form>
     {!paymentInfo && <small className="payment-preview-note">Checking the M-Pesa setup…</small>}
-    {paymentInfo && !paymentInfo.configured && <small className="payment-preview-note">M-Pesa is not configured yet. Please ask StoYangu support to finish the sandbox setup.</small>}
+    {paymentInfo && !paymentInfo.configured && <small className="payment-preview-note">M-Pesa is not ready yet. StoYangu must finish setting up its business Till before payments can be requested.</small>}
     {paymentInfo?.configured && !paymentInfo.sandbox && !canPayNow && <small className="payment-preview-note">{nextPeriodAlreadyPaid ? 'Your next 14-day period is already paid. No payment is needed now.' : 'The M-Pesa prompt becomes available during the final three days of your period, or once payment is due.'}</small>}
     {error && <div className="form-error" role="alert">{error}</div>}
     {message && <div className="form-success" role="status">{message}</div>}
-    {paymentInfo?.configured && <small className="payment-preview-note">{paymentInfo.sandbox ? 'Sandbox test only: no real payment will be taken, and successful tests do not change store billing.' : 'An M-Pesa prompt will be sent to the number above. Confirm the KES 200 amount and enter your PIN only if you want to pay. A successful payment is recorded automatically.'}</small>}
+    {paymentInfo?.configured && <small className="payment-preview-note">{paymentInfo.sandbox ? 'Sandbox is for testing: use only Daraja’s documented test phone and test flow. Never enter a real M-Pesa PIN for a sandbox test. Successful sandbox callbacks do not change store billing.' : 'An M-Pesa prompt will be sent to the number above. Confirm the KES 200 amount and enter your PIN only if you want to pay. A successful payment is recorded automatically.'}</small>}
   </section>;
 }
 

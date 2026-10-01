@@ -170,7 +170,7 @@ AI discovery files help compliant crawlers understand the business, but AI answe
 
 ### Daraja sandbox M-Pesa test
 
-The app now sends the owner’s KES 200 / 14-day payment request to Daraja STK Push and records the public callback on the server. It defaults to **sandbox**; production payments are not enabled unless you deliberately change the environment later.
+The app sends the owner’s KES 200 / 14-day payment request through Daraja STK Push and records the public callback on the server. The API environment is selected by `DARAJA_ENV` (which defaults to **sandbox**). Before testing, verify the Vercel environment and credentials. Use only Safaricom’s documented sandbox test phone and test flow for sandbox checks—never send a sandbox request to a real M-Pesa wallet or enter a real PIN just because a page says “sandbox.”
 
 Before testing:
 
@@ -179,14 +179,15 @@ Before testing:
    - `DARAJA_ENV` = `sandbox`
    - `DARAJA_CONSUMER_KEY` = your Daraja sandbox Consumer Key
    - `DARAJA_CONSUMER_SECRET` = your Daraja sandbox Consumer Secret
-   - `DARAJA_SHORTCODE` = your sandbox Business Shortcode
+   - `DARAJA_SHORTCODE` = the sandbox Business/HO shortcode shown by Daraja
+   - `DARAJA_TILL_NUMBER` = the sandbox Buy Goods Till/PartyB value shown by Daraja
    - `DARAJA_PASSKEY` = your sandbox Lipa Na M-Pesa Passkey
    - `DARAJA_CALLBACK_URL` = `https://stoyangu.com/api/stores?daraja=callback`
 3. Use that exact public HTTPS address, not a protected Vercel preview link. Do not paste any credential into chat, this repository, or a browser field. Daraja’s STK **Password** is generated automatically for every request; you do not need a separate static password setting.
 4. Save the environment values and redeploy the latest version from Vercel.
-5. Sign in as a store owner and open **Settings → Payment**. In sandbox, the button is available any time; check the phone number and choose **Pay KES 200 by M-Pesa**, then use Daraja's simulator/test phone flow. A successful sandbox callback is recorded for testing only—it takes no real payment and does not change billing. In production, the prompt is limited to the last three days or when payment is due; billing changes only after a callback matches the saved request, amount, phone and receipt.
+5. Sign in as a store owner and open **Settings → Payment**. In sandbox, the button is available any time. Use only Safaricom’s documented sandbox test number and test flow; do not use a personal/customer number or approve a PIN prompt on a real M-Pesa wallet. A successful sandbox callback is recorded for testing only and does not change store billing. In production, the prompt is limited to the last three days or when payment is due; billing changes only after a callback matches the saved request, amount, phone and receipt. If a real number receives an unexpected prompt, do not enter a PIN—stop testing and verify the Vercel environment and Daraja credentials first.
 
-A declined, cancelled or mismatched payment will not unlock the store. Duplicate callbacks are safe. Keep `DARAJA_ENV=sandbox` while testing; switch to `production` only after Safaricom has approved your live shortcode and you deliberately want to accept real payments. Until sandbox setup is complete, use the founder’s **Mark KES 200 paid** action only after manually verifying a payment.
+A declined, cancelled or mismatched payment will not unlock the store. Duplicate callbacks are safe. Keep `DARAJA_ENV=sandbox` while testing. Switch to `production` only after Safaricom has approved your live Business/HO shortcode and Till, issued production credentials and passkey, and you deliberately want to accept real payments. In production, set `DARAJA_SHORTCODE` to the approved Business/HO shortcode and `DARAJA_TILL_NUMBER` to the approved Till. Until then, use the founder’s **Mark KES 200 paid** action only after manually verifying a payment.
 
 Push notifications require HTTPS, valid VAPID keys, permission from the owner, and a supported browser. On iPhone, install through Safari's Add to Home Screen flow, open the installed app, and allow notifications from **My App** settings.
 

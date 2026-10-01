@@ -31,17 +31,18 @@ function getDarajaConfig() {
   const consumerKey = String(process.env.DARAJA_CONSUMER_KEY || '').trim();
   const consumerSecret = String(process.env.DARAJA_CONSUMER_SECRET || '').trim();
   const shortcode = String(process.env.DARAJA_SHORTCODE || '').trim();
+  const tillNumber = String(process.env.DARAJA_TILL_NUMBER || '').trim();
   const passkey = String(process.env.DARAJA_PASSKEY || '').trim();
   const callbackUrl = String(process.env.DARAJA_CALLBACK_URL || '').trim();
 
-  if (!consumerKey || !consumerSecret || !/^\d{5,12}$/.test(shortcode) || !passkey || !callbackUrl) {
+  if (!consumerKey || !consumerSecret || !/^\d{5,12}$/.test(shortcode) || !/^\d{5,12}$/.test(tillNumber) || !passkey || !callbackUrl) {
     throw new Error('Daraja server configuration is incomplete.');
   }
   let parsedCallback;
   try { parsedCallback = new URL(callbackUrl); } catch { throw new Error('Daraja callback URL is invalid.'); }
   if (parsedCallback.protocol !== 'https:') throw new Error('Daraja callback URL must use HTTPS.');
 
-  return { environment, consumerKey, consumerSecret, shortcode, passkey, callbackUrl, baseUrl: darajaBaseUrl(environment) };
+  return { environment, consumerKey, consumerSecret, shortcode, tillNumber, passkey, callbackUrl, baseUrl: darajaBaseUrl(environment) };
 }
 
 function darajaTimestamp(date = new Date()) {
@@ -67,7 +68,7 @@ async function darajaAccessToken(config) {
   });
   let payload;
   try { payload = await response.json(); } catch { payload = {}; }
-  if (!response.ok || !payload.access_token) throw new Error('Daraja authentication failed. Check the sandbox credentials in Vercel.');
+  if (!response.ok || !payload.access_token) throw new Error('Daraja authentication failed. Check the credentials in Vercel for the configured environment.');
 
   const expiresIn = Math.max(60, Number(payload.expires_in) || 3600);
   cachedAccessToken = String(payload.access_token);
@@ -118,7 +119,7 @@ async function handleStkPush(req, res) {
   try { config = getDarajaConfig(); }
   catch (error) {
     console.error('Daraja configuration error:', error.message);
-    return res.status(503).json({ error: 'M-Pesa sandbox is not configured yet. Please ask StoYangu support for help.' });
+    return res.status(503).json({ error: 'M-Pesa payments are not ready yet. Please ask StoYangu support for help.' });
   }
 
   const context = await ownerContext(req);
@@ -198,10 +199,10 @@ async function handleStkPush(req, res) {
         BusinessShortCode: config.shortcode,
         Password: password,
         Timestamp: timestamp,
-        TransactionType: 'CustomerPayBillOnline',
+        TransactionType: 'CustomerBuyGoodsOnline',
         Amount: PAYMENT_AMOUNT_KES,
         PartyA: phone,
-        PartyB: config.shortcode,
+        PartyB: config.tillNumber,
         PhoneNumber: phone,
         CallBackURL: config.callbackUrl,
         AccountReference: accountReference,
