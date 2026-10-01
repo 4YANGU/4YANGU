@@ -385,8 +385,8 @@ export default function StoreDashboard() {
           const deltaX = touch.clientX - start.x;
           const deltaY = touch.clientY - start.y;
           if (Math.abs(deltaX) < 64 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
-          if (activeTab === 'products' && deltaX > 0) setActiveTab('customers');
-          else if (activeTab === 'customers' && deltaX < 0) setActiveTab('products');
+          if (activeTab === 'products' && deltaX < 0) setActiveTab('customers');
+          else if (activeTab === 'customers' && deltaX > 0) setActiveTab('products');
         }}
         onTouchCancel={() => { dashboardSwipeStartRef.current = null; }}
       >
