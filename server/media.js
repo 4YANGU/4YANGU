@@ -23,7 +23,7 @@
 import supabase from '../lib/db-client.js';
 import { storeOrders } from '../lib/order-fallback.js';
 import { pushStoreEvent } from '../lib/push-events.js';
-import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizKeys, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
+import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, normalizeReplizPlatform, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizKeys, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
 const ALLOWED_POST_MEDIA_TYPES = /^image\/(jpeg|jpg|png|webp|gif)$/i;
@@ -513,6 +513,141 @@ export async function syncStoreInbox(storeId) {
   return { ok: true, mode: 'live', added: fresh.length, errors };
 }
 
+function webhookObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function webhookTimestamp(value) {
+  const date = new Date(value || Date.now());
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+// Process Repliz's documented chat/comment webhook shape directly. This saves
+// an extra API poll on each event; the normal inbox sync remains as a recovery
+// path if an event cannot be matched to one of this workspace's connections.
+export async function processReplizWebhookEvent(payload) {
+  const event = webhookObject(payload);
+  const type = String(event.type || '').trim().toLowerCase();
+  if (!['chat', 'comment'].includes(type)) return { handled: true, ignored: true, reason: 'not-an-inbox-event' };
+
+  const platform = normalizeReplizPlatform(event.platform);
+  if (!platform) return { handled: true, ignored: true, reason: 'unsupported-platform' };
+  const data = webhookObject(event.data);
+  let candidate;
+
+  if (type === 'comment') {
+    const comment = webhookObject(data.comment);
+    const normalized = normalizeReplizComment({
+      ...data,
+      platform,
+      sender: comment.owner || data.sender || data.user || {},
+      comment: comment.text || (typeof data.comment === 'string' ? data.comment : ''),
+      createdAt: data.createdAt || comment.createdAt,
+    }, platform);
+    if (!normalized.body || !normalized.thread_key) return { handled: false };
+    const status = String(normalized.status || 'pending').toLowerCase();
+    candidate = {
+      ...normalized,
+      kind: 'comment',
+      direction: 'in',
+      is_read: status !== 'pending',
+      is_resolved: status === 'resolved',
+    };
+  } else {
+    const chatData = webhookObject(data.chat);
+    const messageData = webhookObject(data.message);
+    const isFromMe = messageData.isFromMe === true || (messageData.isFromMe == null && chatData.lastMessage?.isFromMe === true);
+    if (isFromMe) return { handled: true, ignored: true, reason: 'outgoing-message' };
+    const chatId = String(messageData.chatId || chatData._id || chatData.id || chatData.chatId || '').trim();
+    if (!chatId) return { handled: false };
+    const chat = normalizeReplizChat({ ...chatData, _id: chatId, lastMessage: chatData.lastMessage || messageData }, platform);
+    const normalized = normalizeReplizChatMessage({ ...messageData, isFromMe: false }, chatId, platform, chat.thread_key);
+    if (!normalized.body || !normalized.thread_key) return { handled: false };
+    candidate = {
+      ...normalized,
+      kind: 'dm',
+      sender_name: chat.sender_name || messageData.senderName || 'Follower',
+      sender_avatar: chat.sender_avatar || null,
+      direction: 'in',
+      is_read: false,
+      is_resolved: false,
+      post_ref: '',
+      post_title: '',
+      post_url: '',
+    };
+  }
+
+  const accountIds = [...new Set([
+    event.accountId, event.account_id, data.accountId, data.account_id,
+    data.chat?.accountId, data.message?.accountId,
+  ].map((value) => String(value || '').trim()).filter(Boolean))];
+  if (!accountIds.length) return { handled: false };
+
+  const { data: connections, error: connectionError } = await supabase
+    .from('social_connections')
+    .select('store_id')
+    .eq('platform', platform)
+    .eq('connection_status', 'connected')
+    .in('account_id', accountIds);
+  if (connectionError) throw connectionError;
+  const storeIds = [...new Set((connections || []).map((row) => Number(row.store_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!storeIds.length) return { handled: false };
+
+  const body = String(candidate.body || '').slice(0, 2000);
+  const externalId = String(candidate.external_id || '').slice(0, 200);
+  const createdAt = webhookTimestamp(candidate.created_at);
+  let added = 0;
+  let duplicates = 0;
+
+  for (const storeId of storeIds) {
+    const row = {
+      store_id: storeId,
+      platform,
+      kind: candidate.kind,
+      thread_key: String(candidate.thread_key).slice(0, 250),
+      sender_name: String(candidate.sender_name || 'Follower').slice(0, 200),
+      sender_handle: candidate.sender_handle ? String(candidate.sender_handle).slice(0, 200) : null,
+      body,
+      direction: 'in',
+      is_read: Boolean(candidate.is_read),
+      is_resolved: Boolean(candidate.is_resolved),
+      external_id: externalId || null,
+      post_ref: String(candidate.post_ref || '').slice(0, 200),
+      post_title: String(candidate.post_title || '').slice(0, 300),
+      post_url: String(candidate.post_url || '').slice(0, 1000),
+      sender_avatar: candidate.sender_avatar ? String(candidate.sender_avatar).slice(0, 1000) : null,
+      created_at: createdAt,
+    };
+    let duplicateQuery = supabase.from('social_messages').select('id').eq('store_id', storeId).eq('platform', platform).limit(1);
+    duplicateQuery = externalId
+      ? duplicateQuery.eq('external_id', externalId)
+      : duplicateQuery.eq('thread_key', row.thread_key).eq('body', body).eq('created_at', createdAt);
+    const { data: existing, error: existingError } = await duplicateQuery;
+    if (existingError) throw existingError;
+    if (existing?.length) { duplicates++; continue; }
+
+    const inserted = await supabase.from('social_messages').insert(row);
+    if (inserted.error) {
+      if (/post_ref|post_title|post_url|sender_avatar/.test(inserted.error.message || '')) {
+        const { post_ref, post_title, post_url, sender_avatar, ...legacy } = row;
+        const retry = await supabase.from('social_messages').insert(legacy);
+        if (retry.error) throw retry.error;
+      } else {
+        throw inserted.error;
+      }
+    }
+    await pushStoreEvent(
+      storeId,
+      candidate.kind === 'comment' ? 'New comment' : 'New message',
+      `${row.sender_name}: ${body.slice(0, 110)}`,
+      `inbox-${externalId || `${row.thread_key}-${createdAt}`}`,
+      '/owner?inbox=1',
+    );
+    added++;
+  }
+
+  return { handled: true, ok: true, storesChecked: storeIds.length, added, duplicates };
+}
 
 async function handleSocialSyncInbox(req, res, profile, storeId) {
   void req;

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
-import { syncStoreInbox } from './media.js';
+import { processReplizWebhookEvent, syncStoreInbox } from './media.js';
 
 const todayInKenya = () => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const selectHighlights = (products) => {
@@ -134,6 +134,7 @@ function replizWebhookSecrets(req) {
   const authorization = String(req.headers?.authorization || '');
   const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
   const values = [
+    req.headers?.['x-token'],
     req.headers?.['x-repliz-webhook-secret'],
     req.headers?.['x-webhook-secret'],
     req.headers?.['x-webhook-token'],
@@ -171,16 +172,25 @@ async function handleReplizWebhook(req, res) {
     return res.status(405).json({ error: 'Method not allowed.' });
   }
 
-  // Treat Repliz's event as a wake-up signal. The authenticated Repliz API is
-  // the source of truth, so we do not guess at or store an undocumented event
-  // payload. New rows are deduplicated and push-notified by syncStoreInbox.
+  let payload = req.body;
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload); } catch { payload = null; }
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return res.status(400).json({ error: 'The Repliz webhook must send a JSON event.' });
+  }
+
+  // Repliz sends chat/comment details in its event. Save and alert directly;
+  // use the existing inbox sync only when the event cannot be matched.
+  const result = await processReplizWebhookEvent(payload);
+  if (result.handled) return res.status(200).json(result);
   return await runInboxSync(res);
 }
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Repliz-Webhook-Secret, X-Webhook-Secret, X-Webhook-Token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Token, X-Repliz-Webhook-Secret, X-Webhook-Secret, X-Webhook-Token');
   if (req.method === 'OPTIONS') return res.status(204).end();
   const requestedJob = String(req.query?.job || '');
   if (req.method !== 'GET' && requestedJob !== 'repliz-webhook') return res.status(405).json({ error: 'Method not allowed' });
