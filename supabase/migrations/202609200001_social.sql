@@ -48,4 +48,3 @@ create table if not exists public.social_messages (
 create index if not exists idx_social_accounts_store on public.social_accounts(store_id, platform);
 create index if not exists idx_social_posts_store on public.social_posts(store_id, created_at desc);
 create index if not exists idx_social_messages_store on public.social_messages(store_id, created_at desc);
-create index if not exists idx_social_messages_convo on public.social_messages(store_id, conversation_id);
