@@ -124,6 +124,7 @@ export default function StoreDashboard() {
   const [splashFading, setSplashFading] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
   const splashStartRef = useRef(0);
+  const dashboardSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   // WOYOYO-013: My Products and Messages are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
@@ -364,7 +365,31 @@ export default function StoreDashboard() {
         </div>
       </header>
 
-      <main className="owner-main">
+      <main
+        className="owner-main"
+        onTouchStart={(event) => {
+          const touch = event.touches[0];
+          const target = event.target;
+          const interactiveTarget = target instanceof Element && target.closest('input, textarea, select, a, button:not(.social-thread), [contenteditable="true"], [role="dialog"], .social-thread-detail');
+          if (event.touches.length !== 1 || !touch || interactiveTarget || settingsOpen || editing || passwordOpen || installOpen || composerOpen) {
+            dashboardSwipeStartRef.current = null;
+            return;
+          }
+          dashboardSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+        }}
+        onTouchEnd={(event) => {
+          const start = dashboardSwipeStartRef.current;
+          const touch = event.changedTouches[0];
+          dashboardSwipeStartRef.current = null;
+          if (!start || !touch || settingsOpen || editing || passwordOpen || installOpen || composerOpen) return;
+          const deltaX = touch.clientX - start.x;
+          const deltaY = touch.clientY - start.y;
+          if (Math.abs(deltaX) < 64 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
+          if (activeTab === 'products' && deltaX > 0) setActiveTab('customers');
+          else if (activeTab === 'customers' && deltaX < 0) setActiveTab('products');
+        }}
+        onTouchCancel={() => { dashboardSwipeStartRef.current = null; }}
+      >
         {error && <div className="dashboard-error owner-main-notice">{error}</div>}
         {activeTab === 'customers'
           ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
