@@ -1,4 +1,4 @@
-import { ArrowLeft, BarChart3, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -7,7 +7,7 @@ import PostComposer from '../components/PostComposer';
 import ProductModal from '../components/ProductModal';
 import SocialAccountsSettings from '../components/SocialAccountsSettings';
 import SocialInbox from '../components/SocialInbox';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
 import { pushBackHandler } from '../lib/backNavigation';
 import { applyStoreManifest, readSplashCache, saveSplashCache, splashCacheKey } from '../lib/pwa';
@@ -20,7 +20,9 @@ import '../woyoyo-013.css';
 import '../pwa-splash.css';
 import '../owner-experience.css';
 
-type StoreUpkeep = { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'TRIAL' | 'PAID'; upkeep_due?: 0 | 300; upkeep_paid?: boolean; management_locked?: boolean; upkeep_period_day?: number; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
+type StoreUpkeep = { orders_this_month?: number; orders_this_period?: number; upkeep_plan?: 'TRIAL' | 'PAID'; upkeep_due?: 0 | 200; upkeep_paid?: boolean; management_locked?: boolean; upkeep_period_day?: number; upkeep_period_starts_at?: string; upkeep_period_ends_at?: string };
+type AppInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
+declare global { interface Window { __STOYANGU_NATIVE_INSTALL_PROMPT?: AppInstallPromptEvent | null } }
 
 const isStandaloneApp = () =>
   window.matchMedia('(display-mode: standalone)').matches ||
@@ -34,12 +36,14 @@ const markAppInstalled = () =>
     body: JSON.stringify({ installed: true, user_agent: navigator.userAgent }),
   }).catch((reason) => console.warn('Could not record the installation yet:', reason));
 
-async function enableStoreNotifications(): Promise<'granted' | 'denied' | 'unsupported'> {
-  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
+type NotificationEnableResult = { status: 'granted' | 'denied' | 'unsupported'; testSent?: boolean; message?: string };
+
+async function enableStoreNotifications(): Promise<NotificationEnableResult> {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return { status: 'unsupported', message: 'This browser does not support push notifications.' };
+  const config = await apiFetch<{ publicKey: string; pushConfigured?: boolean }>('/api/subscriptions');
+  if (!config.publicKey || config.pushConfigured === false) return { status: 'unsupported', message: 'Push notifications are not configured for this deployment yet.' };
   const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-  if (permission !== 'granted') return 'denied';
-  const config = await apiFetch<{ publicKey: string }>('/api/subscriptions');
-  if (!config.publicKey) return 'unsupported';
+  if (permission !== 'granted') return { status: 'denied', message: 'Allow notifications in your browser settings to receive alerts.' };
 
   const normalized = config.publicKey.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
@@ -53,7 +57,7 @@ async function enableStoreNotifications(): Promise<'granted' | 'denied' | 'unsup
 
   let registration = await navigator.serviceWorker.getRegistration('/');
   if (!registration) registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-  await navigator.serviceWorker.ready;
+  registration = await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
   const existingKey = subscription?.options.applicationServerKey ? new Uint8Array(subscription.options.applicationServerKey) : null;
   const keyMatches = existingKey
@@ -69,16 +73,18 @@ async function enableStoreNotifications(): Promise<'granted' | 'denied' | 'unsup
     try {
       subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
     } catch (reason) {
-      // A stale browser subscription can cause InvalidStateError even when
-      // getSubscription() briefly returned null. Remove it once and retry.
+      // Clear a stale browser endpoint and retry once.
       const stale = await registration.pushManager.getSubscription();
       if (!stale) throw reason;
       await stale.unsubscribe();
       subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
     }
   }
-  await apiFetch('/api/subscriptions', { method: 'POST', body: JSON.stringify({ subscription: subscription.toJSON(), installed: true, user_agent: navigator.userAgent }) });
-  return 'granted';
+  const saved = await apiFetch<{ testSent?: boolean; testError?: string }>('/api/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify({ subscription: subscription.toJSON(), installed: isStandaloneApp(), user_agent: navigator.userAgent, test: true }),
+  });
+  return { status: 'granted', testSent: Boolean(saved.testSent), message: saved.testError || '' };
 }
 
 export default function StoreDashboard() {
@@ -95,14 +101,14 @@ export default function StoreDashboard() {
     catch { return false; }
   });
   // Web app install: true once Chrome/standalone confirms this phone has the app.
-  const [installedLocally, setInstalledLocally] = useState(() => isStandaloneApp() || localStorage.getItem('stoyangu-installed') === '1');
+  const [installedLocally, setInstalledLocally] = useState(() => isStandaloneApp());
   // Branded launch splash for the INSTALLED app: the store's own logo (the
   // one shown next to the store name) with a loading animation, so the app
   // opens feeling like the store's own product.
-  const [splashInfo, setSplashInfo] = useState(() => readSplashCache(splashCacheKey(storeId)));
+  const [splashInfo] = useState(() => readSplashCache(splashCacheKey(storeId)));
   const [splashFading, setSplashFading] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
-  const splashStartRef = useRef(Date.now());
+  const splashStartRef = useRef(0);
   // WOYOYO-013: My Products and My Customers are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
@@ -112,6 +118,7 @@ export default function StoreDashboard() {
   const [composerOpen, setComposerOpen] = useState(() => sessionStorage.getItem(`stoyangu-composer-${storeId || 'owner'}`) === '1');
   const [socialUnread, setSocialUnread] = useState(0);
   const [inboxKey, setInboxKey] = useState(0);
+  useEffect(() => { splashStartRef.current = Date.now(); }, []);
 
   // Push back handler for store owner navigation (Task 2)
   useEffect(() => {
@@ -151,7 +158,10 @@ export default function StoreDashboard() {
       setLoading(false);
     }
   }, [storeId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
   // Point at the generated StoYangu manifest carrying THIS store's icon.
   // The OS app name remains StoYangu; only the icon and launch animation use
   // the real store logo. Refresh the cache for the next launch's first frame.
@@ -159,10 +169,8 @@ export default function StoreDashboard() {
     const storeData = data?.store;
     if (!storeData) return;
     applyStoreManifest(`slug=${encodeURIComponent(storeData.slug)}`);
-    const info = { name: storeData.name, logo_url: storeData.logo_url };
-    setSplashInfo(info);
     saveSplashCache(splashCacheKey(storeId), { id: storeData.id, name: storeData.name, slug: storeData.slug, logo_url: storeData.logo_url });
-  }, [data?.store?.id, data?.store?.slug, data?.store?.logo_url, storeId]);
+  }, [data?.store, storeId]);
   useEffect(() => { document.title = 'StoYangu'; }, []);
   useEffect(() => { sessionStorage.setItem(`stoyangu-tab-${storeId || 'owner'}`, activeTab); }, [activeTab, storeId]);
   const openSettings = () => { sessionStorage.setItem(`stoyangu-settings-${storeId || 'owner'}`, '1'); setSettingsOpen(true); };
@@ -190,7 +198,9 @@ export default function StoreDashboard() {
   }, []);
   useEffect(() => {
     const id = data?.store?.id;
-    if (id) refreshSocialUnread(id);
+    if (!id) return;
+    const timer = window.setTimeout(() => { void refreshSocialUnread(id); }, 0);
+    return () => window.clearTimeout(timer);
   }, [data?.store?.id, refreshSocialUnread]);
   useEffect(() => {
     const id = data?.store?.id;
@@ -200,36 +210,21 @@ export default function StoreDashboard() {
       await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'sync_inbox', store_id: id }) }).catch(() => undefined);
       await refreshSocialUnread(id);
     };
+    void sync();
     const timer = window.setInterval(sync, 30000);
     return () => window.clearInterval(timer);
   }, [data?.store?.id, activeTab, refreshSocialUnread]);
-  // Web app install tracking. Vfixed: also trust the platform's installation
-  // record. Even on a brand-new browser session with an empty localStorage, a
-  // store whose app is already installed will not be asked to install again
-  // after a refresh.
+  // Record installation only when this browser confirms an actual PWA install.
+  // Notification permission is requested separately from the owner's button.
   useEffect(() => {
     const installed = () => {
       localStorage.setItem('stoyangu-installed', '1');
       setInstalledLocally(true);
-      if (profile?.role === 'owner') {
-        markAppInstalled();
-        enableStoreNotifications().catch((reason) => console.warn('Notification setup will continue from the dashboard reminder:', reason));
-      }
+      if (profile?.role === 'owner') markAppInstalled();
     };
-    if (profile?.role === 'owner') {
-      if (isStandaloneApp()) {
-        localStorage.setItem('stoyangu-installed', '1');
-        setInstalledLocally(true);
-        markAppInstalled();
-      }
-      apiFetch<{ installation?: { installed?: boolean } | null }>('/api/subscriptions')
-        .then((config) => {
-          if (config.installation?.installed) {
-            localStorage.setItem('stoyangu-installed', '1');
-            setInstalledLocally(true);
-          }
-        })
-        .catch(() => undefined);
+    if (profile?.role === 'owner' && isStandaloneApp()) {
+      localStorage.setItem('stoyangu-installed', '1');
+      markAppInstalled();
     }
     window.addEventListener('appinstalled', installed);
     return () => window.removeEventListener('appinstalled', installed);
@@ -249,17 +244,23 @@ export default function StoreDashboard() {
   // Prompt the browser's real StoYangu installation dialog with this store's
   // logo icon. Where no native prompt is exposed, open the short guide.
   const installApp = async () => {
-    const prompt = (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT;
+    if (isStandaloneApp()) {
+      setInstalledLocally(true);
+      localStorage.setItem('stoyangu-installed', '1');
+      if (profile?.role === 'owner') markAppInstalled();
+      return;
+    }
+    const prompt = window.__STOYANGU_NATIVE_INSTALL_PROMPT;
     if (prompt) {
       try {
         await prompt.prompt();
         const choice = await prompt.userChoice;
         if (choice?.outcome === 'accepted') { localStorage.setItem('stoyangu-installed', '1'); setInstalledLocally(true); void markAppInstalled(); }
         else setInstallOpen(true);
-        (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
+        window.__STOYANGU_NATIVE_INSTALL_PROMPT = null;
         return;
       } catch {
-        (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
+        window.__STOYANGU_NATIVE_INSTALL_PROMPT = null;
       }
     }
     setInstallOpen(true);
@@ -277,8 +278,8 @@ export default function StoreDashboard() {
   if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
   const store = data.store;
   const handleStorefrontClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
-    const prompt = (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT;
-    if (profile?.role !== 'owner' || !prompt || localStorage.getItem('stoyangu-installed') === '1' || isStandaloneApp()) return;
+    const prompt = window.__STOYANGU_NATIVE_INSTALL_PROMPT;
+    if (profile?.role !== 'owner' || !prompt || installedLocally || isStandaloneApp()) return;
     event.preventDefault();
     try {
       await prompt.prompt();
@@ -288,13 +289,13 @@ export default function StoreDashboard() {
         setInstalledLocally(true);
         markAppInstalled();
       }
-      (window as any).__STOYANGU_NATIVE_INSTALL_PROMPT = null;
+      window.__STOYANGU_NATIVE_INSTALL_PROMPT = null;
     } catch (reason) { console.warn('Chrome controls when the native installation dialog is available:', reason); }
     window.location.assign(storeLink(store.slug));
   };
   const latestUpdate = data.notifications?.[0];
   const upkeep = store as typeof store & StoreUpkeep;
-  // KES 300 model: past the free first 14 days, management stays locked until
+  // KES 200 model: past the free first 14 days, management stays locked until
   // the current period is paid. The storefront itself keeps serving customers.
   const locked = profile?.role === 'owner' && Boolean(upkeep.management_locked);
   const upkeepOrders = Number(upkeep.orders_this_period ?? upkeep.orders_this_month ?? 0);
@@ -313,10 +314,6 @@ export default function StoreDashboard() {
             {store.logo_url
               ? <img className="owner-store-logo" src={store.logo_url} alt={`${store.name} logo`} />
               : <span className="owner-store-logo-fallback"><BrandLogo compact /></span>}
-            <div className="owner-logo-tools">
-              <span className="period-counter" aria-label={`Day ${cycleDay} of the 14 day period`}>({cycleDay}/14)</span>
-              <button type="button" className="owner-settings-button" onClick={openSettings} aria-label="Open settings" title="Settings"><Settings /></button>
-            </div>
           </div>
           <div className="owner-header-copy">
             <div className="owner-name-row">
@@ -326,12 +323,17 @@ export default function StoreDashboard() {
             <a className="owner-store-link" href={storeLink(store.slug)} target="_blank" rel="noreferrer" onClick={handleStorefrontClick}>
               {storeDomain(store.slug)}<span className="owner-open-storefront-btn"><ExternalLink /></span>
             </a>
-            <div className="tiktok-stats-row" aria-label="Current 14 day analytics">
-              <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div>
-              <div className="tiktok-stat"><strong>{periodVisitors.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div>
-              <div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div>
+            <div className="owner-analytics-label">14-day analytics</div>
+            <div className="owner-analytics-row" aria-label={`Analytics for the current 14-day period, day ${cycleDay} of 14`}>
+              <div className="tiktok-stats-row">
+                <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{data.customersToday || 0} today</small></div>
+                <div className="tiktok-stat"><strong>{periodVisitors.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div>
+                <div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div>
+              </div>
+              <span className="period-counter" aria-label={`Day ${cycleDay} of 14 days`}><small>DAY</small><strong>{cycleDay}<i>/14</i></strong></span>
             </div>
           </div>
+          <button type="button" className="owner-settings-button" onClick={openSettings} aria-label="Open settings" title="Settings"><Settings /></button>
         </div>
       </header>
 
@@ -340,8 +342,8 @@ export default function StoreDashboard() {
         {activeTab === 'customers'
           ? <SocialInbox key={inboxKey} storeId={store.id} storeName={store.name} onActivity={() => refreshSocialUnread(store.id)} />
           : <>
-            {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 300{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
-            {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 300 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
+            {cycleDay >= 12 && !locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Renewal time</span><h3>{upkeep.upkeep_plan === 'TRIAL' ? 'Your free 14 days are ending' : 'Your 14 days are ending'}</h3><p>To keep {store.name} live for the next 14 days, pay KES 200{cycleEnd ? ` before ${cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}. Message StoYangu on WhatsApp 0793 533 683 to pay and continue — it takes one minute.</p></div></section>}
+            {locked && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Payment needed</span><h3>Your free 14 days have ended</h3><p>Good news: {store.name} is still visible to customers and orders can still reach you. Adding, editing and deleting products is locked until you pay KES 200 for the next 14 days. Message StoYangu on WhatsApp 0793 533 683 to pay — your tools unlock immediately.</p></div></section>}
             {latestUpdate && latestUpdate.batch_key?.startsWith('custom-') && <section className="recent-alert daily-update-card owner-main-notice"><BellRing /><div className="daily-update-content"><span className="eyebrow">Message from StoYangu</span><h3>{latestUpdate.title}</h3><p className="custom-message-body">{latestUpdate.body}</p></div></section>}
             <section className="products-panel">
               <div className="dash-section-head">
@@ -385,7 +387,6 @@ export default function StoreDashboard() {
       {settingsOpen && <OwnerSettingsPage
         store={store}
         data={data}
-        cycleDay={cycleDay}
         lifetimeProductViews={lifetimeProductViews}
         installedLocally={installedLocally}
         onClose={closeSettings}
@@ -402,10 +403,9 @@ export default function StoreDashboard() {
 
 }
 
-function OwnerSettingsPage({ store, data, cycleDay, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut }: {
+function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut }: {
   store: Store;
   data: DashboardData;
-  cycleDay: number;
   lifetimeProductViews: number;
   installedLocally: boolean;
   onClose: () => void;
@@ -413,6 +413,16 @@ function OwnerSettingsPage({ store, data, cycleDay, lifetimeProductViews, instal
   onInstall: () => void;
   onSignOut: () => Promise<void>;
 }) {
+  const [installMessage, setInstallMessage] = useState('');
+  const install = () => {
+    if (isStandaloneApp()) {
+      setInstallMessage('StoYangu is already installed on this phone.');
+      return;
+    }
+    setInstallMessage('');
+    onInstall();
+  };
+
   return <div className="owner-settings-page" role="dialog" aria-modal="true" aria-labelledby="owner-settings-title">
     <header className="settings-page-header">
       <button type="button" onClick={onClose} aria-label="Back to store"><ArrowLeft /></button>
@@ -420,84 +430,157 @@ function OwnerSettingsPage({ store, data, cycleDay, lifetimeProductViews, instal
     </header>
     <main className="settings-page-main">
       <section className="settings-section lifetime-analytics" aria-labelledby="lifetime-title">
-        <div className="settings-section-heading"><div><span className="eyebrow">Never resets</span><h2 id="lifetime-title">Lifetime analytics</h2><p>Your main store view starts a fresh analytics period every 14 days. These totals always remain here.</p></div><BarChart3 /></div>
+        <div className="settings-section-heading settings-heading-simple"><h2 id="lifetime-title">Lifetime Store Performance</h2></div>
         <div className="lifetime-grid">
           <div><strong>{Number(data.customers || 0).toLocaleString()}</strong><span>Customers</span></div>
           <div><strong>{Number(store.visitor_total || 0).toLocaleString()}</strong><span>Store visits</span></div>
           <div><strong>{Number(store.actual_orders_total ?? store.orders_total ?? 0).toLocaleString()}</strong><span>Orders</span></div>
           <div><strong>{lifetimeProductViews.toLocaleString()}</strong><span>Product views</span></div>
         </div>
-        <div className="settings-period-note"><span>Current period</span><strong>Day {cycleDay} of 14</strong></div>
       </section>
 
       <SocialAccountsSettings storeId={store.id} />
 
-      <section className="settings-section" aria-labelledby="app-settings-title">
-        <div className="settings-section-heading"><div><span className="eyebrow">This phone</span><h2 id="app-settings-title">App & alerts</h2><p>The app name always stays StoYangu. Your app icon and opening animation use your store logo.</p></div></div>
-        {!installedLocally
-          ? <button type="button" className="settings-action-row" onClick={onInstall}><span className="settings-action-icon"><Download /></span><span><strong>Install StoYangu</strong><small>Add the web app to this phone</small></span><ExternalLink /></button>
-          : <div className="settings-action-row settings-action-static"><span className="settings-action-icon success"><Check /></span><span><strong>StoYangu is installed</strong><small>This phone has the latest web app</small></span></div>}
-        <NotificationSetupCard />
+      <section className="settings-section app-settings-section" aria-labelledby="app-settings-title">
+        <div className="settings-section-heading settings-heading-simple"><h2 id="app-settings-title">My App</h2></div>
+        <button type="button" className="settings-action-row settings-action-simple" onClick={install}>
+          <span className="settings-action-icon"><Download /></span><span><strong>Install app</strong></span><ExternalLink />
+        </button>
+        {installMessage && <small className="settings-inline-status" role="status">{installMessage}</small>}
+        <NotificationPermissionButton installedLocally={installedLocally} />
       </section>
 
+      <PaymentSection store={store} />
+
       <section className="settings-section" aria-labelledby="account-settings-title">
-        <div className="settings-section-heading"><div><span className="eyebrow">Security</span><h2 id="account-settings-title">Account</h2></div></div>
-        <button type="button" className="settings-action-row" onClick={onChangePassword}><span className="settings-action-icon"><KeyRound /></span><span><strong>Change password</strong><small>Choose a new secure password</small></span><ExternalLink /></button>
-        <button type="button" className="settings-action-row danger" onClick={() => void onSignOut()}><span className="settings-action-icon"><LogOut /></span><span><strong>Sign out</strong><small>Sign out of StoYangu on this phone</small></span></button>
+        <div className="settings-section-heading settings-heading-simple"><h2 id="account-settings-title">Account</h2></div>
+        <button type="button" className="settings-action-row settings-action-simple" onClick={onChangePassword}>
+          <span className="settings-action-icon"><KeyRound /></span><span><strong>Change my password</strong></span><ExternalLink />
+        </button>
+        <button type="button" className="settings-action-row settings-action-simple danger" onClick={() => void onSignOut()}>
+          <span className="settings-action-icon"><LogOut /></span><span><strong>Sign out</strong></span>
+        </button>
       </section>
     </main>
   </div>;
 }
 
-function NotificationSetupCard() {
-  const [status, setStatus] = useState<'checking' | 'hidden' | 'ready' | 'install-first' | 'denied' | 'done' | 'error'>('checking');
+function NotificationPermissionButton({ installedLocally }: { installedLocally: boolean }) {
+  const [status, setStatus] = useState<'checking' | 'ready' | 'enabled' | 'denied' | 'unsupported' | 'install-first' | 'error'>('checking');
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
   useEffect(() => {
     let cancelled = false;
-    const decide = (config: { registered?: boolean } | null) => {
-      if (cancelled) return;
-      const iPhone = /iPad|iPhone|iPod/i.test(navigator.userAgent);
-      const standalone = isStandaloneApp();
+    const check = async () => {
+      const iphone = /iPad|iPhone|iPod/i.test(navigator.userAgent);
       const supported = 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
-      if (!supported) return setStatus(iPhone && !standalone ? 'install-first' : 'hidden');
-      if (Notification.permission === 'denied') return setStatus('denied');
-      if (config?.registered && Notification.permission === 'granted') return setStatus('hidden');
-      return setStatus(iPhone && !standalone ? 'install-first' : 'ready');
-    };
-    apiFetch<{ registered?: boolean }>('/api/subscriptions').then(decide).catch(() => decide(null));
-    return () => { cancelled = true; };
-  }, []);
-  const setup = async () => {
-    setBusy(true);
-    try {
-      localStorage.setItem('stoyangu-installed', '1');
-      await markAppInstalled();
-      if ('Notification' in window && Notification.permission === 'default') {
-        const perm = await Notification.requestPermission();
-        if (perm === 'denied') {
-          setStatus('denied');
-          return;
-        }
+      if (!supported) {
+        if (!cancelled) setStatus(iphone && !isStandaloneApp() ? 'install-first' : 'unsupported');
+        return;
       }
+      if (iphone && !isStandaloneApp()) {
+        if (!cancelled) setStatus('install-first');
+        return;
+      }
+      if (Notification.permission === 'denied') {
+        if (!cancelled) setStatus('denied');
+        return;
+      }
+      try {
+        const config = await apiFetch<{ registered?: boolean; pushConfigured?: boolean }>('/api/subscriptions');
+        if (cancelled) return;
+        if (!config.pushConfigured) setStatus('unsupported');
+        else if (config.registered && Notification.permission === 'granted') setStatus('enabled');
+        else setStatus('ready');
+      } catch {
+        if (!cancelled) setStatus('ready');
+      }
+    };
+    void check();
+    return () => { cancelled = true; };
+  }, [installedLocally]);
+
+  const allow = async () => {
+    setBusy(true);
+    setMessage('');
+    try {
       const result = await enableStoreNotifications();
-      setStatus(result === 'granted' ? 'done' : result === 'denied' ? 'denied' : 'error');
+      if (result.status === 'granted') {
+        setStatus('enabled');
+        setMessage(result.testSent ? 'Test alert sent to this phone.' : result.message || 'Permission saved, but the test alert could not be delivered yet.');
+      } else if (result.status === 'denied') {
+        setStatus('denied');
+        setMessage(result.message || 'Allow notifications in your browser settings.');
+      } else {
+        setStatus('unsupported');
+        setMessage(result.message || 'Push notifications are not available here yet.');
+      }
     } catch (reason) {
-      console.warn('Notification setup failed:', reason);
       setStatus('error');
+      setMessage(reason instanceof Error ? reason.message : 'Could not enable notifications. Please try again.');
     } finally {
       setBusy(false);
     }
   };
-  if (status === 'checking' || status === 'hidden') return null;
-  const copy: Record<string, { title: string; body: string }> = {
-    ready: { title: 'Turn on your store alerts', body: 'Allow notifications so new orders, customer DMs, comments, and post confirmations reach your phone instantly.' },
-    'install-first': { title: 'Install the app first', body: 'On your iPhone: tap the Share button in Safari, then choose "Add to Home Screen". Open StoYangu from your home screen, sign in again, and the option to turn on notifications will appear right here.' },
-    denied: { title: 'Notifications are blocked on this phone', body: 'Chrome (Android): tap the lock/settings icon next to the address bar → Permissions → Notifications → Allow. iPhone: Settings → Notifications → StoYangu → Allow Notifications. Then refresh this page.' },
-    done: { title: 'Store alerts are turned on', body: 'New orders, customer DMs, comments, and daily updates will now arrive instantly on this phone. Kazi iendelee!' },
-    error: { title: 'Something interrupted the setup', body: 'Please try again in a moment. If it keeps failing, contact StoYangu support on WhatsApp.' },
+
+  const unavailable = status === 'checking' || status === 'denied' || status === 'unsupported' || status === 'install-first';
+  const label = status === 'enabled' ? 'Notifications allowed' : status === 'denied' ? 'Notifications blocked' : status === 'install-first' ? 'Install app for notifications' : status === 'unsupported' ? 'Notifications unavailable' : 'Allow notifications';
+  return <div className="settings-notification-action">
+    <button type="button" className={`settings-action-row settings-action-simple ${status === 'enabled' ? 'notification-enabled' : ''}`} onClick={allow} disabled={busy || unavailable || status === 'enabled'}>
+      <span className={`settings-action-icon ${status === 'enabled' ? 'success' : ''}`}>{status === 'enabled' ? <Check /> : <BellRing />}</span><span><strong>{busy ? 'Enabling…' : label}</strong></span>
+    </button>
+    {message && <small className="settings-inline-status" role="status">{message}</small>}
+    {status === 'denied' && !message && <small className="settings-inline-status">Allow notifications in your browser's site settings.</small>}
+    {status === 'install-first' && !message && <small className="settings-inline-status">On iPhone, install StoYangu from Safari's Share menu first.</small>}
+    {status === 'unsupported' && !message && <small className="settings-inline-status">Push setup is not configured for this deployment yet.</small>}
+  </div>;
+}
+
+function normalizeKenyanPhone(value: string) {
+  let digits = value.replace(/\D/g, '');
+  if (digits.startsWith('0')) digits = `254${digits.slice(1)}`;
+  if (/^[17]\d{8}$/.test(digits)) digits = `254${digits}`;
+  return /^254[17]\d{8}$/.test(digits) ? `+${digits}` : '';
+}
+
+function PaymentSection({ store }: { store: Store }) {
+  const [phone, setPhone] = useState(store.phone || store.whatsapp || '');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const cycleEnd = store.upkeep_period_ends_at ? new Date(store.upkeep_period_ends_at) : null;
+  const periodState = store.management_locked ? 'Payment due' : store.upkeep_plan === 'TRIAL' ? 'Free trial' : 'Active';
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setMessage('');
+    setError('');
+    const normalized = normalizeKenyanPhone(phone);
+    if (!normalized) {
+      setError('Enter a valid Kenyan M-Pesa number, such as 0712 345 678.');
+      return;
+    }
+    setPhone(normalized);
+    setMessage(`M-Pesa prompt preview prepared for ${normalized}. Daraja is not connected yet, so no payment has been requested or charged.`);
   };
-  const current = copy[status] || copy.ready;
-  return <section className={`notification-setup ${status}`}><div className="notification-setup-icon"><BellRing /></div><div className="notification-setup-copy"><strong>{current.title}</strong><p>{current.body}</p></div>{status === 'ready' && <button className="button-primary" onClick={setup} disabled={busy}>{busy ? 'Turning on…' : 'Turn on notifications'}</button>}{status === 'error' && <button className="button-primary" onClick={setup} disabled={busy}>{busy ? 'Trying…' : 'Try again'}</button>}{status === 'done' && <span className="notification-setup-ok"><Check /> Alerts on</span>}{(status === 'install-first' || status === 'denied') && <button className="dismiss-notify" onClick={() => setStatus('hidden')} aria-label="Hide this reminder"><X /></button>}</section>;
+
+  return <section className="settings-section payment-settings" aria-labelledby="payment-settings-title">
+    <div className="settings-section-heading settings-heading-simple payment-heading">
+      <h2 id="payment-settings-title">Payment</h2><span className="payment-plan-pill">KES 200 · 14 days</span>
+    </div>
+    <div className="payment-period-summary">
+      <strong>KES 200</strong><span>Every 14 days</span><b className={store.management_locked ? 'due' : ''}>{periodState}</b>
+      {cycleEnd && <small>{store.management_locked ? 'Access ended' : store.upkeep_plan === 'TRIAL' ? 'Free until' : 'Renews'} {cycleEnd.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })}</small>}
+    </div>
+    <form className="payment-phone-form" onSubmit={submit}>
+      <label htmlFor="mpesa-phone">M-Pesa phone number</label>
+      <input id="mpesa-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="0712 345 678" />
+      <button type="submit" className="button-primary"><BellRing /> Preview KES 200 M-Pesa prompt</button>
+    </form>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    {message && <div className="form-success" role="status">{message}</div>}
+    <small className="payment-preview-note">Preview only: Safaricom Daraja is not connected, so this will not charge your phone. To pay now, contact StoYangu on WhatsApp 0793 533 683.</small>
+  </section>;
 }
 
 function PasswordChangeModal({ onClose }: { onClose: () => void }) {

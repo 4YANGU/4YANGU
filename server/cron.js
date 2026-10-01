@@ -1,5 +1,6 @@
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
+import { syncStoreInbox } from './media.js';
 
 const todayInKenya = () => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const selectHighlights = (products) => {
@@ -100,6 +101,34 @@ async function runSend(req, res) {
   return res.status(200).json({ processed: jobs?.length || 0, sent, failed });
 }
 
+async function runInboxSync(res) {
+  const { data: connections, error } = await supabase
+    .from('social_connections')
+    .select('store_id')
+    .eq('connection_status', 'connected');
+  if (error) throw error;
+  const storeIds = [...new Set((connections || []).map((connection) => Number(connection.store_id)).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  const outcomes = [];
+  const errors = [];
+
+  // Keep Repliz traffic bounded so a busy network cannot overwhelm the
+  // function, including when an external scheduler triggers it every minute.
+  for (let index = 0; index < storeIds.length; index += 2) {
+    const batch = storeIds.slice(index, index + 2);
+    const settled = await Promise.allSettled(batch.map(async (storeId) => ({ storeId, ...(await syncStoreInbox(storeId)) })));
+    for (let offset = 0; offset < settled.length; offset++) {
+      const item = settled[offset];
+      if (item.status === 'fulfilled') outcomes.push(item.value);
+      else errors.push({ store_id: batch[offset], error: item.reason instanceof Error ? item.reason.message : 'Inbox sync failed.' });
+    }
+  }
+  return res.status(200).json({
+    storesChecked: storeIds.length,
+    added: outcomes.reduce((total, outcome) => total + Number(outcome.added || 0), 0),
+    errors: [...errors, ...outcomes.flatMap((outcome) => (outcome.errors || []).map((message) => ({ store_id: outcome.storeId, error: message })))],
+  });
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -109,13 +138,14 @@ export default async function handler(req, res) {
   try {
     const expected = process.env.CRON_SECRET;
     const provided = req.headers.authorization?.replace('Bearer ', '');
-    if (!expected) return res.status(503).json({ error: 'Daily schedule secret is not configured.' });
+    if (!expected) return res.status(503).json({ error: 'Cron secret is not configured.' });
     if (provided !== expected) return res.status(401).json({ error: 'Unauthorized schedule request.' });
 
     const job = req.query?.job;
     if (job === 'daily') return await runDaily(req, res);
     if (job === 'send') return await runSend(req, res);
-    return res.status(400).json({ error: 'Unknown or missing job. Use ?job=daily | send' });
+    if (job === 'inbox') return await runInboxSync(res);
+    return res.status(400).json({ error: 'Unknown or missing job. Use ?job=daily | send | inbox' });
   } catch (err) {
     console.error('Cron API error:', err);
     return res.status(500).json({ error: 'Could not run the scheduled job.' });

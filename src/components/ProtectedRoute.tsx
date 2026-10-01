@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import BrandLogo from './BrandLogo';
 export default function ProtectedRoute({ role, children }: { role?: 'founder' | 'owner'; children: React.ReactNode }) {
   const { user, profile, loading, error, refreshProfile, signOut } = useAuth();

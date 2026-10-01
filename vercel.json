@@ -1,4 +1,8 @@
 {
+  "crons": [
+    { "path": "/api/cron?job=daily", "schedule": "0 16 * * *" },
+    { "path": "/api/cron?job=send", "schedule": "0 17 * * *" }
+  ],
   "rewrites": [
     {
       "source": "/api/store-pwa/manifest",

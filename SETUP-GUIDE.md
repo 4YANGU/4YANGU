@@ -103,11 +103,11 @@ npx web-push generate-vapid-keys
 
 The downloadable `vercel.json` contains routes, security headers and schedules only. It contains no environment values, so it cannot override the Vercel and Supabase connection.
 
-Push notifications need four separate one-time secrets because Supabase cannot create web-push keys automatically. Add only `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` and `CRON_SECRET` in Vercel after the main website and login are working. These are notification settings, not Supabase connection settings.
+Browser push requires three VAPID settings because Supabase cannot create web-push keys automatically: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. The scheduled endpoints also need a separate `CRON_SECRET`. Add all four in Vercel after the main website and login are working. Reuse `CRON_SECRET` for the optional Supabase background-sync job below; never put it in this repository or share it in chat.
 
-Vercel reads the cron schedule from `vercel.json`: daily review generation is 7:00 PM Nairobi time, and confirmed notifications send at 7:30 PM Nairobi time.
+Vercel reads the scheduled jobs from `vercel.json`. On Hobby, the app keeps only the once-daily review and scheduled-notification jobs; it does not use a Vercel cron to fetch social inbox messages. Opening or manually refreshing **My Customers** syncs connected social messages right away, then the visible inbox checks every 20 seconds. The Products screen syncs when opened and then every 30 seconds. Website orders are saved directly and do not wait for a cron. If an owner is away, opening **My Customers** triggers a fresh sync when they return, so the inbox does not wait for a daily Vercel job.
 
-If Vercel says your plan does not support the configured cron frequency, upgrade to the lowest plan that supports both daily jobs.
+If you also want social inbox push alerts to arrive while all owner dashboards are closed, you can use [Supabase's built-in Cron](https://supabase.com/docs/guides/cron) as a separate background service. In the Supabase Dashboard, open **Integrations → Cron → Create job**, make an HTTP request every minute (`* * * * *`) using **GET** to `https://YOUR-LIVE-DOMAIN/api/cron?job=inbox`, and add the header `Authorization: Bearer YOUR_CRON_SECRET` (use the same secret already saved in Vercel). Save the job and check its **History** for successful responses. It keeps Vercel Hobby-compatible and normally picks up background social messages and push alerts on the next successful run. Supabase Cron can run HTTP jobs as frequently as seconds; once per minute is recommended here to limit repeated Repliz/API calls. Vercel Hobby cron timing is only precise to the hour and does not allow a five-minute Vercel Cron schedule.
 
 ---
 
@@ -159,16 +159,18 @@ AI discovery files help compliant crawlers understand the business, but AI answe
 1. Log in as founder.
 2. Create one test store and owner login.
 3. Log in as that owner on an Android phone using Chrome.
-4. From Manage My Store, press the store link shown under the store name.
-5. Chrome should show its native StoYangu installation prompt before opening the storefront. Accept installation and notifications.
-6. Confirm the welcome notification arrives.
-7. Return to founder dashboard and check that store says **App + alerts ready**.
-8. Add a product with seven photos, edit it, open its storefront and test WhatsApp ordering.
+4. From Manage My Store, use **My App → Install app** and accept Chrome's native install prompt (or follow the browser-specific install guide).
+5. In **My App**, press **Allow notifications** and confirm the test alert arrives on that phone. On iPhone, first use Safari's Share → Add to Home Screen, open the installed app, then allow notifications.
+6. Return to the founder dashboard and check the app/notification status for that store.
+7. Add a product with seven photos, edit it, open its storefront and test WhatsApp ordering.
+8. Send a test DM/comment to a connected social account. With **My Customers** open, it syncs on opening/refresh and then every 20 seconds. To test background delivery, close the owner dashboard and check Supabase Cron **History**; with the optional every-minute job enabled, the message and push alert should be picked up on its next successful run.
 9. At 7 PM, review the combined daily messages. Confirm before 7:30 PM and verify they do not send immediately.
 10. At 7:30 PM, verify each owner receives only their store's message.
 11. Test a custom notification to one store, then to all installed owners.
 
-Push notifications require HTTPS, valid VAPID keys, permission from the owner, and an installed/supported browser. iPhone installation must be done through Safari's Add to Home Screen flow; browser rules do not allow a website to silently grant notification permission.
+The customer-facing KES 200 / 14-day M-Pesa screen is a preview only and does not charge anyone. To activate real STK Push later, follow the **Safaricom M-Pesa setup** checklist on the Founder Dashboard: obtain Daraja sandbox and production credentials, configure server-only environment variables and a verified HTTPS callback, and test payment confirmation before going live. Until then, mark a store paid only after manually verifying the payment.
+
+Push notifications require HTTPS, valid VAPID keys, permission from the owner, and a supported browser. On iPhone, install through Safari's Add to Home Screen flow, open the installed app, and allow notifications from **My App** settings.
 
 ---
 

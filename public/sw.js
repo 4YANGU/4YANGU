@@ -1,5 +1,5 @@
 // WOYOYO-012: never cache API requests, authorization returns, or authenticated navigation.
-const CACHE = 'stoyangu-static-v12';
+const CACHE = 'stoyangu-static-v13';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', event => event.waitUntil((async () => { for (const key of await caches.keys()) if (key !== CACHE) await caches.delete(key); await self.clients.claim(); })()));
 self.addEventListener('fetch', event => {
@@ -21,4 +21,17 @@ self.addEventListener('push', event => {
   if ('vibrate' in self.navigator) options.vibrate = [200, 100, 200];
   event.waitUntil(self.registration.showNotification(data.title || 'StoYangu', options));
 });
-self.addEventListener('notificationclick', event => { event.notification.close(); const target = new URL(event.notification.data?.url || '/owner', self.location.origin); if (target.origin !== self.location.origin) return; event.waitUntil(self.clients.openWindow(target.href)); });
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || '/owner', self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
+    if (existing) {
+      const focused = existing.navigate ? await existing.navigate(target.href) : existing;
+      return focused?.focus();
+    }
+    return self.clients.openWindow(target.href);
+  })());
+});

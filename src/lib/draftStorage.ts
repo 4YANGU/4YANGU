@@ -1,4 +1,4 @@
-export type ComposerDraft = { step: 'video' | 'photo' | 'details'; name: string; price: string; colors: string[]; sizes: string[]; hasColors: boolean; hasSizes: boolean; note: string; caption?: string | null; variantCaption?: string | null; productId?: number | null; files: File[]; savedAt: number };
+export type ComposerDraft = { step: 'media' | 'details' | 'video' | 'photo'; name: string; price: string; colors: string[]; sizes: string[]; hasColors: boolean; hasSizes: boolean; note: string; caption?: string | null; variantCaption?: string | null; productId?: number | null; files: File[]; savedAt: number };
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('stoyangu-composer-v12', 1);

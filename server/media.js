@@ -400,17 +400,20 @@ async function handleSocialResolve(req, res, profile, storeId) {
 // every connected account and merges them into social_messages (new rows
 // only — the inbox never duplicates). The inbox page calls this quietly on
 // a timer so new DMs and comments appear like a social app.
-async function handleSocialSyncInbox(req, res, profile, storeId) {
-  if (replizMode() !== 'live') return res.status(200).json({ ok: true, mode: 'unconfigured', added: 0 });
-  const { data: connections } = await supabase.from('social_connections').select('*').eq('store_id', storeId);
-  const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
+export async function syncStoreInbox(storeId) {
+  if (replizMode() !== 'live') return { ok: true, mode: 'unconfigured', added: 0, errors: [] };
+  const { data: connections, error: connectionError } = await supabase.from('social_connections').select('*').eq('store_id', storeId).eq('connection_status', 'connected');
+  if (connectionError) throw connectionError;
+  const { data: store, error: storeError } = await supabase.from('stores').select('name').eq('id', storeId).single();
+  if (storeError) throw storeError;
   const storeName = store?.name || 'Store';
-  const { data: known } = await supabase
+  const { data: known, error: knownError } = await supabase
     .from('social_messages')
     .select('external_id,thread_key,body,created_at,sender_handle,sender_name,kind,platform')
     .eq('store_id', storeId)
     .order('created_at', { ascending: false })
     .limit(500);
+  if (knownError) throw knownError;
   const seenExternal = new Set((known || []).map((row) => row.external_id).filter(Boolean));
   const seenCombo = new Set((known || []).map((row) => `${row.thread_key}::${row.body}::${row.created_at}`));
   const knownComments = (known || []).filter(row => row.kind === 'comment');
@@ -498,7 +501,7 @@ async function handleSocialSyncInbox(req, res, profile, storeId) {
     const attempt = await supabase.from('social_messages').insert(fresh);
     if (attempt.error) {
       if (/post_ref|post_title|post_url|sender_avatar/.test(attempt.error.message || '')) {
-        const legacy = fresh.map(({ post_ref, post_title, post_url, sender_avatar, ...rest }) => rest); // eslint-disable-line @typescript-eslint/no-unused-vars
+        const legacy = fresh.map(({ post_ref, post_title, post_url, sender_avatar, ...rest }) => rest);
         const retry = await supabase.from('social_messages').insert(legacy);
         if (retry.error) throw retry.error;
       } else {
@@ -507,7 +510,14 @@ async function handleSocialSyncInbox(req, res, profile, storeId) {
     }
     await Promise.allSettled(fresh.filter(row => row.direction === 'in').map(row => pushStoreEvent(storeId, row.kind === 'comment' ? 'New comment' : 'New message', `${row.sender_name}: ${row.body.slice(0, 110)}`, `inbox-${row.external_id || `${row.thread_key}-${row.created_at}`}`, '/owner?inbox=1')));
   }
-  return res.status(200).json({ ok: true, mode: 'live', added: fresh.length, errors });
+  return { ok: true, mode: 'live', added: fresh.length, errors };
+}
+
+
+async function handleSocialSyncInbox(req, res, profile, storeId) {
+  void req;
+  void profile;
+  return res.status(200).json(await syncStoreInbox(storeId));
 }
 
 async function handleSocial(req, res) {

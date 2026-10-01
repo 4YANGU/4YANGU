@@ -1,19 +1,12 @@
-import { Check, RefreshCw, Unlink } from 'lucide-react';
+import { RefreshCw, Unlink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearOAuthReturn, getPendingState, resumeConnection, startConnection } from '../lib/socialOAuth';
 import type { OAuthOutcome } from '../lib/socialOAuth';
 import { apiFetch } from '../lib/api';
 import type { SocialConnection } from '../types';
 import { SOCIAL_PLATFORMS } from '../lib/socialPlatforms';
-import PlatformLogo, { platformLabel } from './PlatformLogo';
-
-type SetupStatus = {
-  keysPresent: boolean;
-  apiReachable: boolean | null;
-  apiDetail: string;
-  tableReady: boolean | null;
-  tableDetail: string;
-};
+import PlatformLogo from './PlatformLogo';
+import { platformLabel } from '../lib/platforms';
 
 type Picker = {
   platform: string;
@@ -33,17 +26,17 @@ export default function SocialAccountsSettings({ storeId, onConnectionsChanged }
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [setup, setSetup] = useState<SetupStatus | null>(null);
-  const [setupLoading, setSetupLoading] = useState(false);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [picking, setPicking] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<SocialConnection | null>(null);
+  const [disconnectText, setDisconnectText] = useState('');
   const oauthHandled = useRef(false);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
       const result = await apiFetch<{ connections: SocialConnection[] }>(`/api/media?action=social&op=status&storeId=${storeId}`);
-      setConnections((result.connections || []).filter((connection) => SOCIAL_PLATFORMS.includes(connection.platform.toLowerCase() as (typeof SOCIAL_PLATFORMS)[number])));
+      setConnections((result.connections || []).filter((connection) => connection.connection_status === 'connected' && SOCIAL_PLATFORMS.includes(connection.platform.toLowerCase() as (typeof SOCIAL_PLATFORMS)[number])));
       onConnectionsChanged?.();
     } catch (reason) {
       if (!quiet) setError(reason instanceof Error ? reason.message : 'Could not load connected accounts.');
@@ -52,21 +45,10 @@ export default function SocialAccountsSettings({ storeId, onConnectionsChanged }
     }
   }, [storeId, onConnectionsChanged]);
 
-  const checkSetup = useCallback(async () => {
-    setSetupLoading(true);
-    try {
-      setSetup(await apiFetch<SetupStatus>(`/api/media?action=social&op=setup_check&storeId=${storeId}`));
-    } catch {
-      setSetup(null);
-    } finally {
-      setSetupLoading(false);
-    }
-  }, [storeId]);
-
   useEffect(() => {
-    const timer = window.setTimeout(() => { void load(); void checkSetup(); }, 0);
+    const timer = window.setTimeout(() => { void load(); }, 0);
     return () => window.clearTimeout(timer);
-  }, [load, checkSetup]);
+  }, [load]);
 
   const acceptOAuth = useCallback((outcome: OAuthOutcome) => {
     if (outcome.status === 'needs_pick' && outcome.choices?.length) {
@@ -140,7 +122,7 @@ export default function SocialAccountsSettings({ storeId, onConnectionsChanged }
   };
 
   const disconnect = async (connection: SocialConnection) => {
-    if (busyKey || !window.confirm(`Disconnect ${platformLabel(connection.platform)}? Posting and replies to it will stop.`)) return;
+    if (busyKey || disconnectText.trim() !== 'disconnect') return;
     setBusyKey(`disconnect-${connection.id}`);
     setError('');
     try {
@@ -149,6 +131,8 @@ export default function SocialAccountsSettings({ storeId, onConnectionsChanged }
         body: JSON.stringify({ op: 'disconnect', store_id: storeId, connection_id: connection.id }),
       });
       setNotice(`${platformLabel(connection.platform)} disconnected.`);
+      setDisconnecting(null);
+      setDisconnectText('');
       await load(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not disconnect that account.');
@@ -178,24 +162,15 @@ export default function SocialAccountsSettings({ storeId, onConnectionsChanged }
   };
 
   return <section className="settings-section social-account-settings" aria-labelledby="connected-accounts-title">
-    <div className="settings-section-heading">
-      <div>
-        <span className="eyebrow">Social media</span>
-        <h2 id="connected-accounts-title">Connected accounts</h2>
-        <p>Connect once. StoYangu will use these accounts for posting, comments and replies.</p>
-      </div>
-      <span className="settings-account-count">{connections.length}/{SOCIAL_PLATFORMS.length}</span>
+    <div className="settings-section-heading connected-account-heading">
+      <h2 id="connected-accounts-title">Connected Accounts</h2>
+      <button type="button" className="settings-refresh-accounts" onClick={syncAccounts} disabled={syncing} aria-label="Refresh connected accounts" title="Refresh connected accounts">
+        <RefreshCw className={syncing ? 'spin' : ''} />
+      </button>
     </div>
 
     {error && <div className="form-error" role="alert">{error}</div>}
     {!error && notice && <div className="form-success" role="status">{notice}</div>}
-    {setupLoading && <small className="composer-hint">Checking connection setup…</small>}
-    {setup && (!setup.keysPresent || setup.apiReachable === false || setup.tableReady === false) && <div className="form-error setup-error">
-      <strong>Setup needed before connecting:</strong>
-      {!setup.keysPresent && <span>• Add the Repliz access and secret keys in the deployment settings.</span>}
-      {setup.keysPresent && setup.apiReachable === false && <span>• The social connection service did not answer ({setup.apiDetail || 'check the keys and redeploy'}).</span>}
-      {setup.tableReady === false && <span>• Run the latest social connection database migration once.</span>}
-    </div>}
 
     {picker ? <div className="settings-picker">
       <p className="form-intro">Choose the Facebook Page to connect.</p>
@@ -212,17 +187,20 @@ export default function SocialAccountsSettings({ storeId, onConnectionsChanged }
         const connection = connections.find((item) => item.platform.toLowerCase() === platform);
         return <div className="account-row" key={platform}>
           <PlatformLogo platform={platform} size={34} />
-          <div><strong>{connection?.account_handle || platformLabel(platform)}</strong><small>{connection ? 'Connected' : `Connect your ${platformLabel(platform)} account`}</small></div>
+          <div><strong>{platformLabel(platform)}</strong><small>{connection ? 'Connected' : 'Not yet connected'}</small></div>
           {connection
-            ? <button type="button" className="social-unlink" onClick={() => disconnect(connection)} disabled={busyKey === `disconnect-${connection.id}`} aria-label={`Disconnect ${platformLabel(platform)}`}><Unlink /></button>
-            : <button type="button" className="social-link" onClick={() => connect(platform)} disabled={loading || busyKey === `connect-${platform}`}>{busyKey === `connect-${platform}` ? 'Connecting…' : 'Connect'}</button>}
+            ? disconnecting?.id === connection.id
+              ? <div className="disconnect-confirm-inline">
+                  <label htmlFor={`disconnect-${connection.id}`}>Type <strong>disconnect</strong> to confirm</label>
+                  <input id={`disconnect-${connection.id}`} autoComplete="off" value={disconnectText} onChange={(event) => setDisconnectText(event.target.value)} placeholder="disconnect" />
+                  <button type="button" className="social-unlink" onClick={() => disconnect(connection)} disabled={busyKey === `disconnect-${connection.id}` || disconnectText.trim() !== 'disconnect'}>{busyKey === `disconnect-${connection.id}` ? 'Disconnecting…' : 'Disconnect'}</button>
+                  <button type="button" className="secondary-button" onClick={() => { setDisconnecting(null); setDisconnectText(''); }}>Cancel</button>
+                </div>
+              : <button type="button" className="social-unlink" onClick={() => { setDisconnecting(connection); setDisconnectText(''); setError(''); }} disabled={Boolean(busyKey)} aria-label={`Disconnect ${platformLabel(platform)}`} title="Disconnect account"><Unlink /></button>
+            : <button type="button" className="social-link" onClick={() => connect(platform)} disabled={loading || Boolean(busyKey)}>{busyKey === `connect-${platform}` ? 'Connecting…' : 'Connect'}</button>}
         </div>;
       })}
     </div>}
 
-    <button type="button" className="secondary-button settings-refresh-accounts" onClick={syncAccounts} disabled={syncing}>
-      <RefreshCw className={syncing ? 'spin' : ''} /> {syncing ? 'Refreshing…' : 'Refresh accounts'}
-      {!syncing && <Check />}
-    </button>
   </section>;
 }

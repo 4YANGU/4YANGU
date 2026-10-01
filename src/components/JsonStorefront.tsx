@@ -4,14 +4,16 @@ import { Component, CSSProperties, useEffect, useMemo, useRef, useState } from '
 import type { Product, Store } from '../types';
 import { formatMoney } from '../lib/api';
 
-type AnyRecord = Record<string, any>;
+type AnyRecord = Record<string, unknown>;
 type EngineProps = { store: Store; products: Product[]; onOrder: (product: Product, color?: string, size?: string) => void; onView: (id: number) => void };
+type MotionSpecProps = Pick<React.ComponentProps<typeof motion.div>, 'initial' | 'animate' | 'transition'>;
 
 const isObject = (value: unknown): value is AnyRecord => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const asRecord = (value: unknown): AnyRecord => isObject(value) ? value : {};
 const words = (value: unknown) => String(value ?? '').replace(/[_-]+/g, ' ').trim();
 const keyOf = (obj: AnyRecord, ...keys: string[]) => keys.find((key) => obj[key] !== undefined);
 const take = (obj: AnyRecord, ...keys: string[]) => { const key = keyOf(obj, ...keys); return key ? obj[key] : undefined; };
-const asArray = (value: unknown): any[] => Array.isArray(value) ? value : isObject(value) ? Object.entries(value).map(([id, item]) => isObject(item) ? ({ id, ...item }) : ({ id, value: item })) : value == null ? [] : [value];
+const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : isObject(value) ? Object.entries(value).map(([id, item]) => isObject(item) ? ({ id, ...item }) : ({ id, value: item })) : value == null ? [] : [value];
 const safeUrl = (value: unknown) => {
   const text = String(value || '');
   if (/^\/(?!\/)/.test(text) || /^https:\/\//i.test(text) || /^data:image\/(png|jpeg|webp);base64,/i.test(text)) return text;
@@ -52,7 +54,8 @@ function toStyle(source: unknown): CSSProperties {
 }
 
 function mergedStyle(node: AnyRecord): CSSProperties {
-  const candidates = [node.style, node.styles?.base, node.visual_style, node.css, node.layout, node.positioning];
+  const styles = asRecord(node.styles);
+  const candidates = [node.style, styles.base, node.visual_style, node.css, node.layout, node.positioning];
   const combined = Object.assign({}, ...candidates.map(toStyle));
   if (node.background && !isObject(node.background)) combined.background = safeCssValue(node.background);
   if (node.colour || node.color) combined.color = safeCssValue(node.colour || node.color);
@@ -72,7 +75,11 @@ function responsiveCss(node: AnyRecord, path: string, breakpoints: AnyRecord): s
   const defaults: AnyRecord = { mobile: 0, sm: 480, tablet: 768, md: 768, desktop: 1024, lg: 1024, wide: 1280 };
   return Object.entries(responsive).map(([name, rules]) => {
     const px = Number(breakpoints?.[name] ?? defaults[name] ?? String(name).replace(/\D/g, '')) || 0;
-    const style = toStyle(isObject(rules) && (rules.style || rules.layout) ? { ...(rules.layout || {}), ...(rules.style || {}) } : rules);
+    const hasNestedStyle = isObject(rules) && Boolean(rules.style || rules.layout);
+    const layout = isObject(rules) ? asRecord(rules.layout) : {};
+    const componentStyle = isObject(rules) ? asRecord(rules.style) : {};
+    const styleSource = hasNestedStyle ? { ...layout, ...componentStyle } : rules;
+    const style = toStyle(styleSource);
     const declarations = Object.entries(style).map(([key, value]) => `${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${String(value)}!important`).join(';');
     const query = name === 'mobile' ? `(max-width:${Number(breakpoints?.tablet ?? defaults.tablet) - 0.02}px)` : `(min-width:${px}px)`;
     return declarations ? `@media ${query}{.${className}{${declarations}}}` : '';
@@ -91,7 +98,7 @@ function getSections(design: AnyRecord): AnyRecord[] {
   const sections = asArray(direct).filter(isObject);
   if (sections.length) return sections;
   const ignored = new Set(['theme','design_tokens','tokens','global_ui','globalUI','header','footer','navigation','breakpoints','metadata']);
-  const inferred = Object.entries(design).filter(([key, value]) => !ignored.has(key) && isObject(value)).map(([id, value]) => ({ id, ...value }));
+  const inferred = Object.entries(design).filter(([key, value]) => !ignored.has(key) && isObject(value)).map(([id, value]) => ({ id, ...asRecord(value) }));
   return inferred.length ? inferred : [{ id: 'hero', type: 'hero' }, { id: 'products', type: 'products' }, { id: 'contact', type: 'contact' }];
 }
 
@@ -112,8 +119,8 @@ function collectFontUrls(design: AnyRecord) {
 }
 
 function themeVariables(design: AnyRecord): CSSProperties {
-  const theme = take(design, 'theme', 'design_tokens', 'tokens') || {};
-  const colors = take(theme, 'colors', 'colours', 'palette') || take(design, 'colors', 'colours') || {};
+  const theme = asRecord(take(design, 'theme', 'design_tokens', 'tokens'));
+  const colors = asRecord(take(theme, 'colors', 'colours', 'palette') || take(design, 'colors', 'colours'));
   const out: AnyRecord = {};
   if (isObject(colors)) Object.entries(colors).forEach(([name, value]) => {
     const safe = safeCssValue(isObject(value) ? value.value : value);
@@ -125,44 +132,50 @@ function themeVariables(design: AnyRecord): CSSProperties {
   out['--store-primary'] = safeCssValue(isObject(primary) ? primary.value : primary) || '#5a966e';
   out['--store-bg'] = safeCssValue(isObject(surface) ? surface.value : surface) || '#fffdf7';
   out['--store-text'] = safeCssValue(isObject(text) ? text.value : text) || '#17261f';
-  const typography = take(theme, 'typography', 'type') || design.typography || {};
+  const typography = asRecord(take(theme, 'typography', 'type') || design.typography);
   out['--store-font'] = safeCssValue(take(typography, 'body_font', 'bodyFont', 'font_family', 'fontFamily')) || 'Inter, system-ui, sans-serif';
   out['--store-heading-font'] = safeCssValue(take(typography, 'heading_font', 'headingFont', 'display_font', 'displayFont')) || out['--store-font'];
   return out as CSSProperties;
 }
 
-function motionSpec(node: AnyRecord, reduced: boolean) {
+function motionSpec(node: AnyRecord, reduced: boolean): MotionSpecProps {
   if (reduced) return { initial: false };
   const spec = take(node, 'motion', 'animation', 'animations', 'transition') || {};
   if (!isObject(spec)) return {};
-  const initial = isObject(spec.initial) ? spec.initial : undefined;
-  const animate = isObject(spec.animate) ? spec.animate : undefined;
+  const transitionSpec = asRecord(spec.transition);
+  const initial = isObject(spec.initial) ? spec.initial as MotionSpecProps['initial'] : undefined;
+  const animate = isObject(spec.animate) ? spec.animate as MotionSpecProps['animate'] : undefined;
+  const rawEase = spec.easing ?? spec.ease ?? transitionSpec.ease;
+  const ease = typeof rawEase === 'string' ? rawEase : Array.isArray(rawEase) ? rawEase : 'easeOut';
+  const repeatType = spec.repeat_type === 'reverse' || spec.repeat_type === 'mirror' ? spec.repeat_type : 'loop';
   const transition = {
-    duration: Number(spec.duration ?? spec.transition?.duration ?? 0.55),
-    delay: Number(spec.delay ?? spec.transition?.delay ?? 0),
-    ease: spec.easing ?? spec.ease ?? spec.transition?.ease ?? 'easeOut',
+    duration: Number(spec.duration ?? transitionSpec.duration ?? 0.55),
+    delay: Number(spec.delay ?? transitionSpec.delay ?? 0),
+    ease,
     repeat: spec.infinite || spec.loop === 'infinite' ? Infinity : Number(spec.repeat || 0),
-    repeatType: spec.repeat_type || 'loop',
-  } as AnyRecord;
+    repeatType,
+  } as MotionSpecProps['transition'];
   return { initial: initial || (animate ? { opacity: 0 } : undefined), animate, transition };
 }
+
+const motionTags = { div: motion.div, section: motion.section, article: motion.article, aside: motion.aside, nav: motion.nav, main: motion.main, header: motion.header, footer: motion.footer };
 
 function AnimatedBox({ node, path, children, className, breakpoints, as = 'div' }: { node: AnyRecord; path: string; children: React.ReactNode; className?: string; breakpoints: AnyRecord; as?: string }) {
   const reduced = Boolean(useReducedMotion());
   const ref = useRef<HTMLDivElement>(null);
-  const spec = take(node, 'motion', 'animation', 'animations') || {};
   useEffect(() => {
+    const spec = take(node, 'motion', 'animation', 'animations') || {};
     if (reduced || !ref.current || !isObject(spec) || !Array.isArray(spec.keyframes) || !ref.current.animate) return;
     const frames = spec.keyframes.map(toStyle);
     const animation = ref.current.animate(frames as Keyframe[], { duration: Math.max(1, Number(spec.duration || 2)) * 1000, delay: Number(spec.delay || 0) * 1000, iterations: spec.infinite ? Infinity : Number(spec.iterations || 1), easing: String(spec.easing || 'ease-in-out'), fill: 'both' });
     return () => animation.cancel();
-  }, [spec, reduced]);
-  const MotionTag = (motion as AnyRecord)[as] || motion.div;
+  }, [node, reduced]);
+  const MotionTag = motionTags[as as keyof typeof motionTags] || motion.div;
   const css = responsiveCss(node, path, breakpoints);
   return <><MotionTag ref={ref} className={`${classId(path)} ${className || ''}`} style={mergedStyle(node)} {...motionSpec(node, reduced)}>{children}</MotionTag>{css && <style>{css}</style>}</>;
 }
 
-function Slideshow({ node, path, breakpoints }: { node: AnyRecord; path: string; breakpoints: AnyRecord }) {
+function Slideshow({ node }: { node: AnyRecord }) {
   const slides = asArray(take(node, 'slides', 'images', 'items')).filter((item) => item != null);
   const [index, setIndex] = useState(0);
   const timing = Number(take(node, 'auto_advance_timing', 'autoAdvance', 'interval', 'duration') || 5) * 1000;
@@ -172,18 +185,20 @@ function Slideshow({ node, path, breakpoints }: { node: AnyRecord; path: string;
     return () => window.clearInterval(timer);
   }, [slides.length, timing]);
   if (!slides.length) return null;
-  const slide = isObject(slides[index]) ? slides[index] : { image: slides[index] };
+  const slide = asRecord(isObject(slides[index]) ? slides[index] : { image: slides[index] });
   const image = safeUrl(take(slide, 'image', 'image_url', 'src', 'url'));
+  const title = take(slide, 'title');
+  const caption = take(slide, 'caption');
   return <div className="json-slideshow" style={mergedStyle(node)}>
     <AnimatePresence mode="wait"><motion.div key={index} initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: .45 }} className="json-slide">
       {image && <img src={image} alt={String(take(slide, 'alt', 'title', 'caption') || '')} />}
-      {(slide.title || slide.caption) && <div className="json-slide-caption"><strong>{slide.title}</strong><span>{slide.caption}</span></div>}
+      {Boolean(title || caption) && <div className="json-slide-caption"><strong>{String(title || '')}</strong><span>{String(caption || '')}</span></div>}
     </motion.div></AnimatePresence>
     {slides.length > 1 && <div className="slide-controls"><button onClick={() => setIndex((index - 1 + slides.length) % slides.length)} aria-label="Previous slide"><ChevronLeft /></button><span>{index + 1} / {slides.length}</span><button onClick={() => setIndex((index + 1) % slides.length)} aria-label="Next slide"><ChevronRight /></button></div>}
   </div>;
 }
 
-function ProductCard({ product, onOrder, onView, cardStyle, collectionMotion, index }: { product: Product; onOrder: EngineProps['onOrder']; onView: EngineProps['onView']; cardStyle?: AnyRecord; collectionMotion?: AnyRecord; index: number }) {
+function ProductCard({ product, onOrder, onView, cardStyle, collectionMotion, index }: { product: Product; onOrder: EngineProps['onOrder']; onView: EngineProps['onView']; cardStyle?: unknown; collectionMotion?: unknown; index: number }) {
   const ref = useRef<HTMLElement>(null);
   const reduced = Boolean(useReducedMotion());
   const [color, setColor] = useState(product.colors?.[0] || '');
@@ -195,9 +210,10 @@ function ProductCard({ product, onOrder, onView, cardStyle, collectionMotion, in
     observer.observe(element);
     return () => observer.disconnect();
   }, [product.id, onView]);
-  const animation = motionSpec({ motion: collectionMotion }, reduced) as AnyRecord;
-  const stagger = Number(collectionMotion?.stagger ?? collectionMotion?.stagger_children ?? 0);
-  const transition = animation.transition ? { ...animation.transition, delay: Number(animation.transition.delay || 0) + index * stagger } : undefined;
+  const animation = motionSpec({ motion: collectionMotion }, reduced);
+  const collectionMotionSettings = asRecord(collectionMotion);
+  const stagger = Number(collectionMotionSettings.stagger ?? collectionMotionSettings.stagger_children ?? 0);
+  const transition = isObject(animation.transition) ? { ...animation.transition, delay: Number(animation.transition.delay || 0) + index * stagger } as MotionSpecProps['transition'] : undefined;
   return <motion.article ref={ref} className="store-product-card" style={toStyle(cardStyle)} initial={animation.initial} animate={animation.animate} transition={transition}>
     <div className="store-product-image"><img src={product.image_url || '/stoyangu-logo.png'} alt={product.name} loading="lazy" /></div>
     <div className="store-product-copy"><h3>{product.name}</h3><strong>{formatMoney(product.price)}</strong>
@@ -218,7 +234,7 @@ function ProductCollection({ node, products, onOrder, onView }: { node: AnyRecor
   const body = take(node, 'body', 'description', 'subtitle');
   const collectionMotion = take(node, 'motion', 'animation', 'animations');
   return <div className="store-products-wrap">
-    {(heading || eyebrow || body) && <div className="store-products-heading">{eyebrow && <span className="json-eyebrow">{String(eyebrow)}</span>}{heading && <h2>{String(heading)}</h2>}{body && <p>{String(body)}</p>}</div>}
+    {Boolean(heading || eyebrow || body) && <div className="store-products-heading">{Boolean(eyebrow) && <span className="json-eyebrow">{String(eyebrow)}</span>}{Boolean(heading) && <h2>{String(heading)}</h2>}{Boolean(body) && <p>{String(body)}</p>}</div>}
     <div className="store-search" role="search"><Search size={16} aria-hidden="true" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products…" aria-label="Search products" autoComplete="off" />{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14} /></button>}</div>
     <div className="store-product-grid" style={toStyle(take(node, 'grid', 'grid_style', 'layout'))}>
       {visible.map((product, index) => <ProductCard key={product.id} product={product} onOrder={onOrder} onView={onView} cardStyle={cardStyle} collectionMotion={collectionMotion} index={index} />)}
@@ -249,7 +265,7 @@ function GenericNode({ node, path, store, products, onOrder, onView, breakpoints
   if (depth > 80) return <div className="json-depth-safe">{deepPrimitiveContent(node).map((value, index) => <p key={index}>{value}</p>)}</div>;
   const identity = words(take(node, 'type', 'component', 'kind', 'id', 'name') || '').toLowerCase();
   if (identity === 'shop' || /(^|\s)(products?|catalog|collection|product grid|product collection)(\s|$)/.test(identity)) return <ProductCollection node={node} products={products} onOrder={onOrder} onView={onView} />;
-  if (/slide|carousel/.test(identity) || Array.isArray(node.slides)) return <Slideshow node={node} path={path} breakpoints={breakpoints} />;
+  if (/slide|carousel/.test(identity) || Array.isArray(node.slides)) return <Slideshow node={node} />;
   const title = take(node, 'headline', 'heading', 'title', 'name');
   const eyebrow = take(node, 'eyebrow', 'kicker', 'overline', 'label');
   const body = take(node, 'body', 'description', 'subtitle', 'subheading', 'copy');
@@ -268,14 +284,14 @@ function GenericNode({ node, path, store, products, onOrder, onView, breakpoints
   const semantic = String(take(node, 'semantic_tag', 'element', 'tag') || (/hero/.test(identity) ? 'section' : 'div')).toLowerCase();
   const allowedTags = new Set(['section','article','aside','div','nav','main','header','footer']);
   const as = allowedTags.has(semantic) ? semantic : 'div';
-  const access = isObject(node.accessibility) ? node.accessibility : isObject(node.aria) ? node.aria : {};
+  const access = asRecord(isObject(node.accessibility) ? node.accessibility : node.aria);
   return <AnimatedBox node={node} path={path} className={`json-node json-${identity.replace(/[^a-z0-9]+/g, '-') || 'block'}`} breakpoints={breakpoints} as={as}>
     {eyebrow != null && <span className="json-eyebrow">{String(eyebrow)}</span>}
-    {title != null && <h2 aria-label={access.label || node.aria_label}>{String(title)}</h2>}
+    {title != null && <h2 aria-label={String(access.label || node.aria_label || '')}>{String(title)}</h2>}
     {body != null && <p className="json-body">{String(body)}</p>}
     {text != null && text !== body && <p className="json-text">{String(text)}</p>}
     {image && <img className="json-image" src={image} alt={alt} loading={/hero/.test(identity) ? 'eager' : 'lazy'} />}
-    {cta && (typeof cta === 'string' ? <a className="json-button" href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={toStyle(cta.style)} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(take(cta, 'label', 'text', 'title') || 'Shop now')}</a>)}
+    {Boolean(cta) && (typeof cta === 'string' ? <a className="json-button" href="#products">{cta}</a> : isObject(cta) && <a className="json-button" style={toStyle(cta.style)} href={safeHref(take(cta, 'href', 'url', 'target'), '#products')}>{String(take(cta, 'label', 'text', 'title') || 'Shop now')}</a>)}
     {extras.map(([key, value]) => <p key={key} className="json-extra" data-field={key}>{String(value)}</p>)}
     {nested.map(([key, value]) => <div key={key} style={['items','cards','columns','blocks'].includes(key) ? { display: 'contents' } : undefined} className={`json-nested json-nested-${key.replace(/[^a-z0-9]/gi, '-')}`}><GenericNode node={value} path={`${path}.${key}`} store={store} products={products} onOrder={onOrder} onView={onView} breakpoints={breakpoints} depth={depth + 1} /></div>)}
   </AnimatedBox>;
@@ -294,11 +310,11 @@ class StorefrontBoundary extends Component<{ children: React.ReactNode; store: S
 export default function JsonStorefront({ store, products, onOrder, onView }: EngineProps) {
   const design = useMemo(() => normaliseDesign(store.design_json), [store.design_json]);
   const sections = useMemo(() => getSections(design), [design]);
-  const global = take(design, 'global_ui', 'globalUI', 'site_chrome') || {};
+  const global = asRecord(take(design, 'global_ui', 'globalUI', 'site_chrome'));
   const announcement = take(global, 'announcement_bar', 'announcementBar') || design.announcement_bar;
-  const header = take(global, 'header', 'navigation') || design.header || {};
-  const footer = take(global, 'footer') || design.footer || {};
-  const breakpoints = take(design, 'breakpoints', 'responsive_breakpoints') || take(design.theme || {}, 'breakpoints') || {};
+  const header = asRecord(take(global, 'header', 'navigation') || design.header);
+  const footer = asRecord(take(global, 'footer') || design.footer);
+  const breakpoints = asRecord(take(design, 'breakpoints', 'responsive_breakpoints') || take(asRecord(design.theme), 'breakpoints'));
   const [menu, setMenu] = useState(false);
   const fontUrls = useMemo(() => collectFontUrls(design), [design]);
   useEffect(() => {
@@ -310,7 +326,7 @@ export default function JsonStorefront({ store, products, onOrder, onView }: Eng
     return () => links.forEach((link) => link?.remove());
   }, [fontUrls]);
   const navItems = asArray(take(header, 'navigation', 'nav', 'links', 'items'));
-  const announcementParts = asArray(take(announcement || {}, 'segments', 'items', 'messages', 'text') ?? announcement);
+  const announcementParts = asArray(take(asRecord(announcement), 'segments', 'items', 'messages', 'text') ?? announcement);
   return <StorefrontBoundary store={store} products={products} onOrder={onOrder} onView={onView}>
     <div className="json-storefront" style={{ ...themeVariables(design), ...toStyle(take(design, 'style', 'global_style')) }}>
       {announcementParts.length > 0 && <div className="store-announcement" style={mergedStyle(isObject(announcement) ? announcement : {})}>{announcementParts.map((part, index) => <span key={index}>{String(isObject(part) ? take(part, 'text', 'label', 'message') || '' : part)}</span>)}</div>}

@@ -29,7 +29,7 @@ export type Store = {
   visitors_this_period?: number;
   orders_this_period?: number;
   upkeep_plan?: 'TRIAL' | 'PAID';
-  upkeep_due?: 0 | 300;
+  upkeep_due?: 0 | 200;
   upkeep_paid?: boolean;
   management_locked?: boolean;
   upkeep_period_day?: number;
@@ -170,6 +170,8 @@ export type DashboardData = {
   products?: Product[];
   orders?: Order[];
   notifications?: Array<{ id: number; batch_key?: string; title: string; body: string; status: string; created_at: string; winner_product?: Product | null; needs_product?: Product | null }>;
+  productCounts?: Record<number, number>;
+  installations?: Record<number, { store_id: number; installed: boolean; notifications_enabled: boolean; welcome_sent_at?: string | null; last_seen_at?: string }>;
   customers?: number;
   customersToday?: number;
   customersThisPeriod?: number;

@@ -99,7 +99,6 @@ export default function VideoRecorder({ onDone, onClose, title, instructions, sk
     };
     start();
     return () => { cancelled = true; stopStream(); window.clearInterval(timerRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facing]);
 
   useEffect(() => () => { if (reviewUrl) URL.revokeObjectURL(reviewUrl); }, [reviewUrl]);

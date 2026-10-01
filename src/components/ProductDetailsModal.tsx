@@ -65,6 +65,23 @@ export default function ProductDetailsModal({ product, locked = false, onClose, 
         </div>
 
         <div className="product-details-body">
+          {/* Product Video if present */}
+          {product.video_url && (
+            <div className="product-details-video-box">
+              <div className="video-box-header">
+                <strong><Video size={16} /> Product Video</strong>
+              </div>
+              <video
+                src={product.video_url}
+                poster={product.image_url}
+                controls
+                playsInline
+                preload="metadata"
+                className="product-details-video-player"
+              />
+            </div>
+          )}
+
           {/* Main Photo Gallery */}
           <div className="product-details-gallery">
             <div className="product-details-main-image-wrap">
@@ -116,23 +133,6 @@ export default function ProductDetailsModal({ product, locked = false, onClose, 
               </div>
             )}
           </div>
-
-          {/* Product Video if present */}
-          {product.video_url && (
-            <div className="product-details-video-box">
-              <div className="video-box-header">
-                <strong><Video size={16} /> Product Video</strong>
-              </div>
-              <video
-                src={product.video_url}
-                poster={product.image_url}
-                controls
-                playsInline
-                preload="metadata"
-                className="product-details-video-player"
-              />
-            </div>
-          )}
 
           {/* Product Information */}
           <div className="product-details-info">

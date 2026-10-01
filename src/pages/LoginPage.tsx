@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
 import supabase from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { signInWithGoogle } from '../lib/googleAuth';
 
 export default function LoginPage() {
@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const { profile, error: profileError, refreshProfile } = useAuth(); const navigate = useNavigate(); const location = useLocation();
 
-  useEffect(() => { if (profile) { const from = location.state?.from; const allowed = typeof from === 'string' && (from.startsWith('/owner') || profile.role === 'founder' && /^\/(founder|manage\/\d+)(\?|$)/.test(from)); navigate(allowed ? from : profile.role === 'founder' ? '/founder' : '/owner', { replace: true }); } }, [profile, navigate]);
+  useEffect(() => { if (profile) { const from = location.state?.from; const allowed = typeof from === 'string' && (from.startsWith('/owner') || profile.role === 'founder' && /^\/(founder|manage\/\d+)(\?|$)/.test(from)); navigate(allowed ? from : profile.role === 'founder' ? '/founder' : '/owner', { replace: true }); } }, [profile, navigate, location.state]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError('');
@@ -28,7 +28,7 @@ export default function LoginPage() {
       const credentials = { email: isEmail ? trimmed.toLowerCase() : ownerAuthEmail(phone!), password };
       const { error: authError } = await supabase.auth.signInWithPassword(credentials);
       if (authError) throw authError;
-    } catch (e: any) {
+    } catch {
       setError('Your WhatsApp number or password is not correct. Please try again.');
     } finally { setBusy(false); }
   };
