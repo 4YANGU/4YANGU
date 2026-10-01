@@ -298,12 +298,12 @@ export default function StoreDashboard() {
     <div className={`store-splash${splashFading ? ' fading' : ''}`} role="status" aria-label="Opening your store workspace">
       <div className="store-splash-logo-wrap">
         <img className="store-splash-logo" src={splashStoreLogo} alt="" />
-        <span className="store-splash-ring" aria-hidden="true" />
       </div>
     </div>
   ) : null;
-  if (loading) return <>{splashEl}<div className="owner-loading" role="status"><RefreshCw className="spin" /><p>Getting your store ready…</p></div></>;
-  if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status"><BrandLogo /><div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
+  const storeLoadingLogo = splashStoreLogo ? <img className="store-splash-logo" src={splashStoreLogo} alt="" /> : null;
+  if (loading) return <>{splashEl}<div className="owner-loading" role="status">{storeLoadingLogo}<RefreshCw className="spin" /><p>Getting your store ready…</p></div></>;
+  if (!data?.store) return <>{splashEl}<div className="owner-loading" role="status">{storeLoadingLogo}<div className="dashboard-error">{error || 'This store could not be loaded.'}<button onClick={load}><RefreshCw /> Try again</button></div></div></>;
   const store = data.store;
   const handleStorefrontClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
     const prompt = window.__STOYANGU_NATIVE_INSTALL_PROMPT;

@@ -19,7 +19,7 @@ const MANIFEST = (store, slug) => ({
   scope: '/',
   display: 'standalone',
   display_override: ['standalone', 'minimal-ui'],
-  background_color: '#ffffff',
+  background_color: '#101f30',
   theme_color: '#101f30',
   orientation: 'portrait-primary',
   prefer_related_applications: false,
