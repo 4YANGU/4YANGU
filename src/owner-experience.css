@@ -67,7 +67,7 @@
 .owner-sticky-header .owner-store-link { margin: 2px 0 5px; }
 .owner-sticky-header .tiktok-stats-row { margin-top: 4px; gap: clamp(18px, 4vw, 34px); }
 
-/* Products and Messages are true pages, not cards floating inside a card. */
+/* Products and My Customers are true pages, not cards floating inside a card. */
 .owner-page .owner-main {
   width: 100%;
   max-width: none;
@@ -377,27 +377,42 @@
   50% { box-shadow: 0 0 0 4px rgba(120,190,150,.12), 0 0 23px rgba(120,190,150,.36), inset 0 0 15px rgba(120,190,150,.13); }
 }
 
-/* Messages stays part of the document's natural scroll on desktop. A long
-   inbox used to be trapped in a fixed-height inner list with no page scroll. */
+/* Desktop keeps the customer list and open conversation side by side. The
+   list scrolls on its own, so choosing a low conversation never hides the reply box. */
 @media (min-width: 721px) {
   .owner-page,
   .owner-page .owner-main,
   .owner-page .social-inbox { overflow: visible; }
   .owner-page .social-inbox { height: auto; }
-  .owner-page .social-threads { align-items: start; }
+  .owner-page .social-threads {
+    align-items: stretch;
+    grid-template-columns: minmax(280px, 36%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 18px;
+    height: clamp(360px, calc(100dvh - 390px), 760px);
+    min-height: 0;
+  }
   .owner-page .social-thread-list {
+    min-height: 0;
     max-height: none !important;
-    overflow: visible !important;
-    padding-right: 0;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 8px;
   }
   .owner-page .social-thread-detail {
-    max-height: min(640px, calc(100vh - 240px));
-    min-height: 480px;
+    box-sizing: border-box;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    min-width: 0;
   }
+  .owner-page .social-thread-detail .social-detail-head { flex: 0 0 auto; }
   .owner-page .social-thread-detail .social-messages {
     min-height: 0;
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 

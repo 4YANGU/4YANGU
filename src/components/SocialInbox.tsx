@@ -285,12 +285,12 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     }
   };
 
-  if (loading) return <section className="social-inbox" aria-label="Messages"><div className="social-loading"><RefreshCw className="spin" /> Opening your inbox…</div></section>;
+  if (loading) return <section className="social-inbox" aria-label="Inbox"><div className="social-loading"><RefreshCw className="spin" /> Opening your inbox…</div></section>;
 
-  return <section className="social-inbox" aria-label="Messages">
+  return <section className="social-inbox" aria-label="Inbox">
     <div className="social-inbox-head social-inbox-head-row">
       <div className="inbox-head-copy inbox-title-row">
-        <h2>Messages</h2>
+        <h2>My Customers</h2>
         <span className="inbox-platform-strip" aria-label="TikTok, Facebook, Instagram, Threads and WhatsApp">{PLATFORMS.map((platform) => <PlatformLogo key={platform} platform={platform} size={23} />)}<PlatformLogo platform="whatsapp" size={23} /></span>
       </div>
       <div className="social-head-actions">
@@ -300,15 +300,15 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
     {error && <div className="form-error">{error}</div>}
     <div className="social-filters">
       <div className="social-filters-row">
-        <label className="social-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search messages…" /></label>
+        <label className="social-search"><Search /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search customers…" /></label>
         <button className={`social-unread-toggle ${unreadOnly ? 'on' : ''}`} onClick={() => setUnreadOnly((value) => !value)}><CheckCheck /> Unread</button>
       </div>
     </div>
 
     {!threads.length
-      ? <div className="social-empty"><InboxIcon /><h3>No messages yet</h3><p>Connect accounts in Settings. New messages and comments will appear here.</p></div>
+      ? <div className="social-empty"><InboxIcon /><h3>No customers yet</h3><p>Connect accounts in Settings. New messages and comments will appear here.</p></div>
       : !visibleThreads.length
-        ? <div className="orders-empty">No messages match these filters.</div>
+        ? <div className="orders-empty">No customers match these filters.</div>
         : <div className={`social-threads ${detailOpen && selected ? 'show-detail fullscreen-chat' : ''}`}>
           <div className="social-thread-list" role="list">
             {visibleThreads.map((thread) => <button key={thread.thread_key} role="listitem" className={`social-thread ${selectedKey === thread.thread_key ? 'active' : ''} ${thread.unread ? 'unread' : ''} ${thread.resolved ? 'resolved' : ''}`} onClick={() => openThread(thread)}>
@@ -328,7 +328,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
           <div className="social-thread-detail">
             {selected ? <>
               <div className="social-detail-head">
-                <button className="social-back" onClick={closeThread} aria-label="Back to messages"><ArrowLeft /></button>
+                <button className="social-back" onClick={closeThread} aria-label="Back to customers"><ArrowLeft /></button>
                 <span className="social-avatar-wrap">
                   {selected.sender_avatar ? <img className="social-avatar" src={selected.sender_avatar} alt="" /> : <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>}
                   <span className="social-avatar-platform"><PlatformLogo platform={selected.platform} size={12} /></span>
@@ -351,7 +351,7 @@ export default function SocialInbox({ storeId, onActivity }: Props) {
               <form className="social-reply" onSubmit={sendReply}>
                 <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><button className="social-camera" type="button" onClick={() => setMediaPickerOpen(true)} aria-label="Open camera and gallery" title="Camera and gallery"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
               </form>
-            </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a conversation to read and reply.</p></div>}
+            </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
           </div>
         </div>}
     {mediaPickerOpen && <MediaCaptureSheet

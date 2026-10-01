@@ -86,15 +86,10 @@ export default async function handler(req, res) {
       const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); const isCustomMessage = String(item.batch_key || '').startsWith('custom-'); const noProduct = isCustomMessage || quietDay; return { ...item, body: item.edited_body || item.body, winner_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
       const { data: incomingMessages } = await supabase.from('social_messages').select('thread_key,created_at').eq('store_id', storeId).eq('direction', 'in');
       const inboundMessages = incomingMessages || [];
-      const todayMessages = inboundMessages.filter((message) => new Date(message.created_at).getTime() >= new Date(dayStart).getTime());
-      const periodMessages = inboundMessages.filter((message) => { const created = new Date(message.created_at).getTime(); return created >= currentPeriod.startsAt && created < currentPeriod.endsAt; });
       const customersTotal = new Set(inboundMessages.map((message) => message.thread_key)).size;
-      const customersToday = new Set(todayMessages.map((message) => message.thread_key)).size;
-      const customersThisPeriod = new Set(periodMessages.map((message) => message.thread_key)).size;
-      const messagesTotal = inboundMessages.length;
-      const messagesToday = todayMessages.length;
-      const messagesThisPeriod = periodMessages.length;
-      return res.status(200).json({ profile, store: { ...addPlan(store, orders), visitors_this_period: periodVisits }, products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal, customersToday, customersThisPeriod, messages: messagesTotal, messagesToday, messagesThisPeriod });
+      const customersToday = new Set(inboundMessages.filter((message) => new Date(message.created_at).getTime() >= new Date(dayStart).getTime()).map((message) => message.thread_key)).size;
+      const customersThisPeriod = new Set(inboundMessages.filter((message) => { const created = new Date(message.created_at).getTime(); return created >= currentPeriod.startsAt && created < currentPeriod.endsAt; }).map((message) => message.thread_key)).size;
+      return res.status(200).json({ profile, store: { ...addPlan(store, orders), visitors_this_period: periodVisits }, products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal, customersToday, customersThisPeriod });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
     const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([

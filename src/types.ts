@@ -175,7 +175,4 @@ export type DashboardData = {
   customers?: number;
   customersToday?: number;
   customersThisPeriod?: number;
-  messages?: number;
-  messagesToday?: number;
-  messagesThisPeriod?: number;
 };

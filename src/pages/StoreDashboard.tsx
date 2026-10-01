@@ -1,4 +1,4 @@
-import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, MessagesSquare, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2 } from 'lucide-react';
+import { ArrowLeft, BellRing, Check, Download, Edit3, ExternalLink, Eye, EyeOff, KeyRound, LogOut, Package, Plus, RefreshCw, Settings, Store as StoreIcon, Trash2, Users } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -125,7 +125,7 @@ export default function StoreDashboard() {
   const [splashDone, setSplashDone] = useState(false);
   const splashStartRef = useRef(0);
   const dashboardSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
-  // WOYOYO-013: My Products and Messages are the two destinations of the
+  // WOYOYO-013: My Products and My Customers are the two destinations of the
   // fixed bottom nav; the + button opens the camera-first post flow.
   const [activeTab, setActiveTab] = useState<'products' | 'customers'>(() => {
     try { const params = new URLSearchParams(window.location.search); return params.get('inbox') === '1' || params.has('oauth_state') ? 'customers' : sessionStorage.getItem(`stoyangu-tab-${storeId || 'owner'}`) === 'customers' ? 'customers' : 'products'; }
@@ -329,8 +329,8 @@ export default function StoreDashboard() {
   const upkeepOrders = Number(upkeep.orders_this_period ?? upkeep.orders_this_month ?? 0);
   const cycleEnd = upkeep.upkeep_period_ends_at ? new Date(upkeep.upkeep_period_ends_at) : null;
   const cycleDay = Math.min(14, Math.max(1, Number(upkeep.upkeep_period_day || 1)));
-  const periodMessages = Number(data.messagesThisPeriod ?? data.customersThisPeriod ?? data.messages ?? data.customers ?? 0);
-  const messagesToday = Number(data.messagesToday ?? data.customersToday ?? 0);
+  const periodCustomers = Number(data.customersThisPeriod ?? data.customers ?? 0);
+  const customersToday = Number(data.customersToday ?? 0);
   const periodVisitors = Number(store.visitors_this_period ?? store.visitor_total ?? 0);
   const lifetimeProductViews = (data.products || []).reduce((sum, product) => sum + Number(product.views_total || 0), 0);
 
@@ -354,7 +354,7 @@ export default function StoreDashboard() {
             </a>
             <div className="owner-analytics-row" aria-label={`Analytics for the current 14-day period, day ${cycleDay} of 14`}>
               <div className="tiktok-stats-row">
-                <div className="tiktok-stat"><strong>{periodMessages.toLocaleString()}</strong><span>messages</span><small className="stat-today">+{messagesToday} today</small></div>
+                <div className="tiktok-stat"><strong>{periodCustomers.toLocaleString()}</strong><span>customers</span><small className="stat-today">+{customersToday} today</small></div>
                 <div className="tiktok-stat"><strong>{periodVisitors.toLocaleString()}</strong><span>visitors</span><small className="stat-today">+{store.visitor_today || 0} today</small></div>
                 <div className="tiktok-stat"><strong>{upkeepOrders.toLocaleString()}</strong><span>orders</span><small className="stat-today">+{store.orders_today || 0} today</small></div>
               </div>
@@ -412,9 +412,9 @@ export default function StoreDashboard() {
                       <h3>{product.name}</h3>
                       <strong>{formatMoney(product.price)}</strong>
                     </div>
-                    <div className="word-stats" aria-label={`${product.name} current period analytics`}>
-                      <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this period</small></p>
-                      <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this period</small></p>
+                    <div className="word-stats" aria-label={`${product.name} current cycle analytics`}>
+                      <p>views: <b>{Number(product.views_this_period ?? product.views_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
+                      <p>orders: <b>{Number(product.orders_this_period ?? product.orders_total ?? 0).toLocaleString()}</b> <small>this cycle</small></p>
                     </div>
                     <div className="product-actions">
                       <button type="button" onClick={() => setEditing(product)} disabled={locked} aria-label={`Edit ${product.name}`}><Edit3 size={16} /> Edit</button>
@@ -432,7 +432,7 @@ export default function StoreDashboard() {
         <div className="manage-bottom-nav-inner">
           <button className={`manage-nav-item ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')} aria-label="My Products"><Package /><span>My Products</span></button>
           <button className="manage-nav-post" onClick={openComposer} aria-label="Create a post"><Plus /></button>
-          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="Messages"><MessagesSquare /><span>Messages</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
+          <button className={`manage-nav-item ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => setActiveTab('customers')} aria-label="My Customers"><Users /><span>My Customers</span>{socialUnread > 0 && <b className="manage-nav-badge">{socialUnread > 99 ? '99+' : socialUnread}</b>}</button>
         </div>
       </nav>
 
@@ -484,7 +484,7 @@ function OwnerSettingsPage({ store, data, lifetimeProductViews, installedLocally
       <section className="settings-section lifetime-analytics" aria-labelledby="lifetime-title">
         <div className="settings-section-heading settings-heading-simple"><h2 id="lifetime-title">Lifetime Store Performance</h2></div>
         <div className="lifetime-grid">
-          <div><strong>{Number(data.messages ?? data.customers ?? 0).toLocaleString()}</strong><span>Messages</span></div>
+          <div><strong>{Number(data.customers || 0).toLocaleString()}</strong><span>Customers</span></div>
           <div><strong>{Number(store.visitor_total || 0).toLocaleString()}</strong><span>Store visits</span></div>
           <div><strong>{Number(store.actual_orders_total ?? store.orders_total ?? 0).toLocaleString()}</strong><span>Orders</span></div>
           <div><strong>{lifetimeProductViews.toLocaleString()}</strong><span>Product views</span></div>
