@@ -291,9 +291,9 @@
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
   position: relative;
   top: -6px;
-  left: -5px;
-  width: 122px;
-  height: 122px;
+  left: -7px;
+  width: 126px;
+  height: 126px;
   max-width: none;
   flex: 0 0 auto;
   padding: 0;
@@ -416,9 +416,9 @@
   .owner-sticky-header .owner-store-logo,
   .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact {
     top: -1px;
-    left: -8px;
-    width: 90px !important;
-    height: 90px !important;
+    left: -10px;
+    width: 94px !important;
+    height: 94px !important;
   }
   .owner-sticky-header .owner-header-copy { flex: 1; }
   .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1rem, 4.5vw, 1.2rem); line-height: 1; }
