@@ -191,7 +191,7 @@
 }
 @media (max-width: 720px) { .owner-product-list article { grid-template-columns: 68px minmax(0, 1fr) auto !important; } .owner-product-list article .product-media-group { grid-column: 1; grid-row: 1 / span 2; width: 68px; } .owner-product-list article .product-cover { width: 68px; height: 70px; } .owner-product-list article .product-thumb { width: 20px; height: 20px; } .manage-bottom-nav-tiktok .manage-bottom-nav-inner { min-height: 43px; } }
 
-/* ---- My Customers: platform logo on avatar ---- */
+/* ---- Messages: platform logo on avatar ---- */
 .social-avatar-wrap {
   position: relative;
   display: inline-block;
@@ -374,7 +374,7 @@
   .dashboard-main .store-card-top > div:nth-child(2) { max-width: none; }
 }
 
-/* ---- My Customers merged view tweaks ---- */
+/* ---- Messages merged view tweaks ---- */
 .social-thread-meta .platform-badge {
   display: none;
 }

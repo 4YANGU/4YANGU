@@ -63,11 +63,11 @@
 .owner-sticky-header .owner-store-logo { width: 96px; height: 96px; }
 .owner-sticky-header .owner-store-logo-fallback .brand-logo-compact { width: 96px; height: 96px; }
 .owner-sticky-header .owner-header-copy { flex: 1; }
-.owner-sticky-header .owner-header-copy h1 { font-size: 1.65rem; }
+.owner-sticky-header .owner-header-copy h1 { font-size: 1.75rem; }
 .owner-sticky-header .owner-store-link { margin: 2px 0 5px; }
 .owner-sticky-header .tiktok-stats-row { margin-top: 4px; gap: clamp(18px, 4vw, 34px); }
 
-/* Products and customers are true pages, not cards floating inside a card. */
+/* Products and Messages are true pages, not cards floating inside a card. */
 .owner-page .owner-main {
   width: 100%;
   max-width: none;
@@ -332,6 +332,7 @@
   margin: 0;
   gap: clamp(14px, 3vw, 30px);
 }
+.owner-sticky-header .tiktok-stat strong { font-size: 1.3rem; }
 .period-counter {
   position: relative;
   isolation: isolate;
@@ -376,7 +377,7 @@
   50% { box-shadow: 0 0 0 4px rgba(120,190,150,.12), 0 0 23px rgba(120,190,150,.36), inset 0 0 15px rgba(120,190,150,.13); }
 }
 
-/* My Customers stays part of the document's natural scroll on desktop. A long
+/* Messages stays part of the document's natural scroll on desktop. A long
    inbox used to be trapped in a fixed-height inner list with no page scroll. */
 @media (min-width: 721px) {
   .owner-page,
@@ -412,12 +413,12 @@
     height: 94px !important;
   }
   .owner-sticky-header .owner-header-copy { flex: 1; }
-  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.05rem, 4.8vw, 1.3rem); line-height: 1; }
+  .owner-sticky-header .owner-header-copy h1 { font-size: clamp(1.1rem, 5vw, 1.4rem); line-height: 1; }
   .owner-sticky-header .owner-store-link { max-width: 100%; margin: 0 0 3px !important; font-size: .55rem; line-height: 1; }
   .owner-analytics-row { gap: 5px; }
   .owner-sticky-header .tiktok-stats-row { gap: clamp(4px, 1.6vw, 9px); }
   .owner-sticky-header .tiktok-stat { min-width: 0; }
-  .owner-sticky-header .tiktok-stat strong { font-size: clamp(.72rem, 3.4vw, .86rem); }
+  .owner-sticky-header .tiktok-stat strong { font-size: clamp(.8rem, 3.8vw, .95rem); }
   .owner-sticky-header .tiktok-stat span { font-size: .46rem; }
   .owner-sticky-header .tiktok-stat .stat-today { font-size: .42rem; padding: 2px 3px; }
   .period-counter { min-width: 43px; padding: 5px 5px; border-radius: 10px; }
