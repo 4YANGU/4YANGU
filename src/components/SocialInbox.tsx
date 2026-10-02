@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft, Camera, CheckCheck, ExternalLink, Inbox as InboxIcon, MessagesSquare, Paperclip, Play, RefreshCw, Search, Send } from 'lucide-react';
 import MediaCaptureSheet from './MediaCaptureSheet';
 import { apiFetch, readCachedApi } from '../lib/api';
@@ -16,10 +17,23 @@ const PLATFORMS = SOCIAL_PLATFORMS;
 
 type InboxResponse = { threads: SocialThread[] };
 
+// Phones get the full-screen chat. This store lets the component follow
+// rotation and window resizing instead of checking the width only once.
+const mobileChatQuery = '(max-width: 720px)';
+const subscribeMobileChat = (onChange: () => void) => {
+  const query = window.matchMedia(mobileChatQuery);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+};
+const getMobileChatSnapshot = () => window.matchMedia(mobileChatQuery).matches;
+
 type Props = {
   storeId: number;
   storeName: string;
+  /** Keeps the inbox loading and listening for realtime updates. */
   active?: boolean;
+  /** This tab is on screen right now (defaults to `active`). */
+  visible?: boolean;
   refreshSignal?: number;
   onActivity?: () => void;
   onChatOpenChange?: (open: boolean) => void;
@@ -58,7 +72,7 @@ function mergeInboxThreads(storeId: number, inbox?: InboxResponse, orders?: Orde
   return allThreads.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
 }
 
-export default function SocialInbox({ storeId, onActivity, active = true, refreshSignal = 0, onChatOpenChange, initialSelectedKey = null }: Props) {
+export default function SocialInbox({ storeId, onActivity, active = true, visible = active, refreshSignal = 0, onChatOpenChange, initialSelectedKey = null }: Props) {
   const [threads, setThreads] = useState<SocialThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -78,6 +92,12 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
   const loadRef = useRef<() => void>(() => undefined);
   const liveRefreshTimer = useRef<number | undefined>(undefined);
   const lastRefreshSignal = useRef(refreshSignal);
+  const selected = useMemo(() => threads.find((t) => t.thread_key === selectedKey) || null, [threads, selectedKey]);
+  const isMobile = useSyncExternalStore(subscribeMobileChat, getMobileChatSnapshot, () => false);
+  // chatVisible: a conversation is open and this tab is on screen.
+  // showMobileChat: the same on a phone, where the chat is drawn straight into <body>.
+  const chatVisible = active && visible && detailOpen && Boolean(selected);
+  const showMobileChat = isMobile && chatVisible;
   const load = useCallback(async (silent = false, background = false, syncNow = false) => {
     if (!active) return;
     if (background) { /* background refreshes stay quiet */ }
@@ -171,9 +191,9 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
   }, [load, onActivity, storeId]);
 
   useEffect(() => {
-    chatOpenRef.current = active && detailOpen;
-    onChatOpenChange?.(active && detailOpen);
-  }, [active, detailOpen, onChatOpenChange]);
+    chatOpenRef.current = chatVisible;
+    onChatOpenChange?.(chatVisible);
+  }, [chatVisible, onChatOpenChange]);
 
   useEffect(() => {
     const onOpenThread = (event: Event) => {
@@ -281,11 +301,6 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [active]);
 
-  const selected = useMemo(() => threads.find((t) => t.thread_key === selectedKey) || null, [threads, selectedKey]);
-  useEffect(() => {
-    chatOpenRef.current = active && detailOpen;
-  }, [active, detailOpen]);
-
   const closeThread = useCallback(() => {
     chatOpenRef.current = false;
     setDetailOpen(false);
@@ -296,14 +311,14 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
   }, []);
 
   useEffect(() => {
-    if (active) return;
+    if (active && visible) return;
     chatOpenRef.current = false;
     clearHistoryFlag('stoyanguChat');
-  }, [active]);
+  }, [active, visible]);
 
   // Phone hardware back button & gesture navigation handler.
   useEffect(() => {
-    if (!active || !detailOpen) return;
+    if (!chatVisible) return;
     return pushBackHandler(() => {
       if (mediaPickerOpen) {
         setMediaPickerOpen(false);
@@ -313,25 +328,25 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
       closeThread();
       return true;
     });
-  }, [active, closeThread, detailOpen, mediaPickerOpen, selectedKey]);
+  }, [chatVisible, closeThread, mediaPickerOpen, selectedKey]);
 
   useEffect(() => {
     const onBack = () => {
       // Returning from the nested camera/gallery sheet lands on this chat's
       // history entry; it must not also close the conversation.
-      if (window.history.state?.stoyanguChat || !active || !chatOpenRef.current) return;
+      if (window.history.state?.stoyanguChat || !active || !visible || !chatOpenRef.current) return;
       chatOpenRef.current = false;
       setDetailOpen(false); setSelectedKey(null); setReply(''); setAttachment(null);
     };
     window.addEventListener('popstate', onBack);
     return () => window.removeEventListener('popstate', onBack);
-  }, [active]);
+  }, [active, visible]);
 
   // Use the visual viewport while the phone keyboard is visible. CSS 100vh
   // follows the layout viewport on several mobile browsers and used to leave
   // a large blank strip between the keyboard and composer.
   useEffect(() => {
-    if (!active || !detailOpen || !window.matchMedia('(max-width: 720px)').matches) return;
+    if (!showMobileChat) return;
     const viewport = window.visualViewport;
     const updateViewport = () => {
       const height = viewport?.height || window.innerHeight;
@@ -352,11 +367,11 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
       document.documentElement.style.removeProperty('--chat-viewport-height');
       document.documentElement.style.removeProperty('--chat-viewport-top');
     };
-  }, [active, detailOpen]);
+  }, [showMobileChat]);
 
   useEffect(() => {
     window.requestAnimationFrame(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }));
-  }, [selected?.messages.length, selectedKey]);
+  }, [selected?.messages.length, selectedKey, showMobileChat]);
 
   const visibleThreads = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -443,6 +458,40 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
     }
   };
 
+  // The open conversation. On phones it is drawn straight into <body>: the swipe
+  // pager's CSS transform would otherwise become the containing block of this
+  // position: fixed panel and leave it twice as wide as the screen.
+  const chatDetail = (
+    <div className="social-thread-detail">
+      {selected ? <>
+        <div className="social-detail-head">
+          <button className="social-back" onClick={closeThread} aria-label="Back to customers"><ArrowLeft /></button>
+          <span className="social-avatar-wrap">
+            {selected.sender_avatar ? <img className="social-avatar" src={selected.sender_avatar} alt="" /> : <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>}
+            <span className="social-avatar-platform"><PlatformLogo platform={selected.platform} size={12} /></span>
+          </span>
+          <div><strong>{selected.sender_name}</strong><small>{selected.platform === 'storefront' ? 'Store Order' : selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
+          {selected.platform === 'storefront' && selected.sender_handle && <div className="website-order-actions"><a className="chat-whatsapp" href={`https://wa.me/${selected.sender_handle.replace(/\D/g, '')}?text=${encodeURIComponent(reply || 'Hello! Thank you for your store order.')}`} target="_blank" rel="noreferrer">Reply via WhatsApp</a><a className="chat-call" href={`tel:${selected.sender_handle.replace(/[^\d+]/g, '')}`}>Call</a></div>}
+        </div>
+        {selected.kind === 'comment' && (selected.source_title || selected.source_ref) && <div className="comment-source-card">
+          <span className="comment-source-thumb"><Play /></span>
+          <div><small>Comment on</small><strong>{selected.source_title || 'Original post'}</strong>{selected.source_ref && selected.source_title !== selected.source_ref && <span>{selected.source_ref}</span>}</div>
+          {selected.source_url && <a href={selected.source_url} target="_blank" rel="noreferrer"><ExternalLink /> View</a>}
+        </div>}
+        <div className="social-messages" ref={messagesRef}>
+          {selected.messages.map((message, index) => <Fragment key={message.id}>{(index === 0 || dateLabel(message.created_at) !== dateLabel(selected.messages[index - 1].created_at)) && <div className="chat-day-divider">{dateLabel(message.created_at)}</div>}<div className={`social-bubble ${message.direction}`}>
+            <span className="bubble-platform"><PlatformLogo platform={message.platform} size={11} />{platformLabel(message.platform)}</span>
+            <p>{readableMessage(message.body)}</p>{message.attachment_url && <a className="chat-attachment" href={message.attachment_url} target="_blank" rel="noreferrer">{message.attachment_url.match(/\.(png|jpe?g|webp|gif)(\?|$)/i) ? <img src={message.attachment_url} alt={message.attachment_name || "Attached photo"} loading="lazy" /> : <><Paperclip size={16} /> {message.attachment_name || "View attachment"}</>}</a>}
+            <small>{fullTime(message.created_at)}{message.direction === 'out' ? ' · you' : ''}</small>
+          </div></Fragment>)}
+        </div>
+        <form className="social-reply" onSubmit={sendReply}>
+          <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><button className="social-camera" type="button" onClick={() => setMediaPickerOpen(true)} aria-label="Open camera and gallery" title="Camera and gallery"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
+        </form>
+      </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
+    </div>
+  );
+
   if (loading && !hasLoaded) return <section className="social-inbox" aria-label="Inbox"><div className="social-inbox-skeleton" role="status" aria-label="Loading My Customers"><strong>Loading My Customers…</strong>{Array.from({ length: 5 }, (_, index) => <div className="social-skeleton-thread" key={index} aria-hidden="true"><span className="social-skeleton-avatar" /><span className="social-skeleton-copy"><i /><i /><i /></span></div>)}</div></section>;
 
   return <section className="social-inbox" aria-label="Inbox">
@@ -469,7 +518,7 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
         ? <div className="social-empty"><InboxIcon /><h3>No customers yet</h3><p>Connect accounts in Settings. New messages and comments will appear here.</p></div>
       : !visibleThreads.length
         ? <div className="orders-empty">No customers match these filters.</div>
-        : <div className={`social-threads ${detailOpen && selected ? 'show-detail fullscreen-chat' : ''}`}>
+        : <div className={`social-threads ${chatVisible ? 'show-detail fullscreen-chat' : ''}`}>
           <div className="social-thread-list" role="list">
             {visibleThreads.map((thread) => <button key={thread.thread_key} role="listitem" className={`social-thread ${selectedKey === thread.thread_key ? 'active' : ''} ${thread.unread ? 'unread' : ''} ${thread.resolved ? 'resolved' : ''}`} onClick={() => openThread(thread)}>
               <span className="social-avatar-wrap">
@@ -485,42 +534,20 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
               {thread.unread > 0 && <b className="social-unread">{thread.unread}</b>}
             </button>)}
           </div>
-          <div className="social-thread-detail">
-            {selected ? <>
-              <div className="social-detail-head">
-                <button className="social-back" onClick={closeThread} aria-label="Back to customers"><ArrowLeft /></button>
-                <span className="social-avatar-wrap">
-                  {selected.sender_avatar ? <img className="social-avatar" src={selected.sender_avatar} alt="" /> : <span className="social-avatar">{(selected.sender_name || '?')[0]?.toUpperCase()}</span>}
-                  <span className="social-avatar-platform"><PlatformLogo platform={selected.platform} size={12} /></span>
-                </span>
-                <div><strong>{selected.sender_name}</strong><small>{selected.platform === 'storefront' ? 'Store Order' : selected.kind === 'dm' ? 'DM' : 'Comment'}{selected.sender_handle ? ` · ${selected.sender_handle}` : ''}</small></div>
-                {selected.platform === 'storefront' && selected.sender_handle && <div className="website-order-actions"><a className="chat-whatsapp" href={`https://wa.me/${selected.sender_handle.replace(/\D/g, '')}?text=${encodeURIComponent(reply || 'Hello! Thank you for your store order.')}`} target="_blank" rel="noreferrer">Reply via WhatsApp</a><a className="chat-call" href={`tel:${selected.sender_handle.replace(/[^\d+]/g, '')}`}>Call</a></div>}
-              </div>
-              {selected.kind === 'comment' && (selected.source_title || selected.source_ref) && <div className="comment-source-card">
-                <span className="comment-source-thumb"><Play /></span>
-                <div><small>Comment on</small><strong>{selected.source_title || 'Original post'}</strong>{selected.source_ref && selected.source_title !== selected.source_ref && <span>{selected.source_ref}</span>}</div>
-                {selected.source_url && <a href={selected.source_url} target="_blank" rel="noreferrer"><ExternalLink /> View</a>}
-              </div>}
-              <div className="social-messages" ref={messagesRef}>
-                {selected.messages.map((message, index) => <Fragment key={message.id}>{(index === 0 || dateLabel(message.created_at) !== dateLabel(selected.messages[index - 1].created_at)) && <div className="chat-day-divider">{dateLabel(message.created_at)}</div>}<div className={`social-bubble ${message.direction}`}>
-                  <span className="bubble-platform"><PlatformLogo platform={message.platform} size={11} />{platformLabel(message.platform)}</span>
-                  <p>{readableMessage(message.body)}</p>{message.attachment_url && <a className="chat-attachment" href={message.attachment_url} target="_blank" rel="noreferrer">{message.attachment_url.match(/\.(png|jpe?g|webp|gif)(\?|$)/i) ? <img src={message.attachment_url} alt={message.attachment_name || "Attached photo"} loading="lazy" /> : <><Paperclip size={16} /> {message.attachment_name || "View attachment"}</>}</a>}
-                  <small>{fullTime(message.created_at)}{message.direction === 'out' ? ' · you' : ''}</small>
-                </div></Fragment>)}
-              </div>
-              <form className="social-reply" onSubmit={sendReply}>
-                <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Message" rows={1} maxLength={2000} /><button className="social-camera" type="button" onClick={() => setMediaPickerOpen(true)} aria-label="Open camera and gallery" title="Camera and gallery"><Camera size={20} /></button><button className="social-send" aria-label="Send message" disabled={sending || (!reply.trim() && !attachment)}><Send size={19} /></button>{attachment && <span className="attachment-chip">{attachment.name}<button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment">×</button></span>}
-              </form>
-            </> : <div className="social-detail-placeholder"><MessagesSquare /><p>Select a customer to read and reply.</p></div>}
-          </div>
+          {showMobileChat
+            ? createPortal(
+                <div className="social-threads show-detail fullscreen-chat social-chat-overlay">{chatDetail}</div>,
+                document.body,
+              )
+            : chatDetail}
         </div>}
-    {mediaPickerOpen && <MediaCaptureSheet
+    {active && visible && mediaPickerOpen && createPortal(<MediaCaptureSheet
       title="Camera and gallery"
       maxPhotos={1}
       maxVideos={1}
       maxItems={1}
       onClose={() => setMediaPickerOpen(false)}
       onUse={(files) => { setAttachment(files[0] || null); setMediaPickerOpen(false); }}
-    />}
+    />, document.body)}
   </section>;
 }
