@@ -112,6 +112,11 @@
    offer both camera capture and the existing gallery from the same button. */
 .social-camera { touch-action: manipulation; }
 
+/* On phones the open chat is rendered straight into <body> (a React portal) so
+   it is positioned against the screen, not the swipe pager's transformed track.
+   This wrapper only carries the classes the chat styles need; it makes no box. */
+.social-chat-overlay { display: contents; }
+
 /* Full-screen mobile chat follows the keyboard's visual viewport exactly. */
 @media (max-width: 720px) {
   .social-threads.fullscreen-chat .social-thread-detail {
@@ -121,6 +126,7 @@
     min-height: 0 !important;
     max-height: none !important;
     border: 0 !important;
+    border-radius: 0;
   }
   .social-threads.fullscreen-chat .social-thread-detail .social-messages {
     min-height: 0;

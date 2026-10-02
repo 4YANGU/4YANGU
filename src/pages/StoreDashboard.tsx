@@ -768,6 +768,7 @@ export default function StoreDashboard() {
                 storeId={store.id}
                 storeName={store.name}
                 active={true}
+                visible={activeTab === 'customers'}
                 refreshSignal={inboxKey}
                 onActivity={() => refreshSocialUnread(store.id)}
                 onChatOpenChange={setIsChatOpen}
