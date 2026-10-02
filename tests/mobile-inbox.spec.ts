@@ -231,6 +231,15 @@ for (const phone of PHONES) {
       expect(sheet.y + sheet.height).toBe(screen.height); // docked to the bottom of the screen
       await expectUsable(page, '.media-capture-header button');
 
+      // The sheet's own file input is hidden (it used to show up as a raw "Choose Files" strip),
+      // and the Gallery button still opens the phone's photo picker.
+      const rawPicker = await rectOf(page, '.media-capture-sheet input[type="file"]');
+      expect(rawPicker.width, 'the raw file input must not take up space').toBeLessThanOrEqual(1);
+      expect(rawPicker.height, 'the raw file input must not take up space').toBeLessThanOrEqual(1);
+      const photoPicker = page.waitForEvent('filechooser');
+      await page.getByRole('button', { name: 'Browse photos and videos' }).click();
+      await photoPicker;
+
       await page.goBack();
       await expect(page.locator('.media-capture-sheet')).toBeHidden();
       await expect(page.locator('.social-detail-head strong', { hasText: amina.name })).toBeVisible(); // still in the chat
