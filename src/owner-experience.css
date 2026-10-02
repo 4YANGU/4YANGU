@@ -112,6 +112,12 @@
    offer both camera capture and the existing gallery from the same button. */
 .social-camera { touch-action: manipulation; }
 
+/* On phones the open chat is drawn straight into <body>, outside the swipe
+   pager (whose transform would otherwise trap its position: fixed). This
+   wrapper only carries the classes the chat styles hang off, so it must not
+   create a box of its own. */
+.social-chat-overlay { display: contents; }
+
 /* Full-screen mobile chat follows the keyboard's visual viewport exactly. */
 @media (max-width: 720px) {
   .social-threads.fullscreen-chat .social-thread-detail {
@@ -121,6 +127,7 @@
     min-height: 0 !important;
     max-height: none !important;
     border: 0 !important;
+    border-radius: 0;
   }
   .social-threads.fullscreen-chat .social-thread-detail .social-messages {
     min-height: 0;

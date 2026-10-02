@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 .vite-source-tags.js
 .vercel
+
+# Playwright test output
+test-results
+playwright-report
