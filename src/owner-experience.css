@@ -605,3 +605,185 @@
 .owner-offline-banner { display: flex; align-items: center; gap: 8px; margin: 10px 16px 0; padding: 9px 11px; border: 1px solid #d7e5dc; border-radius: 10px; background: #edf5ef; color: #45604f; font-size: .68rem; line-height: 1.4; }
 .owner-offline-banner svg { width: 15px; height: 15px; flex: 0 0 auto; color: #60856b; }
 @media (max-width: 560px) { .owner-offline-banner { margin: 7px 12px 0; padding: 8px 9px; font-size: .62rem; } }
+
+/* ---- Instagram-Grade Smooth Swipe Pager ---- */
+.owner-swipe-pager {
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.owner-swipe-track {
+  display: flex;
+  flex-direction: row;
+  width: 200%;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+}
+.owner-swipe-page {
+  width: 50%;
+  flex: 0 0 50%;
+  min-width: 0;
+  box-sizing: border-box;
+  vertical-align: top;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.owner-swipe-page-products,
+.owner-swipe-page-customers {
+  min-height: calc(100vh - 210px);
+}
+
+/* ---- In-App Notification Alert Banner ---- */
+.notification-toast-container {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100vw - 24px), 480px);
+  z-index: 9999;
+  pointer-events: none;
+}
+.notification-toast-banner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(16, 31, 48, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  animation: toast-slide-down 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.notification-toast-banner:active {
+  transform: scale(0.98);
+}
+.notification-toast-avatar-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.12);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 15px;
+  color: #a4e1be;
+  overflow: visible;
+}
+.notification-toast-avatar-wrap img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.notification-toast-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #101f30;
+  border: 1.5px solid #101f30;
+  display: grid;
+  place-items: center;
+}
+.notification-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+.notification-toast-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.notification-toast-top strong {
+  font-size: 0.82rem;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notification-toast-top small {
+  font-size: 0.64rem;
+  color: #8fa0aa;
+  flex-shrink: 0;
+}
+.notification-toast-preview {
+  margin: 3px 0 0;
+  font-size: 0.74rem;
+  color: #d6e2dc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.35;
+}
+.notification-toast-close {
+  border: 0;
+  background: rgba(255, 255, 255, 0.12);
+  color: #b9cbcf;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+}
+.notification-toast-close svg {
+  width: 14px;
+  height: 14px;
+}
+@keyframes toast-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Test notification button */
+.test-ping-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #eef6f0;
+  border: 1px solid #c4decb;
+  color: #2b6d43;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.68rem;
+  font-weight: 750;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: all 0.15s ease;
+}
+.test-ping-button:hover {
+  background: #e1efe4;
+  border-color: #aed0b8;
+}
+.test-ping-button:active {
+  transform: scale(0.98);
+}
+.test-ping-button svg {
+  width: 14px;
+  height: 14px;
+}
+

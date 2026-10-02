@@ -22,7 +22,7 @@ self.addEventListener('install', event => event.waitUntil((async () => {
         for (const file of [...(entry.css || []), ...(entry.assets || [])]) if (typeof file === 'string') paths.add(file);
       }
       const assets = await caches.open(CACHE);
-      await Promise.all([...paths].filter(path => /\.(js|css|png|jpg|jpeg|webp|svg|woff2)$/.test(path)).map(async path => {
+      await Promise.all([...paths].filter(path => /\.(js|css|png|jpg|jpeg|webp|svg|woff2|wav|mp3)$/.test(path)).map(async path => {
         try {
           const asset = await fetch(`/${path.replace(/^\//, '')}`, { cache: 'reload' });
           if (asset.ok) await assets.put(`/${path.replace(/^\//, '')}`, asset);
@@ -84,7 +84,7 @@ self.addEventListener('fetch', event => {
   }
 
   const isAppShell = url.pathname === '/index.html';
-  const isStaticAsset = url.pathname.startsWith('/assets/') || /\.(js|css|png|jpg|jpeg|webp|svg|woff2)$/.test(url.pathname);
+  const isStaticAsset = url.pathname.startsWith('/assets/') || /\.(js|css|png|jpg|jpeg|webp|svg|woff2|wav|mp3)$/.test(url.pathname);
   if (!isAppShell && !isStaticAsset) return;
 
   const cacheName = isAppShell ? SHELL_CACHE : CACHE;
@@ -108,22 +108,33 @@ self.addEventListener('push', event => {
     body: data.body || '',
     icon: data.icon || '/favicon-192.png',
     badge: data.badge || '/favicon-32.png',
-    data: { url: data.url || '/owner' },
+    data: { url: data.url || '/owner?inbox=1', storeId: data.storeId, threadKey: data.threadKey },
+    tag: data.tag || `inbox-${Date.now()}`,
+    renotify: true,
+    silent: false,
+    vibrate: [200, 100, 200, 100, 200],
+    timestamp: Date.now(),
   };
   if (data.image) options.image = data.image;
-  if (data.tag) options.tag = data.tag;
-  if ('vibrate' in self.navigator) options.vibrate = [200, 100, 200];
   event.waitUntil((async () => {
     const notification = self.registration.showNotification(data.title || 'StoYangu', options);
-    if (String(data.tag || '').startsWith('inbox-')) {
-      const storeId = Number(data.storeId);
-      if (Number.isSafeInteger(storeId) && storeId > 0) {
-        try {
-          const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          for (const client of windows) client.postMessage({ type: 'stoyangu-inbox-update', storeId });
-        } catch { /* Keep showing the notification if refreshing an open page fails. */ }
+    const storeId = Number(data.storeId);
+    try {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of windows) {
+        client.postMessage({
+          type: 'stoyangu-inbox-update',
+          storeId: Number.isSafeInteger(storeId) && storeId > 0 ? storeId : undefined,
+          title: data.title,
+          body: data.body,
+          sender_name: data.sender_name || data.senderName,
+          platform: data.platform,
+          avatar: data.avatar || data.icon,
+          threadKey: data.threadKey || data.thread_key,
+          isOrder: data.isOrder || String(data.tag || '').startsWith('order-'),
+        });
       }
-    }
+    } catch { /* Keep showing the notification if refreshing an open page fails. */ }
     await notification;
   })());
 });
