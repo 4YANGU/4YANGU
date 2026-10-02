@@ -27,7 +27,6 @@ export async function disableSkin(storeId: number): Promise<void> {
 
 export async function uploadSkinZip(storeId: number, file: File, onStatus?: (message: string) => void): Promise<SkinUploadResult> {
   onStatus?.('Reading the zip…');
-  // @ts-expect-error - jszip dynamic import
   const jszipModule = await import('jszip');
   const JSZip = jszipModule.default || jszipModule;
   const zip = await JSZip.loadAsync(file);
