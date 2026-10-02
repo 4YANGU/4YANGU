@@ -10,11 +10,21 @@ import { readableMessage } from '../lib/messageText';
 import { clearHistoryFlag, pushBackHandler, pushHistoryFlag } from '../lib/backNavigation';
 import supabase from '../lib/supabase';
 
+import { triggerNotificationAlert } from '../lib/notifications';
+
 const PLATFORMS = SOCIAL_PLATFORMS;
 
 type InboxResponse = { threads: SocialThread[] };
 
-type Props = { storeId: number; storeName: string; active?: boolean; refreshSignal?: number; onActivity?: () => void };
+type Props = {
+  storeId: number;
+  storeName: string;
+  active?: boolean;
+  refreshSignal?: number;
+  onActivity?: () => void;
+  onChatOpenChange?: (open: boolean) => void;
+  initialSelectedKey?: string | null;
+};
 
 function dateLabel(iso: string) {
   const date = new Date(iso);
@@ -48,7 +58,7 @@ function mergeInboxThreads(storeId: number, inbox?: InboxResponse, orders?: Orde
   return allThreads.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
 }
 
-export default function SocialInbox({ storeId, onActivity, active = true, refreshSignal = 0 }: Props) {
+export default function SocialInbox({ storeId, onActivity, active = true, refreshSignal = 0, onChatOpenChange, initialSelectedKey = null }: Props) {
   const [threads, setThreads] = useState<SocialThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -57,12 +67,12 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedKey, setSelectedKey] = useState<string | null>(initialSelectedKey);
+  const [detailOpen, setDetailOpen] = useState(Boolean(initialSelectedKey));
   const [reply, setReply] = useState('');
   const [attachment, setAttachment] = useState<File | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
-  const chatOpenRef = useRef(false);
+  const chatOpenRef = useRef(Boolean(initialSelectedKey));
   const [sending, setSending] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const loadRef = useRef<() => void>(() => undefined);
@@ -145,6 +155,43 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
     const timer = window.setTimeout(() => { void load(true, true, true); }, 0);
     return () => window.clearTimeout(timer);
   }, [active, load, refreshSignal]);
+  const openThread = useCallback(async (thread: SocialThread) => {
+    pushHistoryFlag('stoyanguChat', thread.thread_key);
+    chatOpenRef.current = true;
+    setSelectedKey(thread.thread_key);
+    setDetailOpen(true);
+    setReply('');
+    if (thread.unread > 0) {
+      try {
+        await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'read', store_id: storeId, thread_key: thread.thread_key }) });
+        setThreads((current) => current.map((t) => t.thread_key === thread.thread_key ? { ...t, unread: 0, messages: t.messages.map((m) => ({ ...m, is_read: true })) } : t));
+        await load(true, true); onActivity?.();
+      } catch { /* conversation still opens for reading */ }
+    }
+  }, [load, onActivity, storeId]);
+
+  useEffect(() => {
+    chatOpenRef.current = active && detailOpen;
+    onChatOpenChange?.(active && detailOpen);
+  }, [active, detailOpen, onChatOpenChange]);
+
+  useEffect(() => {
+    const onOpenThread = (event: Event) => {
+      const custom = event as CustomEvent<{ threadKey: string }>;
+      const key = custom.detail?.threadKey;
+      if (!key) return;
+      const targetThread = threads.find(t => t.thread_key === key);
+      if (targetThread) {
+        void openThread(targetThread);
+      } else {
+        setSelectedKey(key);
+        setDetailOpen(true);
+      }
+    };
+    window.addEventListener('stoyangu:open-thread', onOpenThread);
+    return () => window.removeEventListener('stoyangu:open-thread', onOpenThread);
+  }, [openThread, threads]);
+
   useEffect(() => {
     if (!active) return;
     const channel = supabase
@@ -156,24 +203,61 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
         filter: `store_id=eq.${storeId}`,
       }, (event) => {
         const message = event.new as SocialMessage;
-        if (message.direction === 'in') scheduleLiveRefresh();
+        if (message.direction === 'in') {
+          // If this message belongs to the currently active conversation, don't show the full toast
+          const inCurrentOpenChat = chatOpenRef.current && selectedKey === message.thread_key;
+          if (!inCurrentOpenChat) {
+            triggerNotificationAlert({
+              id: `msg-${message.id}`,
+              sender: message.sender_name || 'Customer',
+              body: message.body,
+              platform: message.platform,
+              avatar: message.sender_avatar,
+              threadKey: message.thread_key,
+              storeId,
+            });
+          }
+          scheduleLiveRefresh();
+        }
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [active, scheduleLiveRefresh, storeId]);
+  }, [active, scheduleLiveRefresh, selectedKey, storeId]);
 
   useEffect(() => {
     if (!active || !('serviceWorker' in navigator)) return;
     const onServiceWorkerMessage = (event: MessageEvent) => {
-      const message = event.data as { type?: string; storeId?: number | string } | null;
+      const message = event.data as {
+        type?: string;
+        storeId?: number | string;
+        title?: string;
+        body?: string;
+        sender_name?: string;
+        platform?: string;
+        avatar?: string;
+        threadKey?: string;
+        isOrder?: boolean;
+      } | null;
       if (message?.type !== 'stoyangu-inbox-update') return;
       const messageStoreId = Number(message.storeId);
       if (Number.isSafeInteger(messageStoreId) && messageStoreId > 0 && messageStoreId !== storeId) return;
+
+      if (message.body && (!chatOpenRef.current || selectedKey !== message.threadKey)) {
+        triggerNotificationAlert({
+          sender: message.sender_name || message.title || 'Customer',
+          body: message.body,
+          platform: message.platform,
+          avatar: message.avatar,
+          threadKey: message.threadKey,
+          storeId,
+          isOrder: message.isOrder,
+        });
+      }
       scheduleLiveRefresh();
     };
     navigator.serviceWorker.addEventListener('message', onServiceWorkerMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onServiceWorkerMessage);
-  }, [active, scheduleLiveRefresh, storeId]);
+  }, [active, scheduleLiveRefresh, selectedKey, storeId]);
 
   useEffect(() => {
     const onOnline = () => { if (active) void load(true, true, true); };
@@ -282,21 +366,6 @@ export default function SocialInbox({ storeId, onActivity, active = true, refres
       return true;
     });
   }, [threads, query, unreadOnly]);
-
-  const openThread = async (thread: SocialThread) => {
-    pushHistoryFlag('stoyanguChat', thread.thread_key);
-    chatOpenRef.current = true;
-    setSelectedKey(thread.thread_key);
-    setDetailOpen(true);
-    setReply('');
-    if (thread.unread > 0) {
-      try {
-        await apiFetch('/api/media?action=social', { method: 'POST', body: JSON.stringify({ op: 'read', store_id: storeId, thread_key: thread.thread_key }) });
-        setThreads((current) => current.map((t) => t.thread_key === thread.thread_key ? { ...t, unread: 0, messages: t.messages.map((m) => ({ ...m, is_read: true })) } : t));
-        await load(true, true); onActivity?.();
-      } catch { /* conversation still opens for reading */ }
-    }
-  };
 
   const sendReply = async (event?: React.FormEvent) => {
     event?.preventDefault();

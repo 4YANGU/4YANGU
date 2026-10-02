@@ -27,9 +27,12 @@ export async function disableSkin(storeId: number): Promise<void> {
 
 export async function uploadSkinZip(storeId: number, file: File, onStatus?: (message: string) => void): Promise<SkinUploadResult> {
   onStatus?.('Reading the zip…');
-  const JSZip = (await import('jszip')).default;
+  // @ts-expect-error - jszip dynamic import
+  const jszipModule = await import('jszip');
+  const JSZip = jszipModule.default || jszipModule;
   const zip = await JSZip.loadAsync(file);
-  const entries = Object.entries(zip.files).filter((entry) => !entry[1].dir);
+  const zipFiles = zip.files as Record<string, { dir?: boolean; async: (type: string) => Promise<Blob> }>;
+  const entries = Object.entries(zipFiles).filter((entry) => !entry[1].dir);
   if (!entries.some((entry) => /(^|\/)index\.html$/i.test(entry[0]))) {
     throw new Error('The zip needs an index.html at its top level.');
   }

@@ -44,7 +44,7 @@ async function sendInstantOrderPush(storeId, order, product) {
     body,
     `order-${order.id || order.order_key}`,
     '/owner?inbox=1',
-    { image },
+    { image, sender_name: order.customer_phone, platform: 'storefront', threadKey: `order:${order.order_key || order.id}`, isOrder: true },
   );
 }
 

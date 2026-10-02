@@ -513,7 +513,14 @@ export async function syncStoreInbox(storeId) {
     }
     const pushResults = await Promise.all(fresh
       .filter(row => row.direction === 'in')
-      .map(row => pushStoreEvent(storeId, row.kind === 'comment' ? 'New comment' : 'New message', `${row.sender_name}: ${row.body.slice(0, 110)}`, `inbox-${row.external_id || `${row.thread_key}-${row.created_at}`}`, '/owner?inbox=1')));
+      .map(row => pushStoreEvent(
+        storeId,
+        row.kind === 'comment' ? 'New comment' : 'New message',
+        `${row.sender_name}: ${row.body.slice(0, 110)}`,
+        `inbox-${row.external_id || `${row.thread_key}-${row.created_at}`}`,
+        '/owner?inbox=1',
+        { sender_name: row.sender_name, platform: row.platform, threadKey: row.thread_key, isOrder: row.platform === 'storefront' }
+      )));
     pushSent = pushResults.reduce((total, result) => total + Number(result.sent || 0), 0);
     pushFailed = pushResults.reduce((total, result) => total + Number(result.failed || 0), 0);
     for (const result of pushResults) if (result.reason) pushIssues.add(result.reason);
@@ -659,6 +666,7 @@ export async function processReplizWebhookEvent(payload) {
       `${row.sender_name}: ${body.slice(0, 110)}`,
       `inbox-${externalId || `${row.thread_key}-${createdAt}`}`,
       '/owner?inbox=1',
+      { sender_name: row.sender_name, platform: candidate.platform, threadKey: row.thread_key, isOrder: candidate.platform === 'storefront' }
     );
     pushSent += Number(pushResult.sent || 0);
     pushFailed += Number(pushResult.failed || 0);
