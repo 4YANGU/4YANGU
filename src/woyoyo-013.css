@@ -743,6 +743,100 @@
 .post-details-footer .composer-submit-actions .button-primary { min-height: 43px; }
 .post-composer-result { padding: 10px 0 22px; }
 
+/* Step 1 — the centered "What are we posting today?" popup. */
+.composer-choice-wrap { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 10px 0; }
+.composer-choice-card {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: 30px 20px 26px;
+  border: 1px solid #dfe8e0;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 22px 60px rgba(8, 20, 29, .16);
+  text-align: center;
+}
+.composer-choice-title { margin: 0; color: #101f30; font-size: 1.06rem; line-height: 1.4; }
+.composer-choice-options { display: grid; gap: 10px; }
+.choice-main-btn {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 15px;
+  font-family: inherit;
+  font-size: .84rem;
+  font-weight: 800;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: transform .12s ease, filter .15s ease;
+}
+.choice-main-btn:hover { filter: brightness(1.07); transform: translateY(-1px); }
+.choice-main-btn:active { transform: translateY(0); }
+.choice-main-btn svg { width: 19px; height: 19px; }
+.choice-video-btn { background: #101f30; color: #fff; box-shadow: 0 10px 24px rgba(16, 31, 48, .24); }
+.choice-video-btn .choice-chevron { width: 16px; height: 16px; margin-left: 1px; opacity: .85; transition: transform .25s ease; }
+.choice-video-btn[aria-expanded="true"] .choice-chevron { transform: rotate(180deg); }
+.choice-photo-btn { background: var(--green); color: #fff; box-shadow: 0 10px 24px rgba(66, 122, 88, .24); }
+
+/* FAQ-style slide-down revealing the video Camera / Gallery buttons. */
+.composer-video-reveal { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
+.composer-video-reveal.open { grid-template-rows: 1fr; }
+.composer-video-reveal > div { overflow: hidden; }
+.composer-video-reveal-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 2px 2px 4px; }
+.choice-pair-btn {
+  min-height: 47px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #d5e2d8;
+  border-radius: 13px;
+  background: #f4f8f4;
+  color: #244432;
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color .15s ease, transform .12s ease;
+}
+.choice-pair-btn:hover { background: #e9f2ea; transform: translateY(-1px); }
+.choice-pair-btn svg { width: 17px; height: 17px; color: #398653; }
+
+/* Step 2 — Camera / Gallery pairs on the product details page. */
+.post-media-area { display: grid; gap: 12px; }
+.composer-media-group { display: grid; gap: 10px; padding: 12px; border: 1px solid #e0e8e1; border-radius: 13px; background: #fbfcfb; }
+.composer-media-label { color: #6f7d74; font-size: .6rem; font-weight: 800; letter-spacing: .03em; }
+.media-pair-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.media-pair-buttons button {
+  min-height: 47px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #d5e2d8;
+  border-radius: 13px;
+  background: #f4f8f4;
+  color: #244432;
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color .15s ease, transform .12s ease;
+}
+.media-pair-buttons button:hover:not(:disabled) { background: #e9f2ea; transform: translateY(-1px); }
+.media-pair-buttons button:disabled { opacity: .45; cursor: not-allowed; }
+.media-pair-buttons button svg { width: 17px; height: 17px; color: #398653; }
+.composer-video-cell { position: relative; border-radius: 12px; overflow: hidden; background: #101f30; }
+.composer-video-cell video { width: 100%; max-height: 250px; display: block; object-fit: contain; }
+.composer-video-cell > button { position: absolute; right: 8px; top: 8px; width: 27px; height: 27px; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(16, 31, 48, .82); color: #fff; cursor: pointer; }
+.composer-video-cell > button svg { width: 13px; height: 13px; }
+.post-media-area .composer-tiktok-strip { margin: 0; }
+.composer-media-count { display: flex; align-items: center; gap: 6px; margin: 0; color: #33764a; font-size: .63rem; font-weight: 800; }
+.composer-media-count svg { width: 14px; height: 14px; }
+
 .media-capture-backdrop {
   position: fixed;
   inset: 0;

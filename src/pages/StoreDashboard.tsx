@@ -789,6 +789,7 @@ export default function StoreDashboard() {
       {settingsOpen && <OwnerSettingsPage
         store={store}
         lifetimeProductViews={lifetimeProductViews}
+        customers={Number(data.customers || 0)}
         installedLocally={installedLocally}
         onClose={closeSettings}
         onChangePassword={() => setPasswordOpen(true)}
@@ -804,9 +805,10 @@ export default function StoreDashboard() {
   </>;
 }
 
-function OwnerSettingsPage({ store, lifetimeProductViews, installedLocally, onClose, onChangePassword, onInstall, onSignOut, onPaymentComplete }: {
+function OwnerSettingsPage({ store, lifetimeProductViews, customers, installedLocally, onClose, onChangePassword, onInstall, onSignOut, onPaymentComplete }: {
   store: Store;
   lifetimeProductViews: number;
+  customers: number;
   installedLocally: boolean;
   onClose: () => void;
   onChangePassword: () => void;
@@ -831,12 +833,13 @@ function OwnerSettingsPage({ store, lifetimeProductViews, installedLocally, onCl
     </header>
 
     <main className="settings-page-main">
-      <section className="settings-section settings-overview" aria-labelledby="settings-stats-title">
+      <section className="settings-section settings-overview lifetime-analytics" aria-labelledby="settings-stats-title">
         <div className="settings-section-heading"><h2 id="settings-stats-title">Store performance</h2></div>
-        <div className="settings-stats-grid">
+        <div className="lifetime-grid">
           <div><strong>{Number(store.visitor_total || 0).toLocaleString()}</strong><span>Total visits</span></div>
           <div><strong>{Number(lifetimeProductViews || 0).toLocaleString()}</strong><span>Product views</span></div>
           <div><strong>{Number(store.actual_orders_total ?? store.orders_total ?? 0).toLocaleString()}</strong><span>Orders</span></div>
+          <div><strong>{Number(customers || 0).toLocaleString()}</strong><span>Customers contacted</span></div>
         </div>
       </section>
 
