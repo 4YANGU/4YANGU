@@ -201,7 +201,7 @@
 .settings-section-heading p { margin: 5px 0 0; max-width: 580px; color: #6e7d74; font-size: .7rem; line-height: 1.55; }
 .settings-section-heading > svg { color: var(--green); width: 24px; }
 .settings-account-count { border-radius: 999px; background: #e7f3eb; color: #2e6b44; padding: 5px 9px; font-size: .66rem; font-weight: 900; }
-.lifetime-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.lifetime-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .lifetime-grid > div { min-width: 0; padding: 13px 8px; border-radius: 12px; background: #f2f6f2; text-align: center; }
 .lifetime-grid strong { display: block; color: var(--navy); font-size: 1.2rem; overflow-wrap: anywhere; }
 .lifetime-grid span { display: block; margin-top: 3px; color: #718077; font-size: .6rem; font-weight: 750; }

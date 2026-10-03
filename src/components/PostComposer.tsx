@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Camera, Check, Copy, ImagePlus, MessageCircle, Package, Send, Video, X } from 'lucide-react';
-import MediaCaptureSheet from './MediaCaptureSheet';
+import { ArrowLeft, Camera, Check, ChevronDown, Copy, ImagePlus, Images, MessageCircle, Package, Send, Video, X } from 'lucide-react';
 import { OptionPicker } from './ProductForm';
 import { apiFetch, storeLink, uploadImage, uploadPostMedia } from '../lib/api';
 import { buildProductCaption } from '../lib/caption';
@@ -12,6 +11,10 @@ type Media = { file: File; url: string; kind: 'image' | 'video' };
 type Result = { draft: boolean; results: Record<string, { ok?: boolean; external_id?: string; error?: string }> };
 type Props = { storeId: number; storeName: string; storeSlug: string; locked?: boolean; onClose: () => void; onPosted: () => void; onProductsChanged?: () => void };
 
+// Timestamp helper kept outside the component so draft saves inside event
+// handlers stay free of render-scope impure-call lint warnings.
+const draftTimestamp = () => Date.now();
+
 function fileKind(file: File): Media['kind'] | null {
   if (file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|avif|heic|heif|bmp)$/i.test(file.name)) return 'image';
   if (file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp)$/i.test(file.name)) return 'video';
@@ -19,7 +22,11 @@ function fileKind(file: File): Media['kind'] | null {
 }
 
 export default function PostComposer({ storeId, storeName, storeSlug, locked = false, onClose, onPosted, onProductsChanged }: Props) {
-  const [step, setStep] = useState<'media' | 'details'>('media');
+  // Step 1 is the simple "What are we posting today?" popup. Step 2 is the
+  // product details page, where Camera / Gallery buttons gather the media.
+  const [step, setStep] = useState<'choice' | 'details'>('choice');
+  const [mode, setMode] = useState<'photo' | 'video'>('photo');
+  const [videoRevealed, setVideoRevealed] = useState(false);
   const [media, setMedia] = useState<Media[]>([]);
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
@@ -32,7 +39,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [captionOverride, setCaptionOverride] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [ready, setReady] = useState(false);
-  const [cameraOpen, setCameraOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [draftNotice, setDraftNotice] = useState('');
@@ -40,6 +46,10 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const [connections, setConnections] = useState<SocialConnection[]>([]);
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [connectionError, setConnectionError] = useState('');
+  const photoCameraRef = useRef<HTMLInputElement>(null);
+  const photoGalleryRef = useRef<HTMLInputElement>(null);
+  const videoCameraRef = useRef<HTMLInputElement>(null);
+  const videoGalleryRef = useRef<HTMLInputElement>(null);
   const urls = useRef(new Set<string>());
   const uploads = useRef(new Map<File, { url: string; kind: 'image' | 'video' }>());
   const productId = useRef<number | null>(null);
@@ -48,6 +58,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   const draftKey = `store-${storeId}`;
   const photos = media.filter((item) => item.kind === 'image');
   const video = media.find((item) => item.kind === 'video');
+  // Photo posts publish every photo; video posts publish only the video
+  // (the photos stay behind to build the product in the store).
+  const socialMedia = mode === 'video' && video ? [video] : photos;
   const tags = `#${storeName.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'} #${(storeSlug || storeName).toLowerCase().replace(/[^a-z0-9]+/g, '') || 'mystore'}`;
   const generatedCaption = useMemo(() => buildProductCaption({ name, price, colors: hasColors ? colors : [], sizes: hasSizes ? sizes : [] }), [name, price, colors, sizes, hasColors, hasSizes]);
   const caption = captionOverride ?? generatedCaption;
@@ -115,12 +128,16 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       setHasSizes(draft.hasSizes);
       setCaptionOverride(draft.caption ? [draft.caption, draft.variantCaption].filter(Boolean).join('\n') : null);
       productId.current = draft.productId || null;
-      setStep((draft.step as string) === 'details' ? 'details' : 'media');
-      setMedia(draft.files.filter((file) => file instanceof Blob).map((file) => {
+      const restored = draft.files.filter((file) => file instanceof Blob).map((file) => {
         const url = URL.createObjectURL(file);
         urls.current.add(url);
         return { file, url, kind: fileKind(file) || 'image' };
-      }));
+      });
+      setMedia(restored);
+      const hasVideo = restored.some((item) => item.kind === 'video');
+      setMode(draft.step === 'video' || hasVideo ? 'video' : 'photo');
+      const wasInDetails = draft.step === 'details' || draft.step === 'photo' || draft.step === 'video' || restored.length > 0;
+      setStep(wasInDetails ? 'details' : 'choice');
     }).catch(() => {
       if (alive) setDraftNotice('Automatic draft recovery is unavailable in this browser.');
     }).finally(() => {
@@ -130,7 +147,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
   }, [draftKey]);
 
   // A history entry lets the device/browser back gesture move between the
-  // full-page details and media steps without navigating away from the store.
+  // details page and the choice popup without navigating away from the store.
   useEffect(() => {
     pushHistoryFlag('stoyanguComposer');
     return () => clearHistoryFlag('stoyanguComposer');
@@ -138,29 +155,24 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
 
   useEffect(() => {
     return pushBackHandler(() => {
-      if (cameraOpen) {
-        setCameraOpen(false);
-        pushHistoryFlag('stoyanguComposer');
-        return true;
-      }
       if (busy) {
         pushHistoryFlag('stoyanguComposer');
         return true;
       }
       if (step === 'details') {
-        setStep('media');
+        setStep('choice');
         pushHistoryFlag('stoyanguComposer');
         return true;
       }
       onClose();
       return true;
     });
-  }, [cameraOpen, busy, step, onClose]);
+  }, [busy, step, onClose]);
 
   useEffect(() => () => { urls.current.forEach((url) => URL.revokeObjectURL(url)); }, []);
   useEffect(() => {
     if (!ready || completed.current) return;
-    const snapshot = () => ({ step, name, price, colors, sizes, hasColors, hasSizes, note: '', caption: captionOverride, productId: productId.current, files: media.map((item) => item.file), savedAt: Date.now() });
+    const snapshot = () => ({ step: (step === 'choice' ? 'media' : mode) as 'media' | 'photo' | 'video', name, price, colors, sizes, hasColors, hasSizes, note: '', caption: captionOverride, productId: productId.current, files: media.map((item) => item.file), savedAt: Date.now() });
     const save = () => {
       if (!completed.current) void writeDraft(draftKey, snapshot()).catch(() => setDraftNotice('Draft recovery is unavailable. Keep this window open until you post.'));
     };
@@ -173,28 +185,51 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       window.removeEventListener('pagehide', save);
       document.removeEventListener('visibilitychange', onHidden);
     };
-  }, [draftKey, ready, step, name, price, colors, sizes, hasColors, hasSizes, captionOverride, media]);
+  }, [draftKey, ready, step, mode, name, price, colors, sizes, hasColors, hasSizes, captionOverride, media]);
 
-  const addMediaFiles = (files: File[]) => {
+  const addPhotos = (files: File[]) => {
     setError('');
-    const incomingPhotos = files.filter((file) => fileKind(file) === 'image');
-    const incomingVideos = files.filter((file) => fileKind(file) === 'video');
-    const unknown = files.some((file) => !fileKind(file));
-    const tooLargePhoto = incomingPhotos.some((file) => file.size > 15 * 1024 * 1024);
-    const tooLargeVideo = incomingVideos.some((file) => file.size > 75 * 1024 * 1024);
-    const photoRoom = Math.max(0, 7 - photos.length);
-    const acceptedPhotos = incomingPhotos.filter((file) => file.size <= 15 * 1024 * 1024).slice(0, photoRoom);
-    const nextVideo = !video ? incomingVideos.find((file) => file.size <= 75 * 1024 * 1024) : null;
-    const extraMedia = incomingPhotos.length > photoRoom || incomingVideos.length > (video ? 0 : 1);
-    const next: Media[] = [
-      ...acceptedPhotos.map((file) => ({ file, url: URL.createObjectURL(file), kind: 'image' as const })),
-      ...(nextVideo ? [{ file: nextVideo, url: URL.createObjectURL(nextVideo), kind: 'video' as const }] : []),
-    ];
+    if (!files.length) return;
+    const incoming = files.filter((file) => fileKind(file) === 'image');
+    const wrongType = files.some((file) => fileKind(file) !== 'image');
+    const tooLarge = incoming.some((file) => file.size > 15 * 1024 * 1024);
+    const room = Math.max(0, 7 - photos.length);
+    const accepted = incoming.filter((file) => file.size <= 15 * 1024 * 1024).slice(0, room);
+    const overflow = incoming.filter((file) => file.size <= 15 * 1024 * 1024).length > room;
+    const next = accepted.map((file) => ({ file, url: URL.createObjectURL(file), kind: 'image' as const }));
     next.forEach((item) => urls.current.add(item.url));
     if (next.length) setMedia((current) => [...current, ...next]);
-    if (tooLargePhoto || tooLargeVideo) setError('Photos must be under 15 MB and videos under 75 MB.');
-    else if (extraMedia) setError('Add up to 7 photos and one video. Extra media was not added.');
-    else if (unknown) setError('Choose photo or video files only.');
+    if (tooLarge) setError('Photos must be under 15 MB.');
+    else if (overflow) setError('You can add up to 7 photos. Extra photos were not added.');
+    else if (wrongType) setError(wrongType && !incoming.length ? 'Photos only here — pick images, not videos.' : 'Some files were not photos, so they were skipped.');
+  };
+
+  const addVideo = (files: File[]) => {
+    setError('');
+    const file = files.find((candidate) => fileKind(candidate) === 'video');
+    if (!file) { setError('Choose a video file.'); return; }
+    if (file.size > 75 * 1024 * 1024) { setError('Videos must be under 75 MB.'); return; }
+    const url = URL.createObjectURL(file);
+    urls.current.add(url);
+    setMedia((current) => {
+      current.filter((entry) => entry.kind === 'video').forEach((entry) => {
+        URL.revokeObjectURL(entry.url);
+        urls.current.delete(entry.url);
+      });
+      return [...current.filter((entry) => entry.kind !== 'video'), { file, url, kind: 'video' as const }];
+    });
+    setVideoRevealed(false);
+    setMode('video');
+    setStep('details');
+  };
+
+  const onPhotoInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    addPhotos(Array.from(event.target.files || []));
+    event.target.value = '';
+  };
+  const onVideoInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    addVideo(Array.from(event.target.files || []));
+    event.target.value = '';
   };
 
   const removeMedia = (item: Media) => {
@@ -221,13 +256,14 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     if (submitting.current) return;
     setError('');
     if (locked) { setError('Renew your store plan to add products. Existing products remain live.'); return; }
-    if (!photos.length) { setError('Add at least one product photo before continuing.'); return; }
+    if (!photos.length) { setError('Add at least one product photo using the Camera or Gallery button.'); return; }
+    if (mode === 'video' && !video) { setError('Add your video first — tap Camera to record one or Gallery to pick one you already have.'); return; }
     if (name.trim().length < 2) { setError('Enter a product name of at least 2 characters.'); return; }
     if (!Number.isFinite(Number(price)) || Number(price) < 1) { setError('Enter a price of at least KES 1.'); return; }
     if (!asDraft && !connections.length) { setError('Connect an account in Settings → Connected Accounts to publish.'); return; }
     if ((caption + '\n\n' + tags).length > 2200) { setError('Shorten the caption to keep the post under 2,200 characters.'); return; }
     // The operating system share sheet must be opened in the tap gesture.
-    const shareFiles = media.map((item) => item.file);
+    const shareFiles = socialMedia.map((item) => item.file);
     if (!asDraft && navigator.canShare?.({ files: shareFiles })) {
       void navigator.share({ files: shareFiles, title: `${storeName} status`, text: fullCaption }).catch(() => undefined);
     }
@@ -262,12 +298,14 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         });
         productId.current = saved.id;
         onProductsChanged?.();
-        await writeDraft(draftKey, { step, name, price, colors, sizes, hasColors, hasSizes, note: '', caption: captionOverride, productId: saved.id, files: media.map((item) => item.file), savedAt: Date.now() }).catch(() => undefined);
+        await writeDraft(draftKey, { step: step === 'choice' ? 'media' : mode, name, price, colors, sizes, hasColors, hasSizes, note: '', caption: captionOverride, productId: saved.id, files: media.map((item) => item.file), savedAt: draftTimestamp() }).catch(() => undefined);
       }
       setBusy(asDraft ? 'Saving draft…' : 'Sending to accounts…');
+      const attachedByFile = new Map(media.map((item, index) => [item.file, attached[index]] as const));
+      const posted = socialMedia.map((item) => attachedByFile.get(item.file)).filter((item): item is { url: string; kind: 'image' | 'video' } => Boolean(item));
       const response = await apiFetch<{ results?: Result['results'] }>('/api/media?action=social', {
         method: 'POST',
-        body: JSON.stringify({ op: asDraft ? 'save_draft' : 'publish', store_id: storeId, caption: `${caption}\n\n${tags}`, media_urls: attached.map((item) => item.url), media_kinds: attached.map((item) => item.kind) }),
+        body: JSON.stringify({ op: asDraft ? 'save_draft' : 'publish', store_id: storeId, caption: `${caption}\n\n${tags}`, media_urls: posted.map((item) => item.url), media_kinds: posted.map((item) => item.kind) }),
       });
       completed.current = true;
       await writeDraft(draftKey, null).catch(() => undefined);
@@ -281,16 +319,6 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     }
   };
 
-  const recap = media.length ? <div className="composer-recap">
-    <div className="composer-tiktok-strip media-grid-v12" role="list" aria-label="Post media">
-      {media.map((item) => <div key={item.url} role="listitem" className={`composer-tiktok-cell ${item.kind === 'image' && photos[0] === item ? 'lead' : ''}`}>
-        {item.kind === 'video' ? <video src={item.url} muted playsInline preload="metadata" /> : <img src={item.url} alt={`Product photo ${photos.indexOf(item) + 1}`} />}
-        {item.kind === 'image' && photos[0] === item && <small>Cover photo</small>}
-        {item.kind === 'video' && <span className="composer-video-tag"><Video /></span>}
-        <button type="button" onClick={() => removeMedia(item)} disabled={!!busy} aria-label={item.kind === 'video' ? 'Remove video' : `Remove photo ${photos.indexOf(item) + 1}`}><X /></button>
-      </div>)}
-    </div>
-  </div> : null;
   const allSucceeded = result && Object.values(result.results).every((postResult) => postResult.ok) && Object.keys(result.results).length > 0;
 
   const finishOnWhatsAppStatus = async () => {
@@ -299,7 +327,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch { /* clipboard may be unavailable */ }
-    const files = media.map((item) => item.file);
+    const files = socialMedia.map((item) => item.file);
     if (files.length && navigator.canShare?.({ files })) {
       try {
         await navigator.share({ files, title: `${storeName} status`, text: fullCaption });
@@ -309,24 +337,22 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(fullCaption)}`, '_blank');
   };
 
-  const canContinue = photos.length > 0 && !busy;
   const remainingPhotos = Math.max(0, 7 - photos.length);
-  const remainingVideos = video ? 0 : 1;
 
   return <div className="post-composer-page" role="dialog" aria-modal="true" aria-labelledby="post-composer-title">
     <header className="post-composer-header">
-      <button type="button" className="post-composer-back" onClick={() => step === 'details' ? setStep('media') : closeManually()} aria-label={step === 'details' ? 'Back to media' : 'Close post composer'} disabled={!!busy}>
+      <button type="button" className="post-composer-back" onClick={() => step === 'details' ? setStep('choice') : closeManually()} aria-label={step === 'details' ? 'Back to post type' : 'Close post composer'} disabled={!!busy}>
         {step === 'details' ? <ArrowLeft /> : <X />}
       </button>
-      <div className="post-composer-heading"><small>{storeName}</small><h1 id="post-composer-title">{result ? (result.draft ? 'Draft saved' : 'Post') : step === 'media' ? 'Add media' : 'Product details'}</h1></div>
-      {!result && <span className="post-composer-step-label">{step === 'media' ? '1 of 2' : '2 of 2'}</span>}
+      <div className="post-composer-heading"><small>{storeName}</small><h1 id="post-composer-title">{result ? (result.draft ? 'Draft saved' : 'Post') : step === 'choice' ? 'Post' : 'Product details'}</h1></div>
+      {!result && <span className="post-composer-step-label">{step === 'choice' ? '1 of 2' : '2 of 2'}</span>}
     </header>
 
     <main className="composer-body composer-v12 post-composer-content">
-      <div className="composer-progress composer-progress-3 composer-progress-2" aria-label="Post progress">
-        <span className={step === 'media' ? 'active' : 'done'}>1 · Media</span>
+      {!result && <div className="composer-progress composer-progress-3 composer-progress-2" aria-label="Post progress">
+        <span className={step === 'choice' ? 'active' : 'done'}>1 · Video or Photos</span>
         <span className={step === 'details' ? 'active' : ''}>2 · Product details</span>
-      </div>
+      </div>}
       {!ready ? <p role="status" className="composer-restore">Restoring your draft…</p> : result ? <div className="composer-result post-composer-result">
         <div className="result-check"><Check /></div>
         <h3>{result.draft ? 'Draft saved' : allSucceeded ? 'Your post is queued' : 'Check your post results'}</h3>
@@ -342,25 +368,62 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
         </div>
         <div className="composer-result-footer"><button type="button" className="button-primary" onClick={closeManually}>Done <Check /></button></div>
       </div> : <>
-        {step === 'media' && <section className="composer-block composer-media-first post-media-step">
-          <div className="post-media-intro"><div className="post-media-icon"><ImagePlus /></div><div><strong>Add photos and a video</strong><p>Choose or capture up to 7 photos. Add one optional video.</p></div></div>
-          {recap || <div className="post-media-empty"><Camera /><strong>Your post starts here</strong><span>Open the camera to take a photo or video, or browse your phone's gallery.</span></div>}
-          {video && !photos.length && <div className="composer-photo-needed" role="status"><ImagePlus /><span>Add at least one product photo to continue. A video alone is not enough.</span></div>}
-          {photos.length > 0 && <p className="post-media-count"><Check /> {photos.length} photo{photos.length === 1 ? '' : 's'}{video ? ' and 1 video' : ''} ready</p>}
-          <button type="button" className="button-primary post-open-camera" onClick={() => setCameraOpen(true)} disabled={!!busy || (!remainingPhotos && !remainingVideos)}>
-            <Camera /> {media.length ? 'Add more media' : 'Open camera'}
-          </button>
-          {!remainingPhotos && !remainingVideos && <small className="composer-hint">You have reached the media limit for this post.</small>}
-          <div className="post-step-footer">
-            <span>{photos.length}/7 photos{video ? ' · video added' : ' · video optional'}</span>
-            <button type="button" className="button-primary" onClick={() => { setError(''); setStep('details'); }} disabled={!canContinue}>Continue <ArrowRight /></button>
+        {step === 'choice' && <section className="composer-choice-wrap" aria-label="Choose what to post">
+          <div className="composer-choice-card">
+            <h2 className="composer-choice-title">What are we posting today?</h2>
+            <div className="composer-choice-options">
+              <button type="button" className="choice-main-btn choice-video-btn" aria-expanded={videoRevealed} onClick={() => { setVideoRevealed((open) => !open); setError(''); }}>
+                <Video /> Video <ChevronDown className="choice-chevron" />
+              </button>
+              <div className={`composer-video-reveal ${videoRevealed ? 'open' : ''}`}>
+                <div>
+                  <div className="composer-video-reveal-inner">
+                    <button type="button" className="choice-pair-btn" onClick={() => videoCameraRef.current?.click()}><Camera /> Camera</button>
+                    <button type="button" className="choice-pair-btn" onClick={() => videoGalleryRef.current?.click()}><ImagePlus /> Gallery</button>
+                  </div>
+                </div>
+              </div>
+              <button type="button" className="choice-main-btn choice-photo-btn" onClick={() => { setError(''); setMode('photo'); setStep('details'); }}>
+                <Images /> Photos
+              </button>
+            </div>
           </div>
         </section>}
 
         {step === 'details' && <>
           <section className="composer-block post-details-block">
             <div className="post-details-title"><Package /><div><strong>Product details</strong><small>Your post will also appear in your store.</small></div></div>
-            {recap}
+
+            <div className="post-media-area">
+              {mode === 'video' && <div className="composer-media-group">
+                <small className="composer-media-label">Your video — this is what gets posted</small>
+                {video ? <div className="composer-video-cell">
+                  <video src={video.url} muted playsInline preload="metadata" />
+                  <span className="composer-video-tag"><Video /></span>
+                  <button type="button" onClick={() => removeMedia(video)} disabled={!!busy} aria-label="Remove video"><X /></button>
+                </div> : <div className="media-pair-buttons">
+                  <button type="button" onClick={() => videoCameraRef.current?.click()} disabled={!!busy}><Camera /> Camera</button>
+                  <button type="button" onClick={() => videoGalleryRef.current?.click()} disabled={!!busy}><ImagePlus /> Gallery</button>
+                </div>}
+              </div>}
+
+              <div className="composer-media-group">
+                <small className="composer-media-label">{mode === 'video' ? 'Product photos — these create your product and are not posted' : 'Your photos — these get posted and create your product'}</small>
+                {photos.length > 0 && <div className="composer-tiktok-strip media-grid-v12" role="list" aria-label="Product photos">
+                  {photos.map((item, index) => <div key={item.url} role="listitem" className={`composer-tiktok-cell ${index === 0 ? 'lead' : ''}`}>
+                    <img src={item.url} alt={`Product photo ${index + 1}`} />
+                    {index === 0 && <small>Cover photo</small>}
+                    <button type="button" onClick={() => removeMedia(item)} disabled={!!busy} aria-label={`Remove photo ${index + 1}`}><X /></button>
+                  </div>)}
+                </div>}
+                <div className="media-pair-buttons">
+                  <button type="button" onClick={() => photoCameraRef.current?.click()} disabled={!!busy || remainingPhotos === 0}><Camera /> Camera</button>
+                  <button type="button" onClick={() => photoGalleryRef.current?.click()} disabled={!!busy || remainingPhotos === 0}><ImagePlus /> Gallery</button>
+                </div>
+                <p className="composer-media-count"><Check /> {photos.length}/7 photos{mode === 'video' ? ` · ${video ? 'video ready' : 'video needed'}` : ''}</p>
+              </div>
+            </div>
+
             <div className="composer-details-box"><div className="form-grid">
               <label>Product name<input maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Home jersey" disabled={!!busy} /></label>
               <label>Price (KES)<input type="number" inputMode="decimal" min="1" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="e.g. 2800" disabled={!!busy} /></label>
@@ -378,7 +441,7 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
           {connectionLoading ? <small className="composer-hint">Checking connected accounts…</small> : connectionError ? <div className="form-error">{connectionError} <button type="button" onClick={loadConnections}>Retry</button></div> : connections.length ? null : <small className="composer-hint">Connect accounts in Settings → Connected Accounts to publish.</small>}
           {locked && <div className="form-error">Your store plan needs renewal before you can add products.</div>}
           <div className="post-step-footer post-details-footer">
-            <button type="button" className="secondary-button" onClick={() => setStep('media')} disabled={!!busy}><ArrowLeft /> Back</button>
+            <button type="button" className="secondary-button" onClick={() => setStep('choice')} disabled={!!busy}><ArrowLeft /> Back</button>
             <div className="composer-submit-actions"><button type="button" className="button-primary" onClick={() => void submit(false)} disabled={!!busy || locked || connectionLoading}><Send /> Post</button></div>
           </div>
         </>}
@@ -388,13 +451,9 @@ export default function PostComposer({ storeId, storeName, storeSlug, locked = f
       </>}
     </main>
 
-    {cameraOpen && <MediaCaptureSheet
-      title="Camera and gallery"
-      maxPhotos={remainingPhotos}
-      maxVideos={remainingVideos}
-      maxItems={remainingPhotos + remainingVideos}
-      onClose={() => setCameraOpen(false)}
-      onUse={(files) => { addMediaFiles(files); setCameraOpen(false); }}
-    />}
+    <input ref={photoCameraRef} className="visually-hidden" type="file" accept="image/*" capture="environment" aria-hidden="true" tabIndex={-1} onChange={onPhotoInput} />
+    <input ref={photoGalleryRef} className="visually-hidden" type="file" accept="image/*" multiple aria-hidden="true" tabIndex={-1} onChange={onPhotoInput} />
+    <input ref={videoCameraRef} className="visually-hidden" type="file" accept="video/*" capture="environment" aria-hidden="true" tabIndex={-1} onChange={onVideoInput} />
+    <input ref={videoGalleryRef} className="visually-hidden" type="file" accept="video/*" aria-hidden="true" tabIndex={-1} onChange={onVideoInput} />
   </div>;
 }
