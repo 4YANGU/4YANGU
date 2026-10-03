@@ -38,6 +38,7 @@ export type Store = {
   metrics_date: string;
   created_at: string;
   updated_at?: string;
+  whatsapp_pair?: WhatsAppPair | null;
 };
 
 export type Order = {
@@ -87,7 +88,31 @@ export type Application = {
   created_at: string;
 };
 
-export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram' | 'threads';
+export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram' | 'threads' | 'whatsapp' | 'storefront';
+export type WhatsAppPairStatus = 'pending' | 'paired' | 'failed' | 'relink_required';
+export type WhatsAppPair = {
+  id: number;
+  store_id: number;
+  pairing_code?: string;
+  status: WhatsAppPairStatus;
+  display_phone: string | null;
+  verified_name: string | null;
+  last_inbound_at: string | null;
+  last_outbound_at: string | null;
+  last_error?: string;
+  connected_at: string | null;
+  consent_given_at?: string;
+};
+export type WhatsAppStatusSummary = {
+  total_stores: number;
+  paired_stores: number;
+  pending_stores: number;
+  relink_required: number;
+  failed_stores: number;
+  inbound_last_24h: number;
+  outbound_last_24h: number;
+  failed_last_24h: number;
+};
 
 export type SocialConnection = {
   id: number;
@@ -133,6 +158,9 @@ export type SocialMessage = {
   sender_avatar: string | null;
   attachment_url?: string | null;
   attachment_name?: string | null;
+  media_mime?: string | null;
+  whatsapp_wamid?: string | null;
+  whatsapp_status?: string;
   created_at: string;
 };
 
@@ -176,4 +204,5 @@ export type DashboardData = {
   customers?: number;
   customersToday?: number;
   customersThisPeriod?: number;
+  whatsapp?: WhatsAppStatusSummary | null;
 };

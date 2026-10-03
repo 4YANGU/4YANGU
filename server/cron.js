@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import supabase from '../lib/db-client.js';
 import webpush from 'web-push';
-import { processReplizWebhookEvent, syncStoreInbox } from './media.js';
+import { handleWhatsAppWebhook, processReplizWebhookEvent, syncStoreInbox } from './media.js';
 
 const todayInKenya = () => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const selectHighlights = (products) => {
@@ -205,12 +205,23 @@ async function handleReplizWebhook(req, res) {
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Token, X-Repliz-Webhook-Secret, X-Webhook-Secret, X-Webhook-Token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Token, X-Repliz-Webhook-Secret, X-Webhook-Secret, X-Webhook-Token, X-Hub-Signature, X-Hub-Signature-256');
   if (req.method === 'OPTIONS') return res.status(204).end();
   const requestedJob = String(req.query?.job || '');
-  if (req.method !== 'GET' && requestedJob !== 'repliz-webhook') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Webhook endpoints bypass CRON_SECRET but do THEIR OWN strict verification:
+  //  - repliz-webhook requires REPLIZ_WEBHOOK_SECRET (constant-time compare)
+  //  - whatsapp-webhook requires a valid X-Hub-Signature-256 against
+  //    WHATSAPP_APP_SECRET (now mandatory).
+  // Everything else (daily / send / inbox) requires CRON_SECRET.
+  const isWebhook = requestedJob === 'repliz-webhook' || requestedJob === 'whatsapp-webhook';
+  if (!isWebhook && req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+
   try {
     if (requestedJob === 'repliz-webhook') return await handleReplizWebhook(req, res);
+    if (requestedJob === 'whatsapp-webhook') return await handleWhatsAppWebhook(req, res);
+
+    // All remaining cron jobs require the CRON_SECRET bearer token.
     const expected = process.env.CRON_SECRET;
     const provided = req.headers.authorization?.replace('Bearer ', '');
     if (!expected) return res.status(503).json({ error: 'Cron secret is not configured.' });

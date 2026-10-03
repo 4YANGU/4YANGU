@@ -7,6 +7,7 @@ import PlatformLogo from '../components/PlatformLogo';
 import PostComposer from '../components/PostComposer';
 import ProductModal from '../components/ProductModal';
 import SocialAccountsSettings from '../components/SocialAccountsSettings';
+import WhatsAppPairing from '../components/WhatsAppPairing';
 import SocialInbox from '../components/SocialInbox';
 import { useAuth } from '../contexts/useAuth';
 import { apiFetch, formatMoney, storeDomain, storeLink } from '../lib/api';
@@ -844,6 +845,8 @@ function OwnerSettingsPage({ store, lifetimeProductViews, customers, installedLo
       </section>
 
       <SocialAccountsSettings storeId={store.id} />
+
+      <WhatsAppPairing storeId={store.id} storeName={store.name} />
 
       <section className="settings-section" aria-labelledby="app-settings-title">
         <div className="settings-section-heading settings-heading-simple"><h2 id="app-settings-title">My App</h2></div>

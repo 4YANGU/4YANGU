@@ -1,6 +1,10 @@
 import supabase from '../lib/db-client.js';
 import originalHandler from '../server/media.js';
 import { callbackOAuth, pendingOAuth, pickOAuth, resumeOAuth, startOAuth } from '../lib/social-oauth.js';
+// NOTE: bodyParser stays at Vercel default (enabled) for /api/media because
+// this handler serves the image-upload endpoint which takes large JSON bodies.
+// The WhatsApp webhook lives exclusively at /api/cron?job=whatsapp-webhook
+// (where bodyParser is disabled for raw signature verification).
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -9,6 +13,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   try {
     const action = String(req.query?.action || '');
+    // Public unauthenticated callbacks must bypass Bearer auth. Each handler
+    // performs its own strict verification (OAuth state, Meta signature, etc.).
     if (action === 'social-callback') {
       if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed.' });
       return await callbackOAuth(req, res, supabase);

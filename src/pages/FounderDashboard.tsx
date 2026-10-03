@@ -1,4 +1,4 @@
-import { BellRing, Box, CalendarClock, Check, ChevronRight, Clipboard, Download, ExternalLink, Eye, EyeOff, FileCode2, FilePlus2, LayoutDashboard, LogOut, MessageCircle, Package, Plus, Power, RefreshCw, Search, Send, Settings2, Store as StoreIcon, Trash2, Users } from 'lucide-react';
+import { AlertTriangle, BellRing, Box, CalendarClock, Check, ChevronRight, Clipboard, Download, ExternalLink, Eye, EyeOff, FileCode2, FilePlus2, LayoutDashboard, LogOut, MessageCircle, MessageSquare, Package, Plus, Power, RefreshCw, Search, Send, Settings2, Store as StoreIcon, Trash2, Users } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import BrandLogo from '../components/BrandLogo';
@@ -132,6 +132,30 @@ export default function FounderDashboard() {
     {error && <div className="dashboard-error">{error}<button onClick={load}><RefreshCw /> Try again</button></div>}
     {loading ? <DashboardSkeleton /> : data && <>
       <section id="overview" className="analytics-grid tiktok-analytics"><Metric icon={<StoreIcon />} label="Stores" value={data.analytics?.activeStores || 0} note="Live now" /><Metric icon={<Eye />} label="Visitors" value={data.analytics?.visitors || 0} note={`+${data.analytics?.visitorsToday || 0} today`} /><Metric icon={<MessageCircle />} label="Orders" value={data.analytics?.orders || 0} note={`+${data.analytics?.ordersToday || 0} today`} /><Metric icon={<Users />} label="Customers" value={data.analytics?.customers || 0} note={`+${data.analytics?.customersToday || 0} today`} /><Metric icon={<Package />} label="Products" value={data.analytics?.products || 0} note="Live now" /></section>
+
+      {data.whatsapp && <section className="dash-section whatsapp-founder-card" aria-label="WhatsApp status">
+        <div className="whatsapp-founder-head"><MessageSquare size={20} color="#25D366" /><div><strong>WhatsApp Business</strong><small>Pairing status across all live stores</small></div></div>
+        <div className="whatsapp-stats-grid">
+          <div className="whatsapp-stat"><strong>{data.whatsapp.paired_stores}</strong><span>Paired</span></div>
+          <div className="whatsapp-stat"><strong>{data.whatsapp.pending_stores}</strong><span>Awaiting pair</span></div>
+          <div className={`whatsapp-stat ${data.whatsapp.relink_required ? 'warn' : ''}`}><strong>{data.whatsapp.relink_required}</strong><span>Need relink</span></div>
+          <div className={`whatsapp-stat ${data.whatsapp.failed_last_24h ? 'bad' : ''}`}><strong>{data.whatsapp.inbound_last_24h}</strong><span>Inbound · 24h</span></div>
+        </div>
+        <div className="whatsapp-stats-grid">
+          <div className="whatsapp-stat"><strong>{data.whatsapp.outbound_last_24h}</strong><span>Replies sent · 24h</span></div>
+          <div className={`whatsapp-stat ${data.whatsapp.failed_last_24h ? 'bad' : ''}`}><strong>{data.whatsapp.failed_last_24h}</strong><span>Failed · 24h</span></div>
+          <div className="whatsapp-stat"><strong>{data.analytics?.activeStores || 0}</strong><span>Live stores total</span></div>
+          <div className="whatsapp-stat"><strong>{data.whatsapp.total_stores - data.whatsapp.paired_stores - data.whatsapp.pending_stores - data.whatsapp.relink_required}</strong><span>Not started</span></div>
+        </div>
+        {(data.stores || []).filter(s => s.whatsapp_pair?.status === 'relink_required' || s.whatsapp_pair?.status === 'paired' || s.whatsapp_pair?.status === 'pending').slice(0, 12).length > 0 && <div className="whatsapp-store-list">
+          {(data.stores || []).filter(s => s.whatsapp_pair).slice(0, 12).map(s => <div className="whatsapp-store-row" key={s.id}>
+            <span className={`wa-dot ${s.whatsapp_pair?.status || 'pending'}`} />
+            <div><strong>{s.name}</strong><small>{s.whatsapp_pair?.display_phone || s.whatsapp_pair?.status || 'pending'}{s.whatsapp_pair?.last_inbound_at ? ` · last message ${new Date(s.whatsapp_pair.last_inbound_at).toLocaleString('en-KE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</small>{s.whatsapp_pair?.status === 'relink_required' && <em><AlertTriangle size={11} /> Relink required</em>}</div>
+            <Link className="manage-button small" to={`/manage/${s.id}#connected-accounts-title`}>Open</Link>
+          </div>)}
+        </div>}
+      </section>}
+
       <section id="mpesa-setup" className="dash-section mpesa-setup-panel">
         <div className="dash-section-head mpesa-setup-heading"><div><span className="eyebrow">Founder checklist · sandbox activation</span><h2>Safaricom M-Pesa setup</h2></div><span className="mpesa-setup-badge">Sandbox · setup required</span></div>
         <p className="mpesa-setup-intro">The KES 200 / 14-day STK Push and callback are connected in the app. Before owners can use them, run the Supabase payment migration and add your sandbox values privately in Vercel. The app defaults to sandbox; do not switch to production until Safaricom has approved the live shortcode and you are ready to take real payments.</p>

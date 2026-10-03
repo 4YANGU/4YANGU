@@ -24,6 +24,7 @@ import supabase from '../lib/db-client.js';
 import { storeOrders } from '../lib/order-fallback.js';
 import { pushStoreEvent } from '../lib/push-events.js';
 import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, normalizeReplizPlatform, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizKeys, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
+import { handleWhatsAppInbound, newPairingCode, newVerifyToken, sendWhatsAppMessage, verifyWebhookChallenge, verifyWhatsAppSignature, whatsappMode } from '../lib/whatsapp.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
 const ALLOWED_POST_MEDIA_TYPES = /^image\/(jpeg|jpg|png|webp|gif)$/i;
@@ -61,6 +62,166 @@ function resolveSocialStore(req, profile) {
   const requested = Number(req.query?.storeId || req.body?.store_id || 0);
   if (profile.role === 'founder') return requested || Number(profile.store_id || 0) || 0;
   return Number(profile.store_id || 0);
+}
+
+// =========================================================================
+//  WhatsApp pairing / outbox / status handlers
+//  ?action=whatsapp — stays within this single serverless function so we
+//  don't add a 13th api file and break the Vercel Hobby plan.
+// =========================================================================
+
+async function handleWhatsAppPair(req, res, profile, storeId) {
+  // Owner starts (or refreshes) their 6-digit pairing code. Also returns
+  // the existing row if one is already pending or paired.
+  const now = new Date().toISOString();
+  const { data: existing } = await supabase.from('whatsapp_pairs').select('*').eq('store_id', storeId).maybeSingle();
+  if (existing) {
+    // Regenerate the code if it's older than 10 minutes or has no code.
+    const age = existing.created_at ? Date.now() - new Date(existing.created_at).getTime() : 0;
+    if (!existing.pairing_code || age > 10 * 60 * 1000 || existing.status === 'relink_required') {
+      const code = newPairingCode();
+      const token = newVerifyToken();
+      const { data: updated, error } = await supabase.from('whatsapp_pairs').update({
+        pairing_code: code, webhook_verify_token: token, status: 'pending',
+        last_error: '', updated_at: now, consent_given_at: now,
+      }).eq('id', existing.id).select().single();
+      if (error) throw error;
+      return res.status(200).json({ pair: updated, mode: whatsappMode() });
+    }
+    return res.status(200).json({ pair: existing, mode: whatsappMode() });
+  }
+  const code = newPairingCode();
+  const token = newVerifyToken();
+  const { data: created, error } = await supabase.from('whatsapp_pairs').insert({
+    store_id: storeId, pairing_code: code, webhook_verify_token: token, status: 'pending',
+    consent_given_at: now, updated_at: now,
+  }).select().single();
+  if (error) {
+    if (/does not exist|42P01|relation/.test(error.message || '')) {
+      return res.status(503).json({ error: 'Run the WhatsApp Supabase migration first (supabase/migrations/202610030001_whatsapp_partb.sql).' });
+    }
+    throw error;
+  }
+  return res.status(201).json({ pair: created, mode: whatsappMode() });
+}
+
+async function handleWhatsAppStatus(req, res, profile, storeId) {
+  const { data: pair, error } = await supabase.from('whatsapp_pairs').select('*').eq('store_id', storeId).maybeSingle();
+  if (error) throw error;
+  const [{ count: unread }, { count: totalThreads }, recent] = await Promise.all([
+    supabase.from('social_messages').select('id', { count: 'exact', head: true }).eq('store_id', storeId).eq('platform', 'whatsapp').eq('direction', 'in').eq('is_read', false),
+    supabase.from('social_messages').select('thread_key', { count: 'exact', head: true }).eq('store_id', storeId).eq('platform', 'whatsapp'),
+    supabase.from('social_messages').select('*').eq('store_id', storeId).eq('platform', 'whatsapp').order('created_at', { ascending: false }).limit(1),
+  ]);
+  return res.status(200).json({
+    pair: pair || null,
+    mode: whatsappMode(),
+    unread: unread || 0,
+    threads: totalThreads || 0,
+    last_message: recent?.data?.[0] || null,
+  });
+}
+
+async function handleWhatsAppOutbox(req, res, profile, storeId) {
+  // Owner-checked send: posts a single WhatsApp message to one checked
+  // customer thread (or a new number). The actual delivery is queued.
+  const to = String(req.body?.to || req.body?.customer_phone || '').trim();
+  const text = String(req.body?.body || req.body?.text || '').trim();
+  const attachmentUrl = String(req.body?.attachment_url || '').trim();
+  const attachmentMime = String(req.body?.attachment_mime || req.body?.media_mime || '').trim();
+  const attachmentName = String(req.body?.attachment_name || '').trim();
+  const replyToWamid = String(req.body?.reply_to_wamid || '').trim();
+  if (!to) return res.status(400).json({ error: 'Choose a customer first.' });
+  if (!text && !attachmentUrl) return res.status(400).json({ error: 'Write a message or choose an attachment.' });
+  const result = await sendWhatsAppMessage(supabase, { storeId, to, text, attachmentUrl, attachmentMime, attachmentName, replyToWamid });
+  if (result.delivery.ok === false && result.delivery.error) {
+    return res.status(201).json({ ok: true, saved: true, message: result.socialMessage, delivery: result.delivery, warning: result.delivery.error });
+  }
+  // Trigger a push so any other installed devices see it immediately.
+  pushStoreEvent(storeId, 'Message sent on WhatsApp', text.slice(0, 120), `whatsapp-out-${result.socialMessage.id}`, '/owner?inbox=1', { platform: 'whatsapp', threadKey: result.socialMessage.thread_key }).catch(() => undefined);
+  return res.status(201).json({ ok: true, message: result.socialMessage, delivery: result.delivery });
+}
+
+async function handleWhatsAppDisconnect(req, res, profile, storeId) {
+  const { error } = await supabase.from('whatsapp_pairs').update({
+    status: 'pending', phone_number_id: null, waba_id: null, business_account_id: null,
+    display_phone: null, verified_name: null, access_token_cipher: null,
+    last_error: 'Disconnected by owner.', updated_at: new Date().toISOString(),
+  }).eq('store_id', storeId);
+  if (error) throw error;
+  return res.status(200).json({ ok: true });
+}
+
+async function handleWhatsApp(req, res) {
+  const { profile, error } = await getAuthedProfile(req);
+  if (error) return res.status(401).json({ error });
+  const storeId = resolveSocialStore(req, profile);
+  if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+  const op = String(req.query?.op || req.body?.op || 'status').toLowerCase();
+  if (req.method === 'GET' && op === 'status') return await handleWhatsAppStatus(req, res, profile, storeId);
+  if (req.method === 'POST') {
+    if (op === 'pair' || op === 'connect' || op === 'start') return await handleWhatsAppPair(req, res, profile, storeId);
+    if (op === 'send' || op === 'outbox' || op === 'message') return await handleWhatsAppOutbox(req, res, profile, storeId);
+    if (op === 'disconnect' || op === 'unpair') return await handleWhatsAppDisconnect(req, res, profile, storeId);
+    if (op === 'resend_pair') return await handleWhatsAppPair(req, res, profile, storeId);
+  }
+  return res.status(400).json({ error: 'Unknown WhatsApp op. Use status | pair | send | disconnect' });
+}
+
+// Public (unauthenticated) webhook used by Meta to deliver inbound messages
+// and statuses. Accepts GET (subscribe challenge) and POST (events).
+// Returns 200 as quickly as possible — Meta retries aggressively on delay
+// or non-2xx, so we never block the response on push delivery.
+export async function handleWhatsAppWebhook(req, res) {
+  const sig = verifyWhatsAppSignature(req);
+  if (!sig.ok) {
+    return res.status(401).json({ error: sig.reason || 'Invalid WhatsApp webhook signature.' });
+  }
+  if (req.method === 'GET') {
+    const mode = String(req.query?.['hub.mode'] || '');
+    const token = String(req.query?.['hub.verify_token'] || '');
+    const challenge = req.query?.['hub.challenge'];
+    const answer = verifyWebhookChallenge(mode, token, challenge);
+    if (answer !== null) return res.status(200).send(answer);
+    return res.status(403).json({ error: 'Invalid verify token.' });
+  }
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST');
+    return res.status(405).json({ error: 'Method not allowed.' });
+  }
+  let payload = req.body;
+  if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch { payload = null; } }
+  if (!payload || typeof payload !== 'object') return res.status(400).json({ error: 'JSON body required.' });
+
+  // Acknowledge to Meta immediately. Duplicate delivery is safe because the
+  // inbound handler dedupes by wamid before inserting anything.
+  res.status(200).json({ ok: true });
+
+  // Process the payload AFTER the response has been sent; pushes and DB work
+  // must not block the webhook response.
+  setImmediate(async () => {
+    try {
+      const results = await handleWhatsAppInbound(supabase, payload);
+      const pushes = [];
+      for (const item of results) {
+        if (item.kind === 'message' && !item.duplicate) {
+          pushes.push(
+            pushStoreEvent(
+              item.storeId,
+              'New WhatsApp message',
+              'You received a new message on WhatsApp.',
+              `whatsapp-in-${item.wamid}`,
+              '/owner?inbox=1',
+              { platform: 'whatsapp', threadKey: item.threadKey }
+            ).catch(() => undefined)
+          );
+        }
+      }
+      await Promise.allSettled(pushes);
+    } catch (err) {
+      console.error('WhatsApp webhook background error:', err);
+    }
+  });
 }
 
 // =========================================================================
@@ -109,15 +270,21 @@ async function handleSocialSetupCheck(req, res, profile, storeId) {
 }
 
 async function handleSocialStatus(req, res, profile, storeId) {
-  const [{ data: connections, error: connError }, { data: unread, error: unreadError }] = await Promise.all([
+  const [{ data: connections, error: connError }, { data: unread, error: unreadError }, whatsapp] = await Promise.all([
     supabase.from('social_connections').select('*').eq('store_id', storeId).in('platform', REPLIZ_PLATFORMS).order('platform', { ascending: true }),
-    supabase.from('social_messages').select('platform').eq('store_id', storeId).in('platform', [...REPLIZ_PLATFORMS, 'storefront']).eq('direction', 'in').eq('is_read', false),
+    supabase.from('social_messages').select('platform').eq('store_id', storeId).in('platform', [...REPLIZ_PLATFORMS, 'storefront', 'whatsapp']).eq('direction', 'in').eq('is_read', false),
+    supabase.from('whatsapp_pairs').select('status,display_phone,last_inbound_at,last_error').eq('store_id', storeId).maybeSingle(),
   ]);
   if (connError) throw connError;
   if (unreadError) throw unreadError;
   const byPlatform = {};
   for (const row of unread || []) byPlatform[row.platform] = (byPlatform[row.platform] || 0) + 1;
-  return res.status(200).json({ connections: connections || [], unread: { total: (unread || []).length, by_platform: byPlatform } });
+  return res.status(200).json({
+    connections: connections || [],
+    unread: { total: (unread || []).length, by_platform: byPlatform },
+    whatsapp: whatsapp ? { status: whatsapp.status || 'pending', display_phone: whatsapp.display_phone || '', last_inbound_at: whatsapp.last_inbound_at || null, last_error: whatsapp.last_error || '' } : null,
+    whatsapp_mode: whatsappMode(),
+  });
 }
 
 async function handleSocialInbox(req, res, profile, storeId) {
@@ -125,7 +292,7 @@ async function handleSocialInbox(req, res, profile, storeId) {
     .from('social_messages')
     .select('*')
     .eq('store_id', storeId)
-    .in('platform', [...REPLIZ_PLATFORMS, 'storefront'])
+    .in('platform', [...REPLIZ_PLATFORMS, 'storefront', 'whatsapp'])
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
@@ -325,15 +492,21 @@ async function handleSocialReply(req, res, profile, storeId) {
     .limit(100);
   if (existingError) throw existingError;
   if (!existing?.length) return res.status(404).json({ error: 'Conversation not found.' });
-  // Always deliver against an inbound provider message. The newest row is
-  // often the owner's previous outgoing reply, whose external_id is null;
-  // using it caused the false "comment is missing its platform reference"
-  // failure on every second reply.
   const head = existing.find((message) => message.direction === 'in') || existing[0];
   const deliverySource = existing.find((message) => message.direction === 'in' && message.external_id) || head;
+  // WhatsApp threads are routed through the dedicated Cloud API sender.
+  if (head.platform === 'whatsapp') {
+    const to = String(head.sender_handle || '').replace(/^whatsapp:/, '');
+    const result = await sendWhatsAppMessage(supabase, {
+      storeId, to, text: body, attachmentUrl, attachmentName,
+      replyToWamid: deliverySource?.whatsapp_wamid || deliverySource?.external_id || '',
+    });
+    await supabase.from('social_messages').update({ is_resolved: false }).eq('store_id', storeId).eq('thread_key', threadKey);
+    pushStoreEvent(storeId, 'WhatsApp reply sent', body.slice(0, 120), `wa-reply-${result.socialMessage.id}`, '/owner?inbox=1', { platform: 'whatsapp', threadKey }).catch(() => undefined);
+    return res.status(201).json({ message: result.socialMessage, delivery: result.delivery });
+  }
   const { data: store } = await supabase.from('stores').select('name').eq('id', storeId).single();
   const mode = replizMode();
-  // Save locally first so the reply is never lost if the live send fails.
   const { data: saved, error } = await supabase.from('social_messages').insert({
     store_id: storeId,
     platform: head.platform,
@@ -360,7 +533,6 @@ async function handleSocialReply(req, res, profile, storeId) {
   }
   if (head.platform === 'storefront') delivery = { ok: false, mode: 'storefront', error: 'Storefront replies stay in your inbox. Open WhatsApp to send this message to the customer.' };
   else if (mode !== 'live') delivery = { ok: false, mode, error: 'Social delivery needs Repliz credentials. Reply saved in your inbox.' };
-  // Reopen + mark the owner's view consistent: inbound messages stay as they were.
   await supabase.from('social_messages').update({ is_resolved: false }).eq('store_id', storeId).eq('thread_key', threadKey);
   return res.status(201).json({ message: saved, delivery });
 }
@@ -842,7 +1014,8 @@ export default async function handler(req, res) {
     if (action === 'upload') return await handleUpload(req, res);
     if (action === 'post-upload-url') return await handlePostUploadUrl(req, res);
     if (action === 'social') return await handleSocial(req, res);
-    return res.status(400).json({ error: 'Unknown action. Use ?action=profile | upload | post-upload-url | social | social-callback' });
+    if (action === 'whatsapp') return await handleWhatsApp(req, res);
+    return res.status(400).json({ error: 'Unknown action. Use ?action=profile | upload | post-upload-url | social | social-callback | whatsapp' });
   } catch (err) {
     console.error('Media API error:', err);
     return res.status(500).json({ error: err instanceof Error ? err.message : 'Internal error' });

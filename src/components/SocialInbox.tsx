@@ -443,7 +443,14 @@ export default function SocialInbox({ storeId, onActivity, active = true, visibl
       setThreads((current) => current.map((item) => item.thread_key === thread.thread_key
         ? { ...item, last_at: result.message.created_at, last_body: result.message.body, messages: item.messages.map((message) => message.id === optimisticId ? result.message : message) }
         : item));
-      if (result.delivery && result.delivery.ok === false) setError(`Saved, but sending failed: ${result.delivery.error || 'please try again.'}`);
+      if (result.delivery && (result.delivery as { ok?: boolean; reason?: string; error?: string }).ok === false) {
+        const del = result.delivery as { ok?: boolean; reason?: string; error?: string };
+        if (del.reason === 'window_closed') {
+          setError('Saved to your outbox, but WhatsApp won\'t deliver it: the 24-hour customer care window for this chat has closed. Open WhatsApp directly to send a template message and restart the conversation.');
+        } else {
+          setError(`Saved, but sending failed: ${del.error || 'please try again.'}`);
+        }
+      }
       onActivity?.();
     } catch (reason) {
       setThreads((current) => current.map((item) => item.thread_key === thread.thread_key
@@ -482,7 +489,12 @@ export default function SocialInbox({ storeId, onActivity, active = true, visibl
           {selected.messages.map((message, index) => <Fragment key={message.id}>{(index === 0 || dateLabel(message.created_at) !== dateLabel(selected.messages[index - 1].created_at)) && <div className="chat-day-divider">{dateLabel(message.created_at)}</div>}<div className={`social-bubble ${message.direction}`}>
             <span className="bubble-platform"><PlatformLogo platform={message.platform} size={11} />{platformLabel(message.platform)}</span>
             <p>{readableMessage(message.body)}</p>{message.attachment_url && <a className="chat-attachment" href={message.attachment_url} target="_blank" rel="noreferrer">{message.attachment_url.match(/\.(png|jpe?g|webp|gif)(\?|$)/i) ? <img src={message.attachment_url} alt={message.attachment_name || "Attached photo"} loading="lazy" /> : <><Paperclip size={16} /> {message.attachment_name || "View attachment"}</>}</a>}
-            <small>{fullTime(message.created_at)}{message.direction === 'out' ? ' · you' : ''}</small>
+            <small>
+              {fullTime(message.created_at)}{message.direction === 'out' ? ' · you' : ''}
+              {message.direction === 'out' && message.platform === 'whatsapp' && message.whatsapp_status
+                ? ` · ${({ sent: 'sent', delivered: 'delivered', read: 'read', 'sent-mock': 'sent', failed: 'delivery failed', queued: 'sending…' } as Record<string, string>)[message.whatsapp_status] || ''}`
+                : ''}
+            </small>
           </div></Fragment>)}
         </div>
         <form className="social-reply" onSubmit={sendReply}>

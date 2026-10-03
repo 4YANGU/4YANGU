@@ -84,20 +84,27 @@ export default async function handler(req, res) {
       const fallbackNeeds = [...liveProducts].filter((product) => product.id !== fallbackWinner?.id).sort((a, b) => (Number(b.views_today) - Number(b.orders_today) * 3) - (Number(a.views_today) - Number(a.orders_today) * 3))[0] || null;
       const quietDay = Number(store.visitor_today || 0) === 0 && Number(store.orders_today || 0) === 0;
       const enrichedNotifications = (notifications || []).map((item) => { const highlight = (highlights || []).find((row) => row.notification_id === item.id); const isCustomMessage = String(item.batch_key || '').startsWith('custom-'); const noProduct = isCustomMessage || quietDay; return { ...item, body: item.edited_body || item.body, winner_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.winner_product_id) || fallbackWinner, needs_product: noProduct ? null : liveProducts.find((product) => product.id === highlight?.needs_product_id) || fallbackNeeds }; });
-      const { data: incomingMessages } = await supabase.from('social_messages').select('thread_key,created_at').eq('store_id', storeId).eq('direction', 'in');
+      const { data: incomingMessages } = await supabase.from('social_messages').select('thread_key,created_at,platform').eq('store_id', storeId).eq('direction', 'in');
       const inboundMessages = incomingMessages || [];
       const customersTotal = new Set(inboundMessages.map((message) => message.thread_key)).size;
       const customersToday = new Set(inboundMessages.filter((message) => new Date(message.created_at).getTime() >= new Date(dayStart).getTime()).map((message) => message.thread_key)).size;
       const customersThisPeriod = new Set(inboundMessages.filter((message) => { const created = new Date(message.created_at).getTime(); return created >= currentPeriod.startsAt && created < currentPeriod.endsAt; }).map((message) => message.thread_key)).size;
-      return res.status(200).json({ profile, store: { ...addPlan(store, orders), visitors_this_period: periodVisits }, products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal, customersToday, customersThisPeriod });
+      const { data: waPair } = await supabase.from('whatsapp_pairs').select('status,display_phone,verified_name,last_inbound_at,last_outbound_at,pairing_code,last_error,connected_at').eq('store_id', storeId).maybeSingle().catch(() => ({ data: null }));
+      return res.status(200).json({ profile, store: { ...addPlan(store, orders), visitors_this_period: periodVisits }, products: liveProducts, orders: orders || [], notifications: enrichedNotifications, customers: customersTotal, customersToday, customersThisPeriod, whatsapp: waPair || null });
     }
     if (profile.role !== 'founder') return res.status(403).json({ error: 'Founder access required.' });
-    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }] = await Promise.all([
+    const [{ data: stores }, { data: products }, { data: applications }, { data: installations }, whatsappSummary] = await Promise.all([
       supabase.from('stores').select('*').order('created_at', { ascending: false }),
       supabase.from('products').select('id,store_id,active'),
       supabase.from('applications').select('*').order('created_at', { ascending: false }),
       supabase.from('pwa_installations').select('store_id,installed,notifications_enabled,welcome_sent_at,last_seen_at'),
+      supabase.rpc('whatsapp_status_summary').then(r => r.data || r).catch(() => null),
     ]);
+    const { data: waPairs } = await supabase
+      .from('whatsapp_pairs')
+      .select('store_id,status,display_phone,verified_name,last_inbound_at,last_outbound_at,last_error,connected_at')
+      .catch(() => ({ data: [] }));
+    const waPairMap = (waPairs || []).reduce((m, row) => ({ ...m, [row.store_id]: row }), {});
     const allOrders = (await Promise.all((stores || []).map((store) => storeOrders(supabase, store.id, 500)))).flat();
     // Fresh Nairobi day before the first event: show zero for today's counters.
     const nairobiToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
@@ -119,7 +126,10 @@ export default async function handler(req, res) {
         await supabase.from('stores').update({ visitor_today: visits, orders_today: orders, metrics_date: nairobiToday }).eq('id', store.id);
       }
     }
-    const storesWithPlans = (stores || []).map((store) => addPlan(store, (allOrders || []).filter((order) => order.store_id === store.id)));
+    const storesWithPlans = (stores || []).map((store) => ({
+      ...addPlan(store, (allOrders || []).filter((order) => order.store_id === store.id)),
+      whatsapp_pair: waPairMap[store.id] || null,
+    }));
     const liveProducts = (products || []).filter((product) => product.active);
     const storeIds = storesWithPlans.map((s) => s.id);
     let customersTotal = 0;
@@ -134,7 +144,7 @@ export default async function handler(req, res) {
     const analytics = { activeStores: storesWithPlans.filter((store) => store.is_active).length, visitors: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_total || 0), 0), visitorsToday: storesWithPlans.reduce((sum, store) => sum + Number(store.visitor_today || 0), 0), orders: storesWithPlans.reduce((sum, store) => sum + Number(store.actual_orders_total || 0), 0), ordersToday: storesWithPlans.reduce((sum, store) => sum + Number(store.orders_today || 0), 0), products: liveProducts.length, customers: customersTotal, customersToday };
     const productCounts = liveProducts.reduce((map, product) => ({ ...map, [product.store_id]: (map[product.store_id] || 0) + 1 }), {});
     const installationStatus = (installations || []).reduce((map, item) => ({ ...map, [item.store_id]: item }), {});
-    return res.status(200).json({ profile, analytics, stores: storesWithPlans, applications: applications || [], productCounts, installations: installationStatus });
+    return res.status(200).json({ profile, analytics, stores: storesWithPlans, applications: applications || [], productCounts, installations: installationStatus, whatsapp: whatsappSummary || null });
   } catch (err) {
     console.error('Dashboard API error:', err);
     return res.status(500).json({ error: 'Could not load the dashboard.' });
