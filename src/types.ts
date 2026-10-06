@@ -89,6 +89,21 @@ export type Application = {
 
 export type SocialPlatform = 'tiktok' | 'facebook' | 'instagram' | 'threads';
 
+// Columns the browser may read from wa_sessions (RLS-restricted).
+// NEVER add creds_cipher, auth_keys, content_json, or other sensitive fields.
+export type WhatsAppSession = {
+  store_id: number;
+  status: string; // pending | connected | logged_out | relink_required | offline | error
+  pairing_code: string | null;
+  pairing_code_expires_at: string | null;
+  last_error: string | null;
+  disconnect_reason: string | null;
+  registered: boolean | null;
+  me_jid: string | null;
+  last_connected_at: string | null;
+  phone_number: string | null;
+};
+
 export type SocialConnection = {
   id: number;
   store_id: number;
