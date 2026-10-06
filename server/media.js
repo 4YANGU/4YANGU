@@ -23,6 +23,7 @@
 import supabase from '../lib/db-client.js';
 import { storeOrders } from '../lib/order-fallback.js';
 import { pushStoreEvent } from '../lib/push-events.js';
+import { isWorkerConfigured, workerPair, workerUnlink } from '../lib/whatsapp-worker.js';
 import { REPLIZ_LABELS, REPLIZ_PLATFORMS, REPLIZ_SINGLE_STEP, REPLIZ_TWO_STEP, extractOAuthCode, normalizePublishMedia, normalizeReplizChat, normalizeReplizChatMessage, normalizeReplizComment, normalizeReplizPlatform, replizAuthorizeUrl, replizCallbackUrl, replizConnectOAuth, replizConnectUrl, replizExchangeCode, replizFetchChatMessages, replizFetchInbox, replizGetAccount, replizKeys, replizListOAuthChoices, replizMarkChatRead, replizMode, replizPublish, replizSendReply, replizUpdateCommentStatus, replizWorkspaceAccounts } from '../lib/repliz.js';
 
 const ALLOWED_IMAGE_TYPES = /^image\/(jpeg|jpg|png|webp|gif|heic|heif|avif|bmp)$/i;
@@ -61,6 +62,100 @@ function resolveSocialStore(req, profile) {
   const requested = Number(req.query?.storeId || req.body?.store_id || 0);
   if (profile.role === 'founder') return requested || Number(profile.store_id || 0) || 0;
   return Number(profile.store_id || 0);
+}
+
+// =========================================================================
+//  WhatsApp (StoYangu worker) handlers — Item 1: pair / unlink
+//  Browser never calls the worker; server verifies auth + store ownership,
+//  then proxies to the worker using the admin token. The browser reads
+//  wa_sessions directly (allowed columns only) via Supabase RLS.
+// =========================================================================
+
+function normalizeKePhone(input) {
+  const digits = String(input || '').replace(/[^\d]/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('254') && digits.length >= 12) return digits;
+  if (digits.startsWith('0') && digits.length >= 10) return `254${digits.slice(1)}`;
+  if (digits.startsWith('7') || digits.startsWith('1')) return `254${digits}`;
+  return digits;
+}
+
+async function handleWhatsAppPair(req, res, profile, storeId) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
+  if (!storeId) return res.status(400).json({ error: 'Choose a store first.' });
+  const phoneRaw = String(req.body?.phoneNumber || req.body?.phone || '').trim();
+  const phoneNumber = normalizeKePhone(phoneRaw);
+  if (!/^254\d{9}$/.test(phoneNumber)) {
+    return res.status(400).json({ error: 'Enter a 10-digit Kenyan phone number starting with 0 (for example 0712 345 678). The +254 country code is added automatically.' });
+  }
+  if (!isWorkerConfigured()) {
+    return res.status(503).json({ error: 'WhatsApp is not configured yet. Add WHATSAPP_WORKER_URL and WHATSAPP_WORKER_ADMIN_TOKEN in Vercel.' });
+  }
+  try {
+    const { data } = await workerPair({ storeId, phoneNumber });
+    // Persist the requested phone + pending status so the browser's 3-second
+    // poll of wa_sessions sees a row immediately even before the worker picks
+    // it up (worker writes pairing_code within SESSION_POLL_MS=15s).
+    await supabase.from('wa_sessions').upsert({
+      store_id: storeId, phone_number: phoneNumber, enabled: true, status: 'pending',
+    }, { onConflict: 'store_id' });
+    return res.status(200).json({ ok: true, storeId, phoneNumber, ...(data || {}) });
+  } catch (err) {
+    const status = err.status || 500;
+    const workerCode = String(err?.payload?.code || '');
+    // pairing_in_progress means a previous /pair is still being processed by
+    // the worker — the existing pairing code (if any) is already in wa_sessions
+    // and will be picked up by the 3-second poll. Treat as success so the UI
+    // just waits instead of showing an error.
+    if (status === 409 && workerCode === 'pairing_in_progress') {
+      // A previous /pair is still being processed. If the worker already
+      // returned the existing code in the error payload, persist it so the
+      // UI's 3-second poll picks it up right away; otherwise just mark
+      // pending and let the worker write it on its next SESSION_POLL_MS.
+      const existingCode = String(
+        err?.payload?.pairingCode || err?.payload?.pairing_code || ''
+      ).replace(/\D/g, '').slice(0, 8) || null;
+      const existingExpiry = err?.payload?.expiresAt
+        || err?.payload?.pairing_code_expires_at || null;
+      const upsertRow = {
+        store_id: storeId,
+        enabled: true,
+        status: 'pending',
+        phone_number: phoneNumber,
+        ...(existingCode ? { pairing_code: existingCode } : {}),
+        ...(existingExpiry ? { pairing_code_expires_at: existingExpiry } : {}),
+      };
+      await supabase.from('wa_sessions').upsert(upsertRow, { onConflict: 'store_id' });
+      return res.status(200).json({ ok: true, storeId, phoneNumber, waiting: true });
+    }
+    let message = err.message || 'Could not start WhatsApp pairing.';
+    if (status === 401) message = 'The worker rejected the pairing request. Wait a minute and try again.';
+    if (status === 400) message = message.includes('phone') ? message : 'Check the phone number and try again.';
+    if (status === 409) {
+      if (workerCode === 'already_linked') {
+        message = 'This shop is already connected. Disconnect first to link a different phone.';
+      } else {
+        message = 'A pairing code was already issued for this shop. Wait for it to expire and try again.';
+      }
+    }
+    return res.status(status).json({ error: message });
+  }
+}
+
+async function handleWhatsAppUnlink(req, res, profile, storeId) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
+  if (!storeId) return res.status(400).json({ error: 'Choose a store first.' });
+  if (!isWorkerConfigured()) return res.status(503).json({ error: 'WhatsApp is not configured yet.' });
+  try {
+    const { data } = await workerUnlink({ storeId });
+    return res.status(200).json({ ok: true, storeId, ...(data || {}) });
+  } catch (err) {
+    const status = err.status || 500;
+    let message = err.message || 'Could not disconnect WhatsApp.';
+    if (status === 401) message = 'The worker rejected the disconnect request. Try again in a moment.';
+    if (status === 404) message = 'No WhatsApp device is linked for this shop yet.';
+    return res.status(status).json({ error: message });
+  }
 }
 
 // =========================================================================
@@ -718,6 +813,19 @@ async function handleSocial(req, res) {
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
+async function handleWhatsApp(req, res) {
+  const { profile, error } = await getAuthedProfile(req);
+  if (error) return res.status(401).json({ error });
+  const storeId = resolveSocialStore(req, profile);
+  if (!storeId) return res.status(400).json({ error: 'Store is required.' });
+  const op = String(req.query?.op || req.body?.op || '').toLowerCase();
+  if (req.method === 'POST') {
+    if (op === 'pair') return await handleWhatsAppPair(req, res, profile, storeId);
+    if (op === 'unlink') return await handleWhatsAppUnlink(req, res, profile, storeId);
+  }
+  return res.status(405).json({ error: 'Method not allowed. Use POST op=pair | op=unlink' });
+}
+
 // Woyoyo-004: OAuth landing page. The platform sends the owner back here
 // after they approve on the official authorization page. Single-step
 // platforms (TikTok / Instagram / Threads) finish immediately; Facebook
@@ -842,7 +950,8 @@ export default async function handler(req, res) {
     if (action === 'upload') return await handleUpload(req, res);
     if (action === 'post-upload-url') return await handlePostUploadUrl(req, res);
     if (action === 'social') return await handleSocial(req, res);
-    return res.status(400).json({ error: 'Unknown action. Use ?action=profile | upload | post-upload-url | social | social-callback' });
+    if (action === 'whatsapp') return await handleWhatsApp(req, res);
+    return res.status(400).json({ error: 'Unknown action. Use ?action=profile | upload | post-upload-url | social | social-callback | whatsapp' });
   } catch (err) {
     console.error('Media API error:', err);
     return res.status(500).json({ error: err instanceof Error ? err.message : 'Internal error' });
