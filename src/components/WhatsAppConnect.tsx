@@ -9,9 +9,8 @@ type Props = {
   storeName: string;
 };
 
-type UiStatus = 'idle' | 'waiting' | 'connected' | 'offline' | 'relink' | 'error';
-
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
+type UiStatus = 'idle' | 'preparing' | 'waiting' | 'connected' | 'offline' | 'relink' | 'error';
+type UiState = { ui: UiStatus; badge: string; detail: string };
 
 function normalizeDisplay(digits: string) {
   const s = String(digits || '').replace(/[^\d]/g, '');
@@ -28,54 +27,67 @@ function formatCountdown(ms: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Map wa_sessions.status + failure reasons to simple human messages.
-function deriveUiState(session: WhatsAppSession | null) {
-  if (!session) return { ui: 'idle', badge: 'Not connected', detail: 'Link your shop\'s WhatsApp to reply to customers from this app.' };
-  const st = String(session.status || '');
+function hasWorkerLink(session: WhatsAppSession | null) {
+  const status = String(session?.status || '').toLowerCase();
+  return ['connected', 'offline', 'reconnecting', 'relink_required', 'needs_relinking'].includes(status);
+}
+
+// Map worker-owned wa_sessions state to short, plain messages.
+function deriveUiState(session: WhatsAppSession | null): UiState {
+  if (!session) return { ui: 'idle', badge: 'Not connected', detail: 'Connect your shop’s WhatsApp to get started.' };
+  const st = String(session.status || '').toLowerCase();
   const reason = String(session.disconnect_reason || session.last_error || '').toLowerCase();
 
-  if (st === 'connected' && session.registered) {
+  if (st === 'connected') {
     return {
       ui: 'connected',
       badge: 'Connected',
       detail: session.phone_number
         ? `Linked to ${normalizeDisplay(session.phone_number)}${session.last_connected_at ? ` · active since ${new Date(session.last_connected_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' })}` : ''}`
-        : 'WhatsApp is linked and ready to send and receive messages.',
+        : 'Your shop’s WhatsApp is connected.',
     };
   }
   if (st === 'pending' && session.pairing_code) {
-    return { ui: 'waiting', badge: 'Waiting for code', detail: 'Enter the 8-digit code on your phone using "Link with phone number instead".' };
+    return { ui: 'waiting', badge: 'Waiting for code', detail: 'Enter the 8-digit code in WhatsApp under Settings → Linked devices.' };
   }
   if (st === 'pending') {
-    return { ui: 'waiting', badge: 'Preparing code…', detail: 'Getting a linking code ready — this takes a few seconds.' };
+    return { ui: 'preparing', badge: 'Preparing code...', detail: 'The worker is preparing your WhatsApp code.' };
   }
   if (st === 'logged_out' || /401:loggedout|logged.?out/.test(reason)) {
-    return { ui: 'idle', badge: 'Not connected', detail: 'The link was removed from inside WhatsApp. You can pair again below.' };
+    return { ui: 'idle', badge: 'Not connected', detail: 'Link removed from inside WhatsApp. Connect again to resume.' };
   }
-  if (st === 'relink_required' || /relink|bad.?session/.test(reason)) {
-    return { ui: 'relink', badge: 'Needs relinking', detail: 'WhatsApp needs to be linked again. Use the three steps below to pair this phone again.' };
+  if (st === 'relink_required' || st === 'needs_relinking' || /relink|bad.?session/.test(reason)) {
+    return { ui: 'relink', badge: 'Needs relinking', detail: 'WhatsApp needs to be linked again.' };
   }
-  if (st === 'offline' || /offline|connection.?failure|515/.test(reason)) {
-    return { ui: 'offline', badge: 'Phone offline', detail: 'Wait for the phone to come back online — messages will send once it reconnects.' };
+  if (st === 'offline' || st === 'reconnecting' || /offline|connection.?failure|515/.test(reason)) {
+    return { ui: 'offline', badge: 'Reconnecting', detail: 'WhatsApp is reconnecting. Messages will resume when the phone is online.' };
   }
   if (st === 'error' || /error|refused|denied|401/.test(reason)) {
-    const hint = reason.includes('401') && reason.includes('loggedout') === false
-      ? 'WhatsApp refused the pairing code. Check the number and try again in a few minutes.'
-      : 'Something went wrong while linking. Try again.';
-    return { ui: 'error', badge: 'Could not link', detail: hint };
+    return { ui: 'error', badge: 'Error', detail: 'WhatsApp could not connect. Check the number and try again.' };
   }
-  return { ui: 'idle', badge: 'Not connected', detail: 'Link your shop\'s WhatsApp to reply to customers from this app.' };
+  return { ui: 'idle', badge: 'Not connected', detail: 'Connect your shop’s WhatsApp to get started.' };
 }
 
-export default function WhatsAppConnect({ storeId, storeName }: Props) {
+export default function WhatsAppConnect({ storeId }: Props) {
   const [phone, setPhone] = useState('07');
-  const [session, setSession] = useState<WhatsAppSession | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [sessionState, setSessionState] = useState<{ storeId: number; session: WhatsAppSession | null }>({ storeId, session: null });
+  const [loadedStoreId, setLoadedStoreId] = useState<number | null>(null);
+  const [busyStoreId, setBusyStoreId] = useState<number | null>(null);
+  const [disconnectingStoreId, setDisconnectingStoreId] = useState<number | null>(null);
+  const [preparingStoreId, setPreparingStoreId] = useState<number | null>(null);
+  const [errorState, setErrorState] = useState<{ storeId: number; message: string } | null>(null);
+  const [copiedStoreId, setCopiedStoreId] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const tickRef = useRef<number | undefined>(undefined);
+  const disconnectedStoreIdsRef = useRef<Set<number>>(new Set());
+
+  const session = sessionState.storeId === storeId ? sessionState.session : null;
+  const loading = loadedStoreId !== storeId;
+  const busy = busyStoreId === storeId;
+  const disconnecting = disconnectingStoreId === storeId;
+  const preparing = preparingStoreId === storeId;
+  const error = errorState?.storeId === storeId ? errorState.message : '';
+  const copied = copiedStoreId === storeId;
 
   const load = useCallback(async () => {
     try {
@@ -85,20 +97,32 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
         .eq('store_id', storeId)
         .maybeSingle();
       if (readErr) throw readErr;
-      setSession(data || null);
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load WhatsApp status.');
+
+      const workerSession = data || null;
+      if (disconnectedStoreIdsRef.current.has(storeId) && hasWorkerLink(workerSession)) {
+        setSessionState({ storeId, session: null });
+        setErrorState((current) => current?.storeId === storeId ? null : current);
+        return;
+      }
+      disconnectedStoreIdsRef.current.delete(storeId);
+      setSessionState({ storeId, session: workerSession });
+      setErrorState((current) => current?.storeId === storeId ? null : current);
+      if (workerSession) setPreparingStoreId((current) => current === storeId ? null : current);
+    } catch {
+      setErrorState({ storeId, message: 'Could not load WhatsApp status. Please try again.' });
     } finally {
-      setLoading(false);
+      setLoadedStoreId(storeId);
     }
   }, [storeId]);
 
-  // Poll every 3 seconds (browser reads wa_sessions via RLS).
+  // Poll the worker-owned row every 3 seconds; do not subscribe to Realtime.
   useEffect(() => {
-    load();
+    const initialLoad = window.setTimeout(load, 0);
     const interval = window.setInterval(load, 3000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(interval);
+    };
   }, [load]);
 
   // Countdown ticker.
@@ -107,7 +131,10 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
     return () => { if (tickRef.current) window.clearInterval(tickRef.current); };
   }, []);
 
-  const state = useMemo(() => deriveUiState(session), [session]);
+  const state = useMemo<UiState>(() => (preparing
+    ? { ui: 'preparing', badge: 'Preparing code...', detail: 'The worker is preparing your WhatsApp code.' }
+    : deriveUiState(session)), [preparing, session]);
+  const hasLink = hasWorkerLink(session) || state.ui === 'offline' || state.ui === 'relink';
 
   const codeExpiresAt = session?.pairing_code_expires_at ? new Date(session.pairing_code_expires_at).getTime() : 0;
   const remaining = session?.pairing_code && codeExpiresAt ? Math.max(0, codeExpiresAt - now) : 0;
@@ -121,18 +148,48 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setError('');
-    setBusy(true);
+    const pairingStoreId = storeId;
+    setErrorState((current) => current?.storeId === pairingStoreId ? null : current);
+    setBusyStoreId(pairingStoreId);
+    setPreparingStoreId(pairingStoreId);
+    disconnectedStoreIdsRef.current.delete(pairingStoreId);
     try {
       await apiFetch('/api/media?action=whatsapp', {
         method: 'POST',
-        body: JSON.stringify({ op: 'pair', phoneNumber: phone }),
+        body: JSON.stringify({ op: 'pair', storeId: pairingStoreId, phoneNumber: phone }),
       });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start pairing.');
+      setPreparingStoreId((current) => current === pairingStoreId ? null : current);
+      setErrorState({
+        storeId: pairingStoreId,
+        message: err instanceof Error ? err.message : 'Could not start pairing.',
+      });
     } finally {
-      setBusy(false);
+      setBusyStoreId((current) => current === pairingStoreId ? null : current);
+    }
+  };
+
+  const disconnect = async () => {
+    const disconnectStoreId = storeId;
+    if (!window.confirm('Disconnect WhatsApp? Messages will stop arriving in the app until this shop connects again.')) return;
+    setErrorState((current) => current?.storeId === disconnectStoreId ? null : current);
+    setDisconnectingStoreId(disconnectStoreId);
+    try {
+      await apiFetch('/api/media?action=whatsapp', {
+        method: 'POST',
+        body: JSON.stringify({ op: 'unlink', storeId: disconnectStoreId }),
+      });
+      disconnectedStoreIdsRef.current.add(disconnectStoreId);
+      setPreparingStoreId((current) => current === disconnectStoreId ? null : current);
+      setSessionState({ storeId: disconnectStoreId, session: null });
+    } catch (err) {
+      setErrorState({
+        storeId: disconnectStoreId,
+        message: err instanceof Error ? err.message : 'Could not disconnect WhatsApp. Try again.',
+      });
+    } finally {
+      setDisconnectingStoreId((current) => current === disconnectStoreId ? null : current);
     }
   };
 
@@ -140,8 +197,9 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
     if (!session?.pairing_code) return;
     try {
       await navigator.clipboard.writeText(session.pairing_code);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      const copiedForStoreId = storeId;
+      setCopiedStoreId(copiedForStoreId);
+      window.setTimeout(() => setCopiedStoreId((current) => current === copiedForStoreId ? null : current), 1500);
     } catch {
       window.prompt('Copy this pairing code:', session.pairing_code);
     }
@@ -153,7 +211,7 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
         <Smartphone size={22} color="#25D366" />
         <div>
           <h2 id="wa-connect-title">WhatsApp</h2>
-          <small>Reply to customers from WhatsApp Business on this phone. Linked devices stay signed in even when you close this app.</small>
+          <small>Your shop's WhatsApp is linked. Customer chats will appear in the app's inbox once it is ready.</small>
         </div>
       </div>
 
@@ -163,14 +221,19 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
         <>
           <div className={`wa-status-badge wa-${state.ui}`}>
             {state.ui === 'connected' && <CheckCircle2 size={16} />}
-            {state.ui === 'waiting' && <Clock size={16} />}
+            {(state.ui === 'preparing' || state.ui === 'waiting') && <Clock size={16} />}
             {(state.ui === 'relink' || state.ui === 'error') && <XCircle size={16} />}
-            {(state.ui === 'offline') && <Loader2 size={16} className="spin" />}
+            {state.ui === 'offline' && <Loader2 size={16} className="spin" />}
             {state.ui === 'idle' && <LinkIcon size={16} />}
             <strong>{state.badge}</strong>
           </div>
           <p className="wa-detail">{state.detail}</p>
           {error && <div className="form-error">{error}</div>}
+          {hasLink && (
+            <button className="wa-disconnect-button" type="button" onClick={disconnect} disabled={disconnecting}>
+              {disconnecting ? <><Loader2 size={16} className="spin" /> Disconnecting...</> : 'Disconnect WhatsApp'}
+            </button>
+          )}
 
           {/* Pairing code panel */}
           {(state.ui === 'waiting') && session?.pairing_code && (
@@ -210,7 +273,7 @@ export default function WhatsAppConnect({ storeId, storeName }: Props) {
           )}
 
           {/* Start-pairing form */}
-          {(state.ui === 'idle' || state.ui === 'error' || state.ui === 'relink' || (state.ui === 'waiting' && !session?.pairing_code)) && (
+          {(state.ui === 'idle' || state.ui === 'error' || state.ui === 'relink') && (
             <form className="wa-pair-form" onSubmit={submit}>
               <label className="wa-phone">
                 <span>WhatsApp number on this shop's phone</span>
