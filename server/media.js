@@ -64,6 +64,32 @@ function resolveSocialStore(req, profile) {
   return Number(profile.store_id || 0);
 }
 
+// WhatsApp actions use stricter store resolution than the older social routes:
+// owners are always bound to profiles.store_id, while founders must explicitly
+// choose an existing store. There is no default-store fallback.
+async function resolveWhatsAppStore(req, profile) {
+  if (profile.role === 'founder') {
+    const requestedStoreId = Number(req.body?.storeId ?? req.query?.storeId);
+    if (!Number.isSafeInteger(requestedStoreId) || requestedStoreId < 1) {
+      return { status: 400, error: 'Founders must choose a store before connecting or disconnecting WhatsApp.' };
+    }
+    const { data: store, error } = await supabase.from('stores').select('id').eq('id', requestedStoreId).maybeSingle();
+    if (error) throw error;
+    if (!store) return { status: 404, error: 'The selected store does not exist. Choose an existing store.' };
+    return { storeId: requestedStoreId };
+  }
+
+  if (profile.role === 'owner') {
+    const storeId = Number(profile.store_id);
+    if (!Number.isSafeInteger(storeId) || storeId < 1) {
+      return { status: 400, error: 'This owner account has no store assigned in its profile. Contact support before managing WhatsApp.' };
+    }
+    return { storeId };
+  }
+
+  return { status: 403, error: 'Only store owners and founders can manage WhatsApp.' };
+}
+
 // =========================================================================
 //  WhatsApp (StoYangu worker) handlers — Item 1: pair / unlink
 //  Browser never calls the worker; server verifies auth + store ownership,
@@ -80,78 +106,52 @@ function normalizeKePhone(input) {
   return digits;
 }
 
-async function handleWhatsAppPair(req, res, profile, storeId) {
+async function handleWhatsAppPair(req, res, storeId) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
-  if (!storeId) return res.status(400).json({ error: 'Choose a store first.' });
   const phoneRaw = String(req.body?.phoneNumber || req.body?.phone || '').trim();
   const phoneNumber = normalizeKePhone(phoneRaw);
   if (!/^254\d{9}$/.test(phoneNumber)) {
     return res.status(400).json({ error: 'Enter a 10-digit Kenyan phone number starting with 0 (for example 0712 345 678). The +254 country code is added automatically.' });
   }
   if (!isWorkerConfigured()) {
-    return res.status(503).json({ error: 'WhatsApp is not configured yet. Add WHATSAPP_WORKER_URL and WHATSAPP_WORKER_ADMIN_TOKEN in Vercel.' });
+    return res.status(503).json({ error: 'WhatsApp is not available right now. Please try again later.' });
   }
   try {
     const { data } = await workerPair({ storeId, phoneNumber });
-    // Persist the requested phone + pending status so the browser's 3-second
-    // poll of wa_sessions sees a row immediately even before the worker picks
-    // it up (worker writes pairing_code within SESSION_POLL_MS=15s).
-    await supabase.from('wa_sessions').upsert({
-      store_id: storeId, phone_number: phoneNumber, enabled: true, status: 'pending',
-    }, { onConflict: 'store_id' });
-    return res.status(200).json({ ok: true, storeId, phoneNumber, ...(data || {}) });
+    // The worker is the only writer of WhatsApp state. The browser polls its
+    // row every three seconds and shows a preparing state until it appears.
+    return res.status(200).json({ ...(data || {}), ok: true, storeId, phoneNumber });
   } catch (err) {
     const status = err.status || 500;
-    const workerCode = String(err?.payload?.code || '');
-    // pairing_in_progress means a previous /pair is still being processed by
-    // the worker — the existing pairing code (if any) is already in wa_sessions
-    // and will be picked up by the 3-second poll. Treat as success so the UI
-    // just waits instead of showing an error.
+    const workerCode = String(err?.payload?.code || err?.payload?.error || err?.payload?.message || '').toLowerCase();
+    // Let the browser keep showing "Preparing code..." while it waits for the
+    // worker's own row to appear on the next poll.
     if (status === 409 && workerCode === 'pairing_in_progress') {
-      // A previous /pair is still being processed. If the worker already
-      // returned the existing code in the error payload, persist it so the
-      // UI's 3-second poll picks it up right away; otherwise just mark
-      // pending and let the worker write it on its next SESSION_POLL_MS.
-      const existingCode = String(
-        err?.payload?.pairingCode || err?.payload?.pairing_code || ''
-      ).replace(/\D/g, '').slice(0, 8) || null;
-      const existingExpiry = err?.payload?.expiresAt
-        || err?.payload?.pairing_code_expires_at || null;
-      const upsertRow = {
-        store_id: storeId,
-        enabled: true,
-        status: 'pending',
-        phone_number: phoneNumber,
-        ...(existingCode ? { pairing_code: existingCode } : {}),
-        ...(existingExpiry ? { pairing_code_expires_at: existingExpiry } : {}),
-      };
-      await supabase.from('wa_sessions').upsert(upsertRow, { onConflict: 'store_id' });
-      return res.status(200).json({ ok: true, storeId, phoneNumber, waiting: true });
+      return res.status(200).json({ ok: true, status: 'in_progress', storeId });
     }
-    let message = err.message || 'Could not start WhatsApp pairing.';
+    let message = 'Could not start WhatsApp pairing. Please try again.';
     if (status === 401) message = 'The worker rejected the pairing request. Wait a minute and try again.';
-    if (status === 400) message = message.includes('phone') ? message : 'Check the phone number and try again.';
+    if (status === 400) message = 'Check the phone number and try again.';
     if (status === 409) {
       if (workerCode === 'already_linked') {
         message = 'This shop is already connected. Disconnect first to link a different phone.';
       } else {
-        message = 'A pairing code was already issued for this shop. Wait for it to expire and try again.';
+        message = 'A linking request is already in progress. Wait a moment and try again.';
       }
     }
     return res.status(status).json({ error: message });
   }
 }
 
-async function handleWhatsAppUnlink(req, res, profile, storeId) {
+async function handleWhatsAppUnlink(req, res, storeId) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
-  if (!storeId) return res.status(400).json({ error: 'Choose a store first.' });
-  if (!isWorkerConfigured()) return res.status(503).json({ error: 'WhatsApp is not configured yet.' });
+  if (!isWorkerConfigured()) return res.status(503).json({ error: 'WhatsApp is not available right now. Please try again later.' });
   try {
     const { data } = await workerUnlink({ storeId });
-    return res.status(200).json({ ok: true, storeId, ...(data || {}) });
+    return res.status(200).json({ ...(data || {}), ok: true, storeId });
   } catch (err) {
     const status = err.status || 500;
-    let message = err.message || 'Could not disconnect WhatsApp.';
+    let message = 'Could not disconnect WhatsApp. Please try again.';
     if (status === 401) message = 'The worker rejected the disconnect request. Try again in a moment.';
     if (status === 404) message = 'No WhatsApp device is linked for this shop yet.';
     return res.status(status).json({ error: message });
@@ -816,14 +816,16 @@ async function handleSocial(req, res) {
 async function handleWhatsApp(req, res) {
   const { profile, error } = await getAuthedProfile(req);
   if (error) return res.status(401).json({ error });
-  const storeId = resolveSocialStore(req, profile);
-  if (!storeId) return res.status(400).json({ error: 'Store is required.' });
   const op = String(req.query?.op || req.body?.op || '').toLowerCase();
-  if (req.method === 'POST') {
-    if (op === 'pair') return await handleWhatsAppPair(req, res, profile, storeId);
-    if (op === 'unlink') return await handleWhatsAppUnlink(req, res, profile, storeId);
+  if (req.method !== 'POST' || !['pair', 'unlink'].includes(op)) {
+    return res.status(405).json({ error: 'Method not allowed. Use POST op=pair | op=unlink' });
   }
-  return res.status(405).json({ error: 'Method not allowed. Use POST op=pair | op=unlink' });
+
+  const resolved = await resolveWhatsAppStore(req, profile);
+  if (resolved.error) return res.status(resolved.status).json({ error: resolved.error });
+  const storeId = resolved.storeId;
+  if (op === 'pair') return await handleWhatsAppPair(req, res, storeId);
+  return await handleWhatsAppUnlink(req, res, storeId);
 }
 
 // Woyoyo-004: OAuth landing page. The platform sends the owner back here
